@@ -56,7 +56,7 @@ sources:
   - id: winfsp
     resource: https://github.com/winfsp/winfsp/blob/master/inc/winfsp/winfsp.h
     title: WinFsp volume parameters and volume info
-generated: { by: codex/okf, at: "2026-11-11T20:35:41+00:00" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Volume durability and usage facts
@@ -104,3 +104,9 @@ A writable network adapter must state how durable an acknowledged write is and h
 [^billy]: `SyncCapability` is excluded from `DefaultCapabilities`, so a filesystem unaware of the flag is assumed not to sync.
 
 [^winfsp]: `FSP_FSCTL_VOLUME_PARAMS` holds capabilities and limits with no space fields; `GetVolumeInfo` reports free space separately.
+
+[^capacity-issue]: Volume limits and live usage implementation issue.
+
+[^evidence]: Volume durability and identity behavior tests.
+
+[^implementation-issue]: Volume durability and identity implementation issue.

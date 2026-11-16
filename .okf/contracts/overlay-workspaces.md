@@ -9,7 +9,7 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Overlay construction, content promotion and capture
   - id: comparison
-    resource: ../../packages/core/src/internal/virtualFileSystem/overlayDiff.ts
+    resource: ../../packages/core/src/internal/overlayDiff.ts
     title: Identity-based final-state comparison
   - id: behavior
     resource: ../../packages/core/test/behaviour/overlay.test.ts
@@ -26,7 +26,7 @@ sources:
   - id: checkpoint
     resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Captured snapshot checkpoint compatibility
-generated: { by: codex/okf, at: "2026-10-17T08:20:42Z" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Overlay workspaces

@@ -12,6 +12,8 @@
 - [Snapshot search](snapshot-search.md) - Filename/content Streams, reports, byte ranges, immutable traversal and finite work limits.
 - [Snapshots and fixtures](snapshots-and-fixtures.md) - Construction, capture, encoding, decoding, and restoration.
 - [Portable snapshot deltas](snapshot-deltas.md) - Exact base-dependent reconstruction, deterministic inspection, Schema encoding, and work limits.
+- [Direct Node provider](node-provider.md) - Synchronous binding, handle ownership, and provider operations.
+- [Mounted Node filesystem](node-mounted.md) - Filesystem calls, streams, and loader behavior on the pinned runtime.
 - [Memory adapter compatibility](memory-adapter-compatibility.md) - Effect `FileSystem` behavior over core volumes.
 - [Filesystem faults and spies](filesystem-testing.md) - Delegating method handlers, build-local counters, and scoped interception boundaries.
 - [Tree transfer](tree-transfer.md) - Streamed directory trees between callers, snapshots, and new volumes.

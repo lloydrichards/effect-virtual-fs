@@ -2,15 +2,11 @@
 
 ## 2026-11-16
 
+- Align system and adapter profiles with the preview engine, Node bindings, and qualified NFS exports. Restore missing evidence references and add omitted contracts and decisions to their indexes.
+
 - Consolidate CI build order and runtime targets in the validation workflow. Link release readiness and the validation ledger to it.
 
-- Align README and OKF package overview shapes with the detailed map, using a pill for the Effect preview, rectangles for community packages, and hexagons for application consumers.
-
-- Distinguish Effect capabilities, community features, external consumers, and requirements with pill, rectangle, hexagon, and diamond nodes and stronger package borders.
-
-- Orient the detailed feature map vertically and distinguish Effect capabilities from community and external nodes by shape.
-
-- Add package overview and detailed feature maps with adapter requirements, and align the package dependency model with the preview engine and Node adapter.
+- Add the package overview to the README and the detailed feature map to the bundle. The vertical map distinguishes Effect capabilities, community packages, consumers, and adapter requirements. Update the dependency model for the preview engine and Node adapter.
 
 - Document how core, memory, Node and LiveVolume use the pinned Effect preview.
 

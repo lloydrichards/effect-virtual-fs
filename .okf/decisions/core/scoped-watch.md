@@ -15,7 +15,7 @@ sources:
     resource: ../../../packages/core/src/internal/virtualFileSystem.ts
     title: WatchEvent, scopeRoot, scopedSelection, and publication in install
   - id: hub
-    resource: ../../../packages/core/src/internal/watchHub.ts
+    resource: ../../../packages/core/src/internal/volumeWatch.ts
     title: Per-subscriber selection, rescan, and settle
   - id: adapter
     resource: ../../../packages/memory/src/internal/memoryFileSystem.ts
@@ -35,7 +35,7 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/206
     title: Path-scoped watch
-generated: { by: claude-code, at: 2026-10-05T00:00:00Z }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Scoped watch

@@ -35,7 +35,7 @@ sources:
   - id: tests
     resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: Internal WRITE and COMMIT wire tests
-generated: { by: codex/okf, at: "2026-10-02T10:00:00+00:00" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # NFS WRITE and COMMIT
@@ -83,3 +83,5 @@ An unknown commit outcome returns no success and leaves the core volume unavaila
 [^live]: `LiveImageStore` and `LiveVolume.open` in `LiveVolume.ts`.
 
 [^public]: `NfsServerOptions` and `make` in `NfsServer.ts`.
+
+[^tests]: Internal WRITE and COMMIT wire tests.

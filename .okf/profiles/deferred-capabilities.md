@@ -4,25 +4,25 @@ title: Deferred capabilities
 description: Lists capabilities intentionally outside the current filesystem contract so future exploration is not mistaken for implemented support.
 status: draft
 tags: [profile, roadmap, deferred]
-generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Deferred capabilities
 
 The current profile does not include:
 
-- FUSE or other host mounts, Vim integration, or access by arbitrary native tools other than the read-only NFS export;
+- FUSE mounts, Vim integration, and native-tool access beyond the documented NFS export profiles;
 - distributed or unattended writable NFS recovery, Kerberos-authenticated NFS (excluded by decision), and WebDAV or other network filesystem protocols;
 - general-purpose live backing volumes, snapshot-delta rebase onto a different base, text-level merge of file contents, block-level copying, or changed-data budgets;
 - host-directory synchronization beyond explicit [tree transfer](../contracts/tree-transfer.md "narrowed by") copies, such as mirroring, deletion propagation, or owner preservation;
 - FIFOs, device files, filesystem sockets, or other special files;
-- advisory locks or descriptor duplication;
+- advisory locks in the core caller API or descriptor duplication (the NFS server owns its protocol locks);
 - sparse allocation or copy-on-write storage optimization;
 - qualified local-device operating-system crash or power-loss durability for SQLite live writes, or host `fsync` semantics (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") publishes the durability vocabulary; the R2 profile relies on Cloudflare's remote durable-write contract, while SQLite still reports `memory-only`);
 - Node releases and loader configurations beyond the [pinned mounted qualification](../contracts/node-mounted.md "narrowed by"), plus arbitrary-byte Node routing;
 - complete Node package resolution, dependency installation, or HMR inside the virtual build integration.
 
-These are exclusions, not rejected designs. Active investigation may be represented separately as draft research, but it must not imply implementation or acceptance. Snapshot checkpoints provide explicit reconstruction, not live-write durability; dense zero-filled gaps provide filesystem behavior without sparse allocation.
+The profile ladder and individual decisions record which exclusions are deliberate and which remain under investigation. Active investigation may be represented separately as draft research, but it must not imply implementation or acceptance. Snapshot checkpoints provide explicit reconstruction, not live-write durability; dense zero-filled gaps provide filesystem behavior without sparse allocation.
 
 See [system boundaries](../architecture/system-boundaries.md "constrained by") and the [bounded POSIX profile](bounded-posix.md "contrasts with") for the current supported boundary. The [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "refined by") separates the read-only preview from the guarded experimental writable R2 profile and deferred stateful recovery.
 

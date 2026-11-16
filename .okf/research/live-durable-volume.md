@@ -12,13 +12,13 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Shared Volume and caller contracts
   - id: errors
-    resource: ../../packages/core/src/internal/virtualFileSystem/errors.ts
+    resource: ../../packages/core/src/VfsError.ts
     title: Current filesystem error codes
   - id: snapshot
     resource: ../../packages/core/src/Snapshot.ts
     title: Public snapshot exclusions
   - id: watch
-    resource: ../../packages/core/src/internal/watchHub.ts
+    resource: ../../packages/core/src/internal/volumeWatch.ts
     title: Bounded per-subscriber watch queues
   - id: checkpoint
     resource: ../../packages/persistence/src/CheckpointStore.ts
@@ -83,7 +83,7 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: "2026-09-26T10:40:00+02:00" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Live durable volume proposal
@@ -280,3 +280,13 @@ The open performance question is the maximum useful volume size with full-image 
 [^sqlite-wal]: SQLite WAL documentation, sections 2.1 and 6, describes checkpointing and WAL growth.
 
 [^rfc]: RFC 8881 sections 9.1 and 9.7 for lock boundaries; 18.3 for COMMIT; 18.32 for WRITE, stable storage, short counts, and verifiers; 18.16 for exclusive creation; 2.10.6 for replay-cache recovery.
+
+[^linux-fsync]: Linux fsync and directory-entry semantics.
+
+[^qemu-cache]: QEMU disk cache and flush options.
+
+[^sqlite-live-test]: SQLite startup directory-sync tests.
+
+[^sqlite-vm-crash]: Debian VM hard-stop crash gate.
+
+[^sqlite-vm-fault]: Debian ext4 VM fault and space gate.
