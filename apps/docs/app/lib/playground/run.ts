@@ -2,10 +2,10 @@ import { Effect, Schema } from "effect"
 import { PlaygroundError } from "./error"
 import runnerPage from "./runner.html?raw"
 
-const decodeReply = Schema.decodeUnknownEffect(Schema.Union([
-  Schema.Struct({ values: Schema.String }),
-  Schema.Struct({ error: Schema.String })
-]))
+const decodeReply = Schema.decodeUnknownEffect(Schema.Struct({
+  lines: Schema.Array(Schema.String),
+  error: Schema.optional(Schema.String)
+}))
 
 export const runBundle = Effect.fnUntraced(function*(code: string) {
   const frame = document.createElement("iframe")
@@ -31,9 +31,5 @@ export const runBundle = Effect.fnUntraced(function*(code: string) {
     }))
   )
 
-  const reply = yield* decodeReply(message).pipe(Effect.mapError(PlaygroundError.fromCause))
-
-  if ("error" in reply) return yield* new PlaygroundError({ message: reply.error })
-
-  return reply.values
+  return yield* decodeReply(message).pipe(Effect.mapError(PlaygroundError.fromCause))
 })

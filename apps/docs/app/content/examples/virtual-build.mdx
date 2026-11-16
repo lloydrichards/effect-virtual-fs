@@ -3,7 +3,7 @@ import { FilesystemPlayground } from "~/components/filesystem-playground"
 
 # Build and save a browser filesystem
 
-Select **Build and run** to see `reading = 20` under **Exported values**. All three callers can run the public sensor example. As **Editor**, change `20` to `21` in `src/value.js` and build again. The output changes to `reading = 21`.
+Select **Build and run** to see `Reading: 20` under **Console output**. All three callers can run the public sensor example. As **Editor**, change `20` to `21` in `src/value.js` and build again. The output changes to `Reading: 21`.
 
 <FilesystemPlayground />
 
@@ -11,10 +11,10 @@ Select a file or folder by name, then use the **Files** toolbar to rename or del
 
 ## Try the private calibration
 
-1. As **Editor**, open `main.js` and uncomment the export from `./secret.js`. Select **Build and run**. The bundler now needs the private calibration module, so the read fails with `AccessDenied`.
+1. As **Editor**, open `main.js` and uncomment the import from `./secret.js` and the `console.log` below it. Select **Build and run**. The bundler now needs the private calibration module, so the read fails with `AccessDenied`.
 2. Switch to **Reader** and build the same files. Reader can read the public sensor value but cannot read the calibration module either.
-3. Switch to **Admin** and build again. With the starter value of `20`, the output shows `reading = 20` and `calibrated = 42`. Open `secret.js` to see the calibration offset of `22`.
-4. Comment out the private export in `main.js` and switch back to **Reader**. The public build succeeds again.
+3. Switch to **Admin** and build again. With the starter value of `20`, the output shows `Reading: 20` and `Secret: 42`. Open `secret.js` to see the calibration offset of `22`.
+4. Comment out both calibration lines in `main.js` and switch back to **Reader**. The public build succeeds again.
 
 <CallerDiagram />
 
