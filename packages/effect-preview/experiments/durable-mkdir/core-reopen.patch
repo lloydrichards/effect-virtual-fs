@@ -43,7 +43,7 @@
      const work = runtime.gate.withPermit(Effect.gen(function*() {
 +      if (runtime.storageReady) yield* runtime.storageReady
 +      if (runtime.frozen) return yield* Errors.fsFailure("VolumeUnavailable", operation)
-+      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "write", "close", "unlink"].includes(operation)) {
++      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "write", "close", "unlink", "openDirectory", "rmdir"].includes(operation)) {
 +        return yield* blocked("mkdirTrialOnly")
 +      }
        const readers = runtime.captureReaders
@@ -61,6 +61,23 @@
          }))
        )
      )
+@@ -1050,6 +1064,8 @@
+       closed
+         ? Effect.fail(Errors.fsFailure("InvalidHandle", "close"))
+-        : handle.close().pipe(Effect.andThen(Effect.sync(() => {
++        : handle.close().pipe(Effect.andThen(Effect.suspend(() => {
+           closed = true
++          const error = runtime.storageReady && cleanupError(handle)
++          return error ? Effect.fail(failure(error, "close")) : Effect.void
+         })))
+     )
+@@ -1059,5 +1075,5 @@
+     ...directory,
+     stat: execute(runtime, "stat", undefined, Effect.andThen(checkGrant(runtime, grant), directory.stat)),
+-    close: execute(runtime, "close", undefined, directory.close)
++    close: Effect.suspend(() => closed ? Effect.fail(Errors.fsFailure("InvalidHandle", "close")) : execute(runtime, "close", undefined, directory.close))
+   }
+
 @@ -2928,16 +2942,19 @@
    | { readonly _tag: "Restored" | "Overlay"; readonly value: State.VolumeState }
    | {

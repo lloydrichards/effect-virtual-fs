@@ -23,6 +23,7 @@ export const attachStore = (
       const revision = committed.revision + 1n
       const links = new Map<bigint, Array<State.Link>>()
       const open = new Map<State.Ino, number>()
+      const detached: Array<State.Directory> = []
       const specs: Array<NodeSpec> = []
 
       for (const node of nodes.values()) {
@@ -54,6 +55,21 @@ export const attachStore = (
         }
 
         if (node.kind === "directory") {
+          if (node.nlink === 0n) {
+            // Keep the inode for its handle without adding its former name back to the tree.
+            const prior = State.getNode(committed, ino)
+
+            if (prior?.kind !== "directory") throw new Error("Missing prior directory")
+            detached.push({
+              ...prior,
+              revision: common.revision,
+              entries: new Map(),
+              metadata: { ...prior.metadata, ...common.metadata, nlink: 0 }
+            })
+            open.set(ino, 1)
+            continue
+          }
+
           specs.push({
             ...common,
             kind: "directory",
@@ -68,7 +84,11 @@ export const attachStore = (
         }
       }
 
-      const candidate = { ...assemble(specs), open, revision, nextInode: State.Ino(Number(next)) }
+      const tree = assemble(specs)
+      let inodes = tree.inodes
+
+      for (const directory of detached) inodes = State.setNode(inodes, directory)
+      const candidate = { ...tree, inodes, open, revision, nextInode: State.Ino(Number(next)) }
 
       const decision = yield* Effect.exit(
         Effect.suspend((): Effect.Effect<CommitOutcome, { readonly code: "StorageRejected" }> =>

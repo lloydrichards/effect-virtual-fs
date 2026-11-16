@@ -68,7 +68,7 @@ try {
   }
 
   run(vitest, "run", "core/test/LiveVolume.test.ts", "core/test/internal/virtualFileSystem.test.ts", "-t",
-    "retain open content until close|typed commit failure also contains|stop paths, observations|persist final unlinked-file cleanup|release handles and disable|include open unlinked files|retain inode identity and open unlinked content|stop the volume when final handle cleanup")
+    "detached directory|retain open content until close|typed commit failure also contains|stop paths, observations|persist final unlinked-file cleanup|release handles and disable|include open unlinked files|retain inode identity and open unlinked content|stop the volume when final handle cleanup")
 } finally {
   await rm(scratch, { recursive: true, force: true })
 }

@@ -3,7 +3,7 @@
 import assert from "node:assert/strict"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import * as BunFileSystem from "@effect/platform-bun/BunFileSystem"
-import { ByteSize, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Predicate, Scope } from "effect"
+import { ByteSize, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Scope } from "effect"
 import * as Live from "../../core/dist/LiveVolume.js"
 import { runtimeOf } from "../../core/dist/internal/runtime.js"
 
@@ -11,23 +11,24 @@ const bound = ByteSize.kilobytes(64)
 
 const fork = (effect) => Effect.forkChild(Effect.result(effect), { startImmediately: true })
 
-const retained = (bytes) => new TextDecoder().decode(bytes).trimEnd().split("\n").slice(1)
-  .map((line) => JSON.parse(line)).filter((node) => Predicate.isTagged(node, "file") && node.links.length === 0)
+const records = (bytes) => new TextDecoder().decode(bytes).trimEnd().split("\n").slice(1).map((line) => JSON.parse(line))
 
-for (const [decision, persisted] of [["committed", true], ["rejected", false], ["unknown", false], ["unknown", true]]) {
-  await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+const checkCleanup = (kind, decision, persisted) =>
+  Effect.runPromise(Effect.scoped(Effect.gen(function*() {
     const disk = yield* FileSystem.FileSystem
     const file = "cleanup-image"
     yield* disk.writeFile(file, yield* Live.prepareEmptyImage())
     const entered = yield* Deferred.make()
     const release = yield* Deferred.make()
+    let offeredImage
     let closing = false
     let offers = 0
 
     const commit = (bytes) => Effect.gen(function*() {
       if (closing) {
         offers++
-        assert.deepEqual(retained(bytes), [])
+        offeredImage = Uint8Array.from(bytes)
+        assert.deepEqual(records(bytes).map((node) => node.ino), [1])
         yield* Deferred.succeed(entered, undefined)
         yield* Deferred.await(release)
       }
@@ -43,16 +44,29 @@ for (const [decision, persisted] of [["committed", true], ["rejected", false], [
     const { volume, shutdown } = yield* Live.openImage(yield* disk.readFile(file), bound, commit)
     const fs = yield* volume.caller()
     const lastScope = yield* Scope.make()
-    const first = yield* fs.open("/held", { access: "readWrite", create: "exclusive" })
-    const last = yield* fs.open("/held", { access: "readWrite" }).pipe(Scope.provide(lastScope))
+
+    if (kind === "directory") yield* fs.mkdir("/held")
+    const first = yield* (kind === "directory" ? fs.openDirectory("/held") : fs.open("/held", { access: "readWrite", create: "exclusive" }))
+    const last = yield* (kind === "directory" ? fs.openDirectory("/held") : fs.open("/held", { access: "readWrite" })).pipe(Scope.provide(lastScope))
     const key = yield* volume.referenceKey(yield* fs.lookup("/held"))
-    yield* first.write(Uint8Array.of(9, 7))
-    yield* fs.unlink("/held")
+
+    if (kind === "directory") {
+      yield* fs.rmdir("/held")
+      assert.equal((yield* last.stat).nlink, 0)
+    } else {
+      yield* first.write(Uint8Array.of(9, 7))
+      yield* fs.unlink("/held")
+      assert.deepEqual((yield* last.pread(2, 0n)).bytes, Uint8Array.of(9, 7))
+    }
+
     assert.equal((yield* Effect.flip(fs.lookup("/held"))).code, "NotFound")
-    assert.deepEqual((yield* last.pread(2, 0n)).bytes, Uint8Array.of(9, 7))
     const held = yield* disk.readFile(file)
-    assert.deepEqual(retained(held).map((node) => node.ino), [Number(key.ino)])
-    assert.equal((yield* runtimeOf(volume).owner.usage).handles, 2)
+    const nodes = records(held)
+    assert.deepEqual(nodes.map((node) => node.ino), kind === "directory" ? [1] : [1, Number(key.ino)])
+
+    if (kind === "file") assert.deepEqual(nodes[1].links, [])
+    const pinned = yield* runtimeOf(volume).owner.usage
+    assert.deepEqual([pinned.handles, pinned.unreachableRetainedObjects], [2, 1])
     closing = true
     yield* first.close
     assert.equal(offers, 0)
@@ -87,7 +101,9 @@ for (const [decision, persisted] of [["committed", true], ["rejected", false], [
     assert.equal(offers, 1)
     const bytes = yield* disk.readFile(file)
 
-    if (persisted) assert.deepEqual(retained(bytes), [])
+    assert.notDeepEqual(offeredImage, Uint8Array.from(held))
+
+    if (persisted) assert.deepEqual(Uint8Array.from(bytes), offeredImage)
     else assert.deepEqual(bytes, held)
 
     closing = false
@@ -100,6 +116,11 @@ for (const [decision, persisted] of [["committed", true], ["rejected", false], [
     assert.equal((yield* fresh.stat("/next")).ino, key.ino + 1n)
     yield* reopened.shutdown
   })).pipe(Effect.provide(Layer.merge(BunCrypto.layer, BunFileSystem.layer))))
+
+for (const kind of ["file", "directory"]) {
+  for (const [decision, persisted] of [["committed", true], ["rejected", false], ["unknown", false], ["unknown", true]]) {
+    await checkCleanup(kind, decision, persisted)
+  }
 }
 
-process.stdout.write("Last-handle close passed two-handle, storage-decision and v1 reopen checks.\n")
+process.stdout.write("Final file and directory close passed two-handle, storage-decision and v1 reopen checks.\n")

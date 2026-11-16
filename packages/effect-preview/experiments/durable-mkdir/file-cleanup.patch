@@ -128,21 +128,40 @@
        )
 --- a/packages/effect/src/virtual-file-system/internal/handles.ts
 +++ b/packages/effect/src/virtual-file-system/internal/handles.ts
-@@ -28,4 +28,5 @@
+@@ -28,4 +28,6 @@
  const effects = new WeakMap<E.FileState, M.FileHandle>()
  const states = new WeakMap<object, E.FileState>()
-+export const cleanupError = (handle: M.FileHandle) => states.get(handle)?.resource.cleanupError
++export const cleanupError = (handle: M.FileHandle | M.DirectoryHandle) =>
++  (states.get(handle) ?? E.directoryHandleState(handle))?.resource.cleanupError
  const synchronous = new WeakMap<E.FileState, M.SyncFileHandle>()
 
-@@ -695,4 +696,8 @@
-     const engine = E.resolveEngine(caller)
-     yield* engine.retainObjectsResult(resource, [file.id])
+@@ -686,4 +688,12 @@
+   })
+
++const retainHandle = (engine: E.Engine, resource: R.Resource, id: bigint) =>
++  Result.map(engine.retainObjectsResult(resource, [id]), () => {
 +    if (engine.offer) resource.cleanupOffer = () => {
-+      if (engine.runtime.storageUnavailable?.() || engine.pins.get(file.id) !== 1 || engine.nodes.get(file.id)?.nlink !== zero) return undefined
-+      return engine.offerState(new Map(), [file.id], engine.nextObject, "close")
++      if (engine.runtime.storageUnavailable?.() || engine.pins.get(id) !== 1 || engine.nodes.get(id)?.nlink !== zero) return undefined
++      return engine.offerState(new Map(), [id], engine.nextObject, "close")
 +    }
++  })
++
+ const fileState = (
+   caller: E.Caller,
+@@ -694,5 +704,5 @@
+   Result.gen(function*() {
+     const engine = E.resolveEngine(caller)
+-    yield* engine.retainObjectsResult(resource, [file.id])
++    yield* retainHandle(engine, resource, file.id)
      return {
        caller: yield* E.createCallerResult(engine, caller.policy, resource),
+@@ -834,5 +844,5 @@
+     }
+     yield* tx.requireResult(found, E.EXECUTE_PERMISSION)
+-    yield* tx.engine.retainObjectsResult(resource, [found.id])
++    yield* retainHandle(tx.engine, resource, found.id)
+     return { caller: yield* E.createCallerResult(tx.engine, caller.policy, resource), resource, id: found.id }
+   })
 --- a/packages/effect/src/virtual-file-system/internal/model.ts
 +++ b/packages/effect/src/virtual-file-system/internal/model.ts
 @@ -546,4 +546,7 @@

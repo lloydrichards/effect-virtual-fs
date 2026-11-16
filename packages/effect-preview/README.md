@@ -42,7 +42,7 @@ Use this package's `BytePath`, `Schema`, and `DateTime` exports when using the p
 BytePath values are authenticated by one module-local registry. Convert community paths through bytes when crossing
 implementations. References, revisions, handles, and callers belong to their issuing filesystem and are not transferable.
 
-## Try durable mkdir and final file-handle cleanup
+## Try durable mkdir and final-handle cleanup
 
 From the repository root, run the storage-decision experiment with the workspace dependencies installed.
 
@@ -66,7 +66,12 @@ returning `unknown`. The initiating mkdir reports `OutcomeUnknown`. Queued work 
 For file cleanup, the trial persists unlinked bytes while a handle remains open. Closing the last handle offers
 one image without the file. Rejection or an unknown outcome releases the handle and freezes the session. Reopen drops
 unlinked files from either image and preserves the inode allocator. The runner exercises explicit close, scope cleanup
-and the existing core file-cleanup tests. Process death and detached-directory cleanup remain open. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
+and the existing core cleanup tests.
+
+After removing an open directory, the candidate retains its inode for the handle. The v1 image omits the detached
+directory because no path reaches it. The last close offers one cleanup commit and releases the inode on every
+storage decision. After a rejected or unknown close, reopening either image preserves the allocator and leaves the old
+directory key stale. Process-death recovery remains open. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
 
 ## Regenerate the pinned port offline
 
