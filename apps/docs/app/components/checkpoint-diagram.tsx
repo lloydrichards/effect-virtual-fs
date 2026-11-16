@@ -1,4 +1,7 @@
+import { useAtomValue } from "@effect/atom-react"
 import { ArrowRight, Database, FolderTree, HardDrive } from "lucide-react"
+
+import { playgroundAtom } from "~/lib/playground/atoms"
 
 export function CheckpointDiagram() {
   return (
@@ -35,16 +38,52 @@ export function CheckpointDiagram() {
   )
 }
 
+function accessLabel(mask: number) {
+  switch (mask & 6) {
+    case 6:
+      return "Read and write"
+    case 4:
+      return "Read only"
+    case 2:
+      return "Write only"
+    default:
+      return "No access"
+  }
+}
+
 export function FilePermissions() {
+  const { entries, volume } = useAtomValue(playgroundAtom)
+  const groups = new Map<string, { paths: Array<string>; owner: string; mode: string; reader: string; editor: string }>()
+
+  for (const path of ["/main.js", "/src/value.js", "/secret.js"]) {
+    const policy = entries.find((entry) => entry.path === path)?.policy
+
+    if (!policy) continue
+    const { uid, mode } = policy.metadata
+    const key = [uid, mode, policy.reader, policy.editor].join("/")
+    const group = groups.get(key)
+
+    if (group) group.paths.push(path)
+    else {
+      groups.set(key, {
+        paths: [path],
+        owner: uid === 0 ? "Admin" : uid === 1000 ? "Editor" : uid === 2000 ? "Reader" : String(uid),
+        mode: mode.toString(8).padStart(4, "0"),
+        reader: accessLabel(policy.reader),
+        editor: accessLabel(policy.editor)
+      })
+    }
+  }
+
   return (
     <figure className="my-5 rounded-xl border bg-card p-4">
       <figcaption className="mb-4 text-sm font-semibold">File permissions for the starter workspace</figcaption>
       <div className="grid gap-5 sm:grid-cols-2">
-        {[
-          { paths: ["/main.js", "/src/value.js"], owner: "Editor", mode: "0644", reader: "Read only", editor: "Read and write" },
-          { paths: ["/secret.js"], owner: "Admin", mode: "0600", reader: "No access", editor: "No access" }
-        ].map(({ paths, owner, mode, reader, editor }) => (
-          <div key={mode} className="border-s-2 ps-3 last:border-primary">
+        {groups.size === 0 && (
+          <span className="text-sm text-muted-foreground">{volume ? "No starter files remain." : "Loading permissions…"}</span>
+        )}
+        {Array.from(groups.values()).map(({ paths, owner, mode, reader, editor }) => (
+          <div key={paths[0]} className="border-s-2 ps-3 last:border-primary">
             <div className="font-mono text-sm font-semibold sm:min-h-10">
               {paths.map((path) => <div key={path}>{path}</div>)}
             </div>

@@ -1,4 +1,4 @@
-import { CheckpointDiagram, FilePermissions } from "~/components/checkpoint-diagram"
+import { CheckpointDiagram } from "~/components/checkpoint-diagram"
 import { FilesystemPlayground } from "~/components/filesystem-playground"
 
 # Build and save a browser filesystem
@@ -7,8 +7,6 @@ Select **Build and run** to see `Reading: 20` under **Console output**. All thre
 
 <FilesystemPlayground />
 
-<FilePermissions />
-
 Select a file or folder by name, then use the **Files** toolbar to rename or delete it. Renaming a folder moves its contents. Deleting a folder removes every file and subfolder inside it. Enter paths from the volume root, such as `src/lib`. If you rename an imported module, update its import before building. Tree changes stay in memory until you save a checkpoint.
 
 ## Try the private calibration
@@ -16,7 +14,9 @@ Select a file or folder by name, then use the **Files** toolbar to rename or del
 1. As **Editor**, open `main.js` and uncomment `import "./secret.js"`. Select **Build and run**. The bundler now needs the private calibration module, so the read fails with `AccessDenied`.
 2. Switch to **Reader** and build the same files. Reader can read the public sensor value but cannot read the calibration module either.
 3. Switch to **Admin** and build again. The import runs `secret.js`, which adds its private offset to the sensor reading and logs the result. With the starter reading, you see `Secret: 42 (20 + 22)` followed by `Reading: 20`. Change the reading to `21` and run again to see `Secret: 43 (21 + 22)`.
-4. Comment out the private import in `main.js` and switch back to **Reader**. The public build succeeds again.
+4. As **Admin**, open `secret.js` and set **File access** to **Everyone can read**. Keep the import enabled. The diagram now shows mode `0644` and read-only access for Editor and Reader.
+5. Switch to **Reader**. The lock disappears from `secret.js`. Open the file and select **Build and run**. Reader can inspect the calibration and run it, but only Admin can edit it.
+6. To restrict the file again, switch to **Admin** and set **File access** to **Private**. The mode returns to `0600`. **Save checkpoint** keeps the current permissions with the files.
 
 ## Follow the bytes
 

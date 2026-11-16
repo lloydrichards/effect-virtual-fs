@@ -26,6 +26,7 @@ import {
   type Operation,
   playgroundAtom
 } from "~/lib/playground/atoms"
+import { FilePermissions } from "./checkpoint-diagram"
 import { PlaygroundBundle } from "./playground-bundle"
 import { PlaygroundEditor } from "./playground-editor"
 import { Button } from "./ui/button"
@@ -95,6 +96,7 @@ export function FilesystemPlayground() {
   return (
     <RegistryProvider>
       <WorkspacePanel />
+      <FilePermissions />
     </RegistryProvider>
   )
 }
@@ -109,6 +111,7 @@ function WorkspacePanel() {
   const checkpoint = useAtomValue(checkpointAtom)
   const refresh = useAtomRefresh(checkpointAtom)
   const hasCheckpoint = AsyncResult.isSuccess(checkpoint) && checkpoint.value
+  const secret = entries.find((entry) => entry.path === "/secret.js")?.policy
   const selected = folder || path
   const renameAction = folder ? "Rename folder" : "Rename file"
   const [operation, setOperation] = useState<Operation | null>(null)
@@ -250,6 +253,18 @@ function WorkspacePanel() {
           <div className="flex flex-wrap items-center gap-2 border-b bg-card px-3 py-2 font-mono text-xs">
             <Braces className="size-3.5 text-primary" />
             <span className="break-all">{path || "No file open"}{dirty && <span aria-label="Modified">*</span>}</span>
+            {role === "admin" && selected === "/secret.js" && secret?.metadata.uid === 0 && (
+              <label className="flex items-center gap-2 font-sans">
+                File access
+                <NativeSelect
+                  value={secret.metadata.mode === 0o644 ? "public" : "private"}
+                  onChange={(event) => void run({ secretMode: event.target.value === "public" ? 0o644 : 0o600 })}
+                >
+                  <option value="private">Private</option>
+                  <option value="public">Everyone can read</option>
+                </NativeSelect>
+              </label>
+            )}
             <span className="ms-auto text-muted-foreground">{path && (writable ? "Read / write" : "Read only")}</span>
           </div>
           <div className="h-[clamp(18rem,48vh,32rem)]">
