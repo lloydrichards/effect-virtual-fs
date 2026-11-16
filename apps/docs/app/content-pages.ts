@@ -77,6 +77,20 @@ export const contentPages = [
     contentPath: "content/guides/local-nfs.mdx"
   },
   {
+    section: "Examples",
+    label: "Compile TypeScript on a Node VFS mount",
+    href: "/examples/node-workbench",
+    routePath: "examples/node-workbench",
+    contentPath: "content/examples/node-workbench.mdx"
+  },
+  {
+    section: "Examples",
+    label: "Bundle virtual modules with Vite",
+    href: "/examples/virtual-build",
+    routePath: "examples/virtual-build",
+    contentPath: "content/examples/virtual-build.mdx"
+  },
+  {
     section: "Reference",
     label: "Compatibility and Limits",
     href: "/reference/compatibility-and-limits",

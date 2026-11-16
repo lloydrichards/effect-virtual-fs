@@ -1,0 +1,33 @@
+# Bundle virtual modules with Vite
+
+Watch a bundle change from `42` to `43` after a single write to an in-memory file. Vite runs on the host. A plugin reads the project’s modules through an Effect VFS caller, and Vite returns the bundled JavaScript in memory.
+
+## Run locally
+
+From the repository root, run the following commands with Bun installed. If you already installed dependencies and built the workspace for the [Node workbench](/examples/node-workbench), start with the last command. No API key is required.
+
+```sh
+bun install
+bun run build
+bun run --cwd apps/virtual-build demo
+```
+
+## Read the three bundles
+
+The command prints the generated code for each build and a list of the virtual paths the plugin read.
+
+| Output | What to look for |
+| --- | --- |
+| `firstBundle` | `main.js` imports `20` from `./value.js` and adds `22`. The bundled module exports `42`. |
+| `rebuiltBundle` | The demo writes `21` to the same virtual dependency and builds again. The new bundle exports `43`. |
+| `packageBundle` | An entry imports `only-in-vfs`. The plugin reads its virtual `package.json`, follows `exports` to `index.js`, and bundles the string `"virtual-package"`. |
+
+The plugin’s `resolveId` hook resolves imports against the caller’s volume. Its `load` hook reads the bytes with `caller.readFile`. Vite’s `write: false` setting keeps the output chunk in memory. Remove a virtual dependency and the build fails at its virtual path.
+
+To evaluate the bundles and exercise the missing-file case, run the demo’s tests:
+
+```sh
+bun run --cwd apps/virtual-build test
+```
+
+See the [fixture and Vite plugin](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/virtual-build/src/VirtualBuild.ts) for the supported import forms and the [demo entry point](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/virtual-build/src/demo.ts) for the write between builds.
