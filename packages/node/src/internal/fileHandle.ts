@@ -205,7 +205,7 @@ export class NodeFileHandle {
       () => this.handle.write(buffer.subarray(offset, offset + size), at, this.access.append)
     )
 
-    if (selected === null || selected === -1) {
+    if (count > 0 && (selected === null || selected === -1)) {
       this.#position = this.access.append
         ? Number(invoke("fstat", this.path, () => this.handle.stat()).size)
         : Number(at) + count
