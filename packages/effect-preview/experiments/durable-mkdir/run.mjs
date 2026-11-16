@@ -26,7 +26,7 @@ try {
   const seriesPath = join(scratch, "patches/series.json")
   const series = JSON.parse(await readFile(seriesPath, "utf8"))
 
-  for (const file of ["publication.patch", "file-cleanup.patch"]) {
+  for (const file of ["publication.patch", "file-cleanup.patch", "file-acquisition.patch"]) {
     const patch = await readFile(join(experiment, file))
     series.push({ file, sha256: createHash("sha256").update(patch).digest("hex") })
     await writeFile(join(scratch, "patches", file), patch)
@@ -63,7 +63,7 @@ try {
   const vitest = join(dependencies, "vitest/vitest.mjs")
   run(vitest, "run", "test", "--maxWorkers", "2")
 
-  for (const path of ["test/VfsError.test.ts", "test/LiveVolumeRegistry.test.ts", "test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/internal/liveImage.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
+  for (const path of ["test/FileHandle.test.ts", "test/VfsError.test.ts", "test/LiveVolumeRegistry.test.ts", "test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/internal/liveImage.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
     await cp(resolve(preview, "../core", path), join(core, path))
   }
 
@@ -76,6 +76,9 @@ try {
   run(vitest, "run", "core/test/LiveVolumeRegistry.test.ts", "core/test/LiveVolume.test.ts",
     "core/test/internal/virtualFileSystem.test.ts", "-t",
     "should finish the active commit before releasing the provider|should preserve hard-link inode identity with a new incarnation|shares one acquisition while concurrent borrowers wait|shuts down the volume before storage")
+
+  run(vitest, "run", "core/test/FileHandle.test.ts", "-t",
+    "should interrupt (open|openReference|openChildReference) and release resources when its scope closes during a pending commit|should release resources when (open|openReference|openChildReference) scope and fiber close during its pending commit")
 
   const persistence = join(scratch, "persistence")
 

@@ -1,0 +1,67 @@
+--- a/packages/effect/src/virtual-file-system/internal/engine.ts
++++ b/packages/effect/src/virtual-file-system/internal/engine.ts
+@@ -359,5 +359,5 @@
+   offer?: (nodes: ReadonlyMap<bigint, Node>, changed: ReadonlySet<bigint>, nextObject: bigint, operation: string) => R.StorageOffer
+
+-  offerState(changes: ReadonlyMap<bigint, Node>, removed: ReadonlyArray<bigint>, nextObject: bigint, operation: string) {
++  offerState(changes: ReadonlyMap<bigint, Node>, removed: ReadonlyArray<bigint>, nextObject: bigint, operation: string, acquiringFile = false) {
+     if (!this.offer) return undefined
+     const changed = new Set<bigint>()
+@@ -367,5 +367,5 @@
+       if (!prior || prior.revision !== node.revision || prior.atime !== node.atime) changed.add(id)
+     }
+-    if (changed.size === 0 && removed.length === 0 && nextObject === this.nextObject) return undefined
++    if (!acquiringFile && changed.size === 0 && removed.length === 0 && nextObject === this.nextObject) return undefined
+     const nodes = new Map(this.nodes)
+     for (const [id, node] of changes) nodes.set(id, node)
+@@ -1525,5 +1525,5 @@
+   // ---------------------------------------------------------------------------
+
+-  transitionResult<A>(value: A) {
++  transitionResult<A>(value: A, acquiringFile = false) {
+     return Result.gen(this, function*() {
+       const engine = this.engine
+@@ -1635,6 +1635,6 @@
+         value,
+         readAtimeChanged,
+-        offer: engine.offer && this.changes.size > 0
+-          ? () => engine.offerState(this.changes, [...removed ?? [], ...released ?? []], this.nextObject, this.operation)
++        offer: engine.offer && (acquiringFile || this.changes.size > 0)
++          ? () => engine.offerState(this.changes, [...removed ?? [], ...released ?? []], this.nextObject, this.operation, acquiringFile)
+           : undefined,
+         publish: () =>
+--- a/packages/effect/src/virtual-file-system/internal/handles.ts
++++ b/packages/effect/src/virtual-file-system/internal/handles.ts
+@@ -737,6 +737,15 @@
+               const selected = yield* E.snapshotTargetResult(target)
+               const acquired = yield* work.acquireResourceResult("handle")
++              // Work owns rollback until the storage decision completes. A closing scope
++              // must not wait on the storage turn held by its own pending open.
++              const durable = E.resolveEngine(caller).offer !== undefined
++              let deciding = false
++              let abandoned = false
+               return {
+-                enroll: acquired.enroll(scope, "open"),
++                enroll: durable ? Scope.addFinalizer(scope, Effect.suspend(() => {
++                  if (!deciding) return acquired.close
++                  abandoned = true
++                  return Effect.void
++                })) : acquired.enroll(scope, "open"),
+                 execute: () =>
+                   Result.gen(function*() {
+@@ -745,5 +754,14 @@
+                     const file = yield* openNode(tx, selected, fixed)
+                     const state = yield* fileState(caller, acquired, file, fixed)
+-                    return yield* tx.transitionResult(effectFileHandle(state))
++                    const transition = yield* tx.transitionResult(effectFileHandle(state), durable)
++                    if (!durable) return transition
++                    deciding = true
++                    return {
++                      ...transition,
++                      publish: () => Result.flatMap(transition.publish(), () => {
++                        deciding = false
++                        return abandoned ? Result.fail(R.closed("open")) : Result.succeed(undefined)
++                      })
++                    }
+                   })
+               }
