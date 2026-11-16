@@ -180,6 +180,7 @@ export interface Runtime {
   frozen?: boolean
   storageReady?: Effect.Effect<void>
   readonly owner: P.Owner
+  readonly directoryPath: ReturnType<typeof VolumeWatch.make>["directoryPath"]
   readonly subscribeCaller: ReturnType<typeof VolumeWatch.make>["subscribeCaller"]
   readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
   readonly clock: Clock.Clock
@@ -1927,7 +1928,7 @@ const wrapCaller = (
       )
     }),
     realPath: Effect.fnUntraced(function*(value) {
-      yield* stat(runtime, caller, value)
+      const object = yield* stat(runtime, caller, value)
       const selected = Target.of(value)
 
       if (Predicate.isTagged(selected, "Path")) {
@@ -1951,6 +1952,13 @@ const wrapCaller = (
 
           return yield* oldPath(yield* mapped(base.realPath(name)))
         }))
+      }
+
+      if (Predicate.isTagged(selected, "Handle") && object.kind === "directory") {
+        // Naming an authorized handle does not require search permission on the directory itself.
+        const name = runtime.directoryPath(object.metadata.objectNumber, rootIno)
+
+        return name ?? (yield* Errors.fsFailure("NotFound", "realPath"))
       }
 
       const observed = yield* stat(runtime, caller, value).pipe(
@@ -3071,6 +3079,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const runtime: Runtime = {
       owner,
+      directoryPath: watches.directoryPath,
       subscribeCaller: watches.subscribeCaller,
       walkEntrySize: (ref) => mapped(ownerCaller.stat(ref)).pipe(Effect.map((entry) => entry.metadata.size)),
       clock: yield* Clock.Clock,

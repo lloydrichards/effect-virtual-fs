@@ -67,11 +67,11 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
     if (links.length === 0) names.delete(object)
   }
 
-  const path = (link: Link) => {
+  const path = (link: Link, relativeRoot = root) => {
     const components = [link.name]
     let parent = link.parent
 
-    while (parent !== root) {
+    while (parent !== relativeRoot) {
       const ancestor = names.get(parent)?.[0]
 
       if (ancestor === undefined) return undefined
@@ -93,6 +93,14 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
   }
 
   const rootPath = Paths.ownedPath(Paths.ROOT_PATH)
+
+  const directoryPath = (id: bigint, relativeRoot: bigint) => {
+    if (id === relativeRoot) return rootPath
+    const link = names.get(id)?.[0]
+    const bytes = link === undefined ? undefined : path(link, relativeRoot)
+
+    return bytes === undefined ? undefined : Paths.ownedPath(bytes)
+  }
 
   const aliases = (id: bigint) =>
     id === root ? [Paths.ROOT_PATH] : (names.get(id) ?? []).flatMap((link) => {
@@ -333,5 +341,5 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
     }))
   })
 
-  return { publish, subscribe, subscribeCaller }
+  return { publish, subscribe, subscribeCaller, directoryPath }
 }
