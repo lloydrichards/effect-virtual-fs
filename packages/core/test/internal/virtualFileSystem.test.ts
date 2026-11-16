@@ -92,6 +92,44 @@ describe("staged volume state", () => {
         assert.strictEqual(commits - before, 1)
       }))
 
+    for (const decision of ["committed", "rejected"] as const) {
+      it.effect(`reclaims a detached cwd when the caller closes and storage answers ${decision}`, () =>
+        Effect.gen(function*() {
+          let closing = false
+          const cleanups: Array<VolumeState> = []
+
+          const { volume } = yield* makeVolume(VolumeSource.Empty(), {
+            mode: "durable",
+            shutdown: Effect.void,
+            commit: (candidate) =>
+              Effect.sync(() => {
+                if (!closing) return "committed" as const
+                cleanups.push(candidate)
+
+                return decision
+              })
+          })
+
+          const admin = yield* volume.caller()
+          yield* admin.mkdir("/cwd")
+          const inode = Ino(Number((yield* admin.stat("/cwd")).ino))
+          const scope = yield* Scope.make()
+          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+          yield* admin.withDirectory("/cwd").pipe(Scope.provide(scope))
+          yield* admin.rmdir("/cwd")
+          closing = true
+          yield* Scope.close(scope, Exit.void)
+          assert.strictEqual(cleanups.length, 1)
+          assert.isUndefined(getNode(cleanups[0]!, inode))
+
+          if (decision === "rejected") {
+            assert.strictEqual((yield* Effect.flip(admin.stat("/"))).code, "VolumeUnavailable")
+          } else {
+            assert.strictEqual((yield* admin.stat("/")).kind, "directory")
+          }
+        }))
+    }
+
     const preparationError = makeError({ code: "StorageRejected", operation: "commit" })
 
     const mixedFailures = [
