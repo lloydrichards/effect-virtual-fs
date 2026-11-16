@@ -145,11 +145,15 @@ import * as SchemaTransformation from "effect/SchemaTransformation"
 import { declare, link, Uint8Array, decodeTo, BigInt, brand, Struct, Literals, TaggedStruct, instanceOf } from "effect/Schema"
 `
 
+// Generated consumers bind Schema to stock Effect and can define their own type and value named BytePath.
+const portBytePathCode = (source) => source
+  .replace('`Schema.BytePath', '`bytePathSchema')
+  .replace(/(["`])BytePath\.BytePath\1/g, "$1import('@effect-vfs/effect-preview/BytePath').BytePath$1")
+  .replace('import * as BytePath from "effect/BytePath"', 'import { BytePath as bytePathSchema } from "@effect-vfs/effect-preview/Schema"')
+
 put(
   "src/compat/Schema.ts",
-  schemaImports + additions("src/Schema.ts")
-    .replace("import * as BytePath_ from \"./BytePath.ts\"\n", "")
-    .replace('from "effect/BytePath"', 'from "@effect-vfs/effect-preview/BytePath"')
+  schemaImports + portBytePathCode(additions("src/Schema.ts").replace("import * as BytePath_ from \"./BytePath.ts\"\n", ""))
 )
 
 // Bytes predates the PR. Its added cases use the existing fixture helper and describe block.
@@ -195,7 +199,7 @@ function assertSchema(input: { readonly schema: Schema.Constraint }, expected: E
 }
 `
 
-put(representationPath, representationHelpers + additions(representationPath).replace('from "effect/BytePath"', 'from "@effect-vfs/effect-preview/BytePath"'))
+put(representationPath, representationHelpers + portBytePathCode(additions(representationPath)))
 
 // The upstream identity probes spawn another runtime and copy source. Use the built port so both
 // Bun and Node can load its .js imports, preserving the duplicate-copy/reload assertions.

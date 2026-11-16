@@ -34,12 +34,12 @@ function assertSchema(input: { readonly schema: Schema.Constraint }, expected: E
           references: {
             nonRecursives: [{
               $ref: identifier,
-              code: makeCode(`Schema.BytePath.annotate({ "identifier": "${identifier}" })`, "BytePath.BytePath")
+              code: makeCode(`bytePathSchema.annotate({ "identifier": "${identifier}" })`, "import('@effect-vfs/effect-preview/BytePath').BytePath")
             }]
           },
           artifacts: [{
             _tag: "Import",
-            importDeclaration: `import * as BytePath from "@effect-vfs/effect-preview/BytePath"`
+            importDeclaration: `import { BytePath as bytePathSchema } from "@effect-vfs/effect-preview/Schema"`
           }]
         })
       }

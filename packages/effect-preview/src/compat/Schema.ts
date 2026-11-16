@@ -47,9 +47,9 @@ export const BytePath: BytePath = declare(BytePath_.isBytePath, {
     payload: null
   },
   toCode: () => ({
-    runtime: `Schema.BytePath`,
-    Type: `BytePath.BytePath`,
-    importDeclarations: [`import * as BytePath from "@effect-vfs/effect-preview/BytePath"`]
+    runtime: `bytePathSchema`,
+    Type: `import('@effect-vfs/effect-preview/BytePath').BytePath`,
+    importDeclarations: [`import { BytePath as bytePathSchema } from "@effect-vfs/effect-preview/Schema"`]
   }),
   toCodecJson: () => link<BytePath_.BytePath>()(Uint8Array, bytePathFromBytes),
   toEquivalence: () => Equal.equals
