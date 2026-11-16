@@ -15,9 +15,24 @@
   background: var(--code-block);
   border-color: var(--code-block-border);
 }
+.playground-editor {
+  position: relative;
+  isolation: isolate;
+  color-scheme: light;
+}
 .playground-editor .cm-editor.cm-focused {
-  outline: 1px solid var(--ring);
-  outline-offset: -1px;
+  outline: none;
+}
+.playground-editor:focus-within::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  border: 2px solid var(--ring);
+}
+@media (forced-colors: active) {
+  .playground-editor:focus-within::after { border-color: Highlight; }
 }
 .playground-bundle .cm-editor {
   height: auto;
@@ -29,5 +44,4 @@
 .playground-editor .tok-number, .playground-editor .tok-bool { color: light-dark(#935218, #ffc080); }
 .playground-editor .tok-definition, .playground-editor .tok-propertyName { color: light-dark(#234fac, #92baff); }
 .playground-editor .tok-comment { color: var(--muted-foreground); font-style: italic; }
-.playground-editor { color-scheme: light; }
 .dark .playground-editor { color-scheme: dark; }
