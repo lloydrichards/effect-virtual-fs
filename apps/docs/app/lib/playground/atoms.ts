@@ -120,7 +120,7 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
         catch: PlaygroundError.fromCause
       })
 
-      const result = yield* Effect.tryPromise({ try: () => buildWorkspace(caller), catch: PlaygroundError.fromCause })
+      const result = yield* buildWorkspace(caller)
 
       return { dirty: false, output: result.code, status: "Built from " + result.reads.join(", ") }
     }
