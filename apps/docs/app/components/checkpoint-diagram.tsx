@@ -34,3 +34,29 @@ export function CheckpointDiagram() {
     </figure>
   )
 }
+
+export function FilePermissions() {
+  return (
+    <figure className="my-5 rounded-xl border bg-card p-4">
+      <figcaption className="mb-4 text-sm font-semibold">File permissions for the starter workspace</figcaption>
+      <div className="grid gap-5 sm:grid-cols-2">
+        {[
+          { paths: ["/main.js", "/src/value.js"], owner: "Editor", mode: "0644", reader: "Read only", editor: "Read and write" },
+          { paths: ["/secret.js"], owner: "Admin", mode: "0600", reader: "No access", editor: "No access" }
+        ].map(({ paths, owner, mode, reader, editor }) => (
+          <div key={mode} className="border-s-2 ps-3 last:border-primary">
+            <div className="font-mono text-sm font-semibold sm:min-h-10">
+              {paths.map((path) => <div key={path}>{path}</div>)}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">{mode} · owned by {owner}</div>
+            <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+              <dt>Reader</dt><dd>{reader}</dd>
+              <dt>Editor</dt><dd>{editor}</dd>
+              <dt>Admin</dt><dd>Read and write</dd>
+            </dl>
+          </div>
+        ))}
+      </div>
+    </figure>
+  )
+}

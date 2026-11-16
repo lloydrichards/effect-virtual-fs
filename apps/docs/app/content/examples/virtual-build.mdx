@@ -1,4 +1,4 @@
-import { CheckpointDiagram } from "~/components/checkpoint-diagram"
+import { CheckpointDiagram, FilePermissions } from "~/components/checkpoint-diagram"
 import { FilesystemPlayground } from "~/components/filesystem-playground"
 
 # Build and save a browser filesystem
@@ -6,6 +6,8 @@ import { FilesystemPlayground } from "~/components/filesystem-playground"
 Select **Build and run** to see `Reading: 20` under **Console output**. All three callers can run the public sensor example. As **Editor**, change `20` to `21` in `src/value.js` and build again. The output changes to `Reading: 21`.
 
 <FilesystemPlayground />
+
+<FilePermissions />
 
 Select a file or folder by name, then use the **Files** toolbar to rename or delete it. Renaming a folder moves its contents. Deleting a folder removes every file and subfolder inside it. Enter paths from the volume root, such as `src/lib`. If you rename an imported module, update its import before building. Tree changes stay in memory until you save a checkpoint.
 
