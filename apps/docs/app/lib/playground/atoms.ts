@@ -20,6 +20,7 @@ type Command =
   | "deleteCheckpoint"
   | "build"
   | "deleteEntry"
+  | { secretMode: 0o600 | 0o644 }
   | { role: Role }
   | { select: Entry }
   | { operation: Operation; name: string }
@@ -161,6 +162,23 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
   }
 
   yield* flush
+
+  if ("secretMode" in command) {
+    const secret = state.entries.find((entry) => entry.path === "/secret.js")
+
+    if (role !== "admin" || secret?.policy?.metadata.uid !== 0) {
+      return yield* new PlaygroundError({ message: "Only Admin can change access to the Admin-owned /secret.js." })
+    }
+
+    yield* caller.setSecretMode(command.secretMode)
+
+    return {
+      entries: yield* caller.files(),
+      dirty: false,
+      output: null,
+      status: command.secretMode === 0o644 ? "Everyone can read /secret.js." : "/secret.js is private."
+    }
+  }
 
   if ("role" in command) {
     const nextCaller = volume[command.role]
