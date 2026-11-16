@@ -1,0 +1,34 @@
+name: Core and memory runtimes
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  runtime:
+    name: Core and memory, ${{ matrix.label }} / Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - runtime: node
+            label: Node 24.21.0
+          - runtime: bun
+            label: Bun 1.4.4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      - run: bun install --frozen-lockfile
+      - run: bun run build --filter=@effect-vfs/memory
+      - name: Exercise built core and memory with platform crypto and WebCrypto
+        run: ${{ matrix.runtime }} packages/memory/compatibility/runtime/check.ts
+      - name: Check seek, sparse writes and truncate against memory and host files
+        if: matrix.runtime == 'bun'
+        run: >-
+          bun --bun run vitest run --config vitest.host.config.ts
+          -t 'should advance and seek the write cursor|should zero-fill gaps when sparse writes|should preserve or clamp the cursor'

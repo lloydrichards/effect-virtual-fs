@@ -66,6 +66,7 @@
     "effect": "~4.1.4"
   },
   "devDependencies": {
+    "@effect/platform-bun": "4.1.4",
     "@effect/platform-node-shared": "4.1.4",
     "@effect/vitest": "4.1.4",
     "@repo/config-typescript": "workspace:*",

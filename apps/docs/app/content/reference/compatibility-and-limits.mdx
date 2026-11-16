@@ -20,9 +20,8 @@ Use an ES module build. Each published package declares its exact supported Effe
 `peerDependencies.effect`. Read it with `npm view @effect-vfs/core peerDependencies.effect` and install matching
 versions of any `@effect/*` packages that your application uses.
 
-The published manifests do not declare a consumer Node.js version. The repository uses Node.js 24 or later and Bun
-1.2.21 for development and validation. That contributor-toolchain requirement is not evidence that every earlier Node.js
-release works. Bun is required by the documented SQLite provider and its runtime tests, not by the core or memory APIs.
+The published manifests do not declare a minimum consumer Node.js version. See the tested configurations below.
+The SQLite provider requires Bun. Core and memory can also run on Node.js.
 
 ## Memory execution mode
 
@@ -59,15 +58,24 @@ existing partial-progress boundaries. No failed synchronous operation is left qu
 
 ## Runtime evidence
 
-Runtime-neutral means the core does not import Node.js or Bun filesystem APIs. It does not mean that every operation has
-been run on every JavaScript runtime.
+Core and memory support the following runtime configurations. Both CI jobs import the built package exports, read
+and write a seeded file, interrupt a watch and check its release, apply a snapshot delta, search the restored snapshot,
+and round-trip a reference key. They exercise both the runtime's Effect crypto provider and asynchronous WebCrypto.
 
-| Area           | What the repository checks                                                                                     |
-| -------------- | -------------------------------------------------------------------------------------------------------------- |
-| Core package   | TypeScript build, NodeNext import compatibility, and behavior tests under the repository test runner           |
-| Memory adapter | NodeNext import compatibility and a browser-target bundle                                                      |
-| Browser target | The bundle runs as a smoke test under Node.js; this is not a browser runtime test                              |
-| Persistence    | Real SQLite tests under Bun and NodeNext declaration compatibility; Node SQLite runtime behavior is not tested |
+| Supported runtime | Operating system | CI check |
+| --- | --- | --- |
+| Node.js 24.21.0 | Ubuntu 24.04 x64 | [Core and memory, Node 24.21.0](https://github.com/lloydrichards/effect-virtual-fs/actions/workflows/core-memory-runtimes.yml) |
+| Bun 1.4.4 | Ubuntu 24.04 x64 | [Core and memory, Bun 1.4.4](https://github.com/lloydrichards/effect-virtual-fs/actions/workflows/core-memory-runtimes.yml) |
+
+The Bun job also checks seek, sparse writes and truncate against both the memory adapter and host files. Earlier
+host-file failures on Bun 1.4.0 on macOS are recorded in [#275](https://github.com/lloydrichards/effect-virtual-fs/issues/275).
+The Linux checks do not qualify macOS, Windows, or other runtime versions.
+
+**Browser bundling.** The memory build bundles for a browser target and executes the bundle under Node.js.
+**Browser and worker execution.** These environments are outside the supported list. CI does not run the packages there.
+
+The native Node filesystem provider and SQLite persistence have separate runtime checks. The core and memory rows
+do not extend to those packages.
 
 Portable snapshot-delta operations use Effect's `Digest` and `SecureRandom` services. Supply the appropriate Effect crypto
 layer for the runtime at the application boundary.
