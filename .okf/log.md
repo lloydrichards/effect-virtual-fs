@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Orient the detailed feature map vertically and distinguish Effect capabilities from community and external nodes by shape.
+
 - Add package overview and detailed feature maps with adapter requirements, and align the package dependency model with the preview engine and Node adapter.
 
 - Document how core, memory, Node and LiveVolume use the pinned Effect preview.
