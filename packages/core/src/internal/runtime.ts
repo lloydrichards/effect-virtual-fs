@@ -1112,20 +1112,26 @@ const wrapDirectory = (
 const ordered = (runtime: Runtime, list: P.DirentListing) => {
   const id = list.directory.metadata.objectNumber
   const present = new Map(list.entries.map((entry) => [Hex.encode(Path.toBytes(entry.name)), entry]))
-  const prior = runtime.orders.get(id) ?? []
+  const names: Array<string> = []
+  const entries: Array<P.DirentListing["entries"][number]> = []
 
-  const names = [
-    ...prior.filter((name) => present.has(name)),
-    ...[...present.keys()].filter((name) => !prior.includes(name))
-  ]
+  for (const name of runtime.orders.get(id) ?? []) {
+    const entry = present.get(name)
+
+    if (entry === undefined) continue
+    names.push(name)
+    entries.push(entry)
+    present.delete(name)
+  }
+
+  for (const [name, entry] of present) {
+    names.push(name)
+    entries.push(entry)
+  }
 
   runtime.orders.set(id, names)
 
-  return names.flatMap((name) => {
-    const entry = present.get(name)
-
-    return entry === undefined ? [] : [entry]
-  })
+  return entries
 }
 
 const remember = (runtime: Runtime, parent: P.ObjectObservation, name: Path.BytePath, removed = false) => {
