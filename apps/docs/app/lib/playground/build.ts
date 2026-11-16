@@ -1,4 +1,5 @@
 /* oxlint-disable effecttsgo/async-function -- esbuild initializes in the browser and invokes its module hooks through Promise APIs. */
+import { Effect } from "effect"
 import { build, initialize } from "esbuild-wasm"
 import wasmURL from "esbuild-wasm/esbuild.wasm?url"
 import type { FileAccess } from "./volume"
@@ -30,10 +31,13 @@ export async function buildWorkspace(workspace: FileAccess) {
 
           const directory = importer.slice(0, importer.lastIndexOf("/") + 1)
 
-          return { namespace: "vfs", path: await workspace.resolve(path.startsWith("/") ? path : directory + path) }
+          return {
+            namespace: "vfs",
+            path: await Effect.runPromise(workspace.resolve(path.startsWith("/") ? path : directory + path))
+          }
         })
         plugin.onLoad({ filter: /.*/, namespace: "vfs" }, async ({ path }) => {
-          const contents = await workspace.read(path)
+          const contents = await Effect.runPromise(workspace.read(path))
           reads.add(path)
 
           return { contents, loader: "js" }

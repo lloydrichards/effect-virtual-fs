@@ -13,8 +13,7 @@ const limits = {
   maxEntries: 128
 }
 
-// oxlint-disable-next-line effecttsgo/async-function -- React opens this workspace and awaits its caller-bound operations.
-export async function openVolume(image?: Uint8Array) {
+export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
   const program = image
     ? Effect.flatMap(Vfs.decodeSnapshot(image, limits), (snapshot) => Vfs.fromSnapshot(snapshot))
     : Vfs.fromFixture({
@@ -35,58 +34,53 @@ export async function openVolume(image?: Uint8Array) {
       ]
     })
 
-  const volume = await Effect.runPromise(program.pipe(Effect.provide(BrowserCrypto.layer)))
-  const editor = await Effect.runPromise(volume.caller({ umask: 0o022 }))
+  const volume = yield* program.pipe(Effect.provide(BrowserCrypto.layer))
+  const editor = yield* volume.caller({ umask: 0o022 })
 
-  const reader = await Effect.runPromise(volume.caller({
+  const reader = yield* volume.caller({
     identity: { uid: 2000, gid: 2000, groups: [], privileged: false }
-  }))
+  })
 
   const bind = (caller: Vfs.Caller) => ({
-    permissions: (path: string) => Effect.runPromise(caller.access(path, 6)),
+    permissions: (path: string) => caller.access(path, 6),
     resolve: (path: string) =>
-      Effect.runPromise(
-        caller.realPath(path).pipe(Effect.flatMap(Vfs.pathToBytes), Effect.map((bytes) => decoder.decode(bytes)))
-      ),
+      caller.realPath(path).pipe(Effect.flatMap(Vfs.pathToBytes), Effect.map((bytes) => decoder.decode(bytes))),
     files: () =>
-      Effect.runPromise(
-        caller.walk("/").pipe(
-          Stream.mapEffect((entry) =>
-            Vfs.pathToBytes(entry.path).pipe(
-              Effect.map((bytes) => ({
-                path: "/" + decoder.decode(bytes),
-                directory: entry.kind === "directory"
-              }))
-            )
-          ),
-          Stream.runCollect
-        )
+      caller.walk("/").pipe(
+        Stream.mapEffect((entry) =>
+          Vfs.pathToBytes(entry.path).pipe(
+            Effect.map((bytes) => ({
+              path: "/" + decoder.decode(bytes),
+              directory: entry.kind === "directory"
+            }))
+          )
+        ),
+        Stream.runCollect
       ),
-    read: (path: string) => Effect.runPromise(caller.readFile(path).pipe(Effect.map((bytes) => decoder.decode(bytes)))),
+    read: (path: string) => caller.readFile(path).pipe(Effect.map((bytes) => decoder.decode(bytes))),
     write: (path: string, text: string) =>
-      Effect.runPromise(caller.writeFile(path, encoder.encode(text), {
+      caller.writeFile(path, encoder.encode(text), {
         access: "write",
         truncate: true
-      })),
-    mkdir: (path: string) => Effect.runPromise(caller.mkdir(path)),
-    rename: (from: string, to: string) => Effect.runPromise(caller.rename(from, to)),
-    removeFolder: (path: string) => Effect.runPromise(caller.remove(path, { recursive: true })),
-    unlink: (path: string) => Effect.runPromise(caller.unlink(path)),
+      }),
+    mkdir: (path: string) => caller.mkdir(path),
+    rename: (from: string, to: string) => caller.rename(from, to),
+    removeFolder: (path: string) => caller.remove(path, { recursive: true }),
+    unlink: (path: string) => caller.unlink(path),
     create: (path: string) =>
-      Effect.runPromise(caller.writeFile(path, new Uint8Array(), {
+      caller.writeFile(path, new Uint8Array(), {
         access: "write",
         create: "exclusive"
-      }))
+      })
   })
 
   return {
     editor: bind(editor),
     reader: bind(reader),
-    snapshot: () =>
-      Effect.runPromise(volume.snapshot.pipe(Effect.flatMap((snapshot) => Vfs.encodeSnapshot(snapshot, limits))))
+    snapshot: () => volume.snapshot.pipe(Effect.flatMap((snapshot) => Vfs.encodeSnapshot(snapshot, limits)))
   }
-}
+})
 
-export type Workspace = Awaited<ReturnType<typeof openVolume>>
+export type Workspace = Effect.Success<ReturnType<typeof openVolume>>
 
 export type FileAccess = Workspace["editor"]

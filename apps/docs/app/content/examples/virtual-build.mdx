@@ -25,4 +25,14 @@ Switch **Caller** to **Reader** and run the build again. Both callers see the sa
 2. Reload to start with the original files. Choose **Reopen saved** to replace the working copy with your saved files.
 3. Choose **Delete checkpoint** to remove the saved database and keep editing the files in memory.
 
+## How the checkpoint reaches IndexedDB
+
+**Save checkpoint** runs an Effect Atom command. After writing the current edit to the virtual file, the command encodes the volume and saves the snapshot:
+
+```ts
+yield* saveCheckpoint(yield* volume.snapshot())
+```
+
+The save effect inserts the snapshot into SQLite, exports the database bytes, and waits for the IndexedDB write to finish. `Effect.acquireRelease` closes the SQLite connection on success or failure. After a successful save or delete, the command refreshes the checkpoint atom. Its value controls **Reopen saved** and **Inspect saved row**.
+
 For a server-side example, see [Save and restore SQLite checkpoints](/guides/sqlite-checkpoints).

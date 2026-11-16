@@ -129,6 +129,7 @@
         "@effect-vfs/core": "workspace:*",
         "@effect-vfs/memory": "workspace:*",
         "@effect-vfs/persistence": "workspace:*",
+        "@effect/atom-react": "4.1.4",
         "@effect/platform-browser": "4.1.4",
         "@fontsource-variable/jetbrains-mono": "^5.3.0",
         "@fontsource-variable/manrope": "^5.3.0",
