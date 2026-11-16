@@ -3,11 +3,18 @@ import { BytePath } from "@effect-vfs/effect-preview"
 import { installStorage } from "@effect-vfs/effect-preview/durable-mkdir"
 import * as P from "@effect-vfs/effect-preview/VirtualFileSystem"
 import { Cause, Effect, Exit, Predicate } from "effect"
-import type { CommitOutcome } from "../LiveVolume.js"
+import type { FsFailure } from "../VfsError.js"
 import { type CommitProvider, State } from "./model.js"
 import { assemble, type NodeSpec } from "./volumeState.js"
 
 export { cleanupError, resumeAllocator } from "@effect-vfs/effect-preview/durable-mkdir"
+
+// Carry the provider's attribution through the preview's storage error channel.
+export class CommitRejected extends P.InvalidResource {
+  constructor(readonly failure: FsFailure & { readonly code: "StorageRejected" }) {
+    super({ operation: failure.operation, reason: "storageRejected", cause: failure })
+  }
+}
 
 export const attachStore = (
   actor: Parameters<typeof installStorage>[0],
@@ -90,23 +97,24 @@ export const attachStore = (
       for (const directory of detached) inodes = State.setNode(inodes, directory)
       const candidate = { ...tree, inodes, open, revision, nextInode: State.Ino(Number(next)) }
 
-      const decision = yield* Effect.exit(
-        Effect.suspend((): Effect.Effect<CommitOutcome, { readonly code: "StorageRejected" }> =>
-          provider.commit(candidate)
-        )
-      )
+      const decision = yield* Effect.exit(Effect.suspend(() => provider.commit(candidate)))
 
       if (Exit.isSuccess(decision) && decision.value === "committed") {
         committed = candidate
-
         return
       }
 
-      const rejected = Exit.isSuccess(decision)
-        ? decision.value === "rejected" || Predicate.isTagged(decision.value, "Rejected")
-        : decision.cause.reasons.length > 0 && decision.cause.reasons.every(Cause.isFailReason)
+      if (operation === "close") freeze()
+      if (Exit.isSuccess(decision) && Predicate.isTagged(decision.value, "Rejected")) {
+        return yield* Effect.failCause(decision.value.cause)
+      }
+      if (Exit.isFailure(decision) && decision.cause.reasons.every(Cause.isFailReason)) {
+        const first = decision.cause.reasons[0]
+        if (first) return yield* new CommitRejected(first.error)
+      }
 
-      if (!rejected || operation === "close") freeze()
+      const rejected = Exit.isSuccess(decision) && decision.value === "rejected"
+      if (!rejected) freeze()
 
       // eslint-disable-next-line effecttsgo/experimental-api-usage -- Scratch preview storage decision.
       return yield* new P.InvalidResource({ operation, reason: rejected ? "storageRejected" : "outcomeUnknown" })

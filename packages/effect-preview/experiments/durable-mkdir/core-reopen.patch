@@ -13,11 +13,17 @@
    VolumeTestSeams,
    WriteFileOptions as WriteSchema
  } from "./model.js"
-+import { attachStore, cleanupError, resumeAllocator } from "./durableMkdirTrial.js"
++import { attachStore, cleanupError, CommitRejected, resumeAllocator } from "./durableMkdirTrial.js"
 +import type * as LiveImage from "./liveImage.js"
  import * as Limits from "./volumeLimits.js"
  import { assemble, type NodeSpec, reachableValue } from "./volumeState.js"
  import * as VolumeWatch from "./volumeWatch.js"
+@@ -61,4 +63,5 @@
+ export const failure = (error: P.VirtualFileSystemError, operation = error.operation): V.FsFailure => {
++  if (error instanceof CommitRejected) return error.failure
+   const code: V.FsCode = (() => {
+     if (Predicate.isTagged(error, "NotFound")) {
+       return "NotFound"
 @@ -114,6 +116,9 @@
 
      {
@@ -37,6 +43,14 @@
    readonly owner: P.Owner
    readonly subscribeCaller: ReturnType<typeof VolumeWatch.make>["subscribeCaller"]
    readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
+@@ -237,6 +244,7 @@
+   destination?: V.TargetInput | V.EntryInput
+ ): V.FsFailure => {
++  if (error.code === "StorageRejected" && error.operation === "commit") return error
+   const value = Predicate.hasProperty(error.cause, "side") && error.cause.side === "destination" ? destination : source
+   const selected = error.path ?? (unlocated.has(error) || value === undefined ? undefined : errorPath(value))
+   const details: ErrorDetails = { cause: error.cause }
+
 @@ -299,6 +306,11 @@
  
      // Keep the arrival gate while a stale read waits, so later observers cannot overtake it.

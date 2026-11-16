@@ -63,7 +63,7 @@ try {
   const vitest = join(dependencies, "vitest/vitest.mjs")
   run(vitest, "run", "test", "--maxWorkers", "2")
 
-  for (const path of ["test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/internal/liveImage.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
+  for (const path of ["test/VfsError.test.ts", "test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/internal/liveImage.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
     await cp(resolve(preview, "../core", path), join(core, path))
   }
 
@@ -92,6 +92,9 @@ try {
   run(vitest, "run", "core/test/LiveVolume.test.ts", "core/test/internal/liveImage.test.ts",
     "nfs/test/internal/nfs4.test.ts", "persistence/test/R2LiveImageStore.test.ts", "-t",
     "should compare capacity quantities|should re-encode identical bytes|should survive a server restart and report it in fh_expire_type|should answer STALE when a persistent handle|should report power-loss durability")
+  run(vitest, "run", "core/test/LiveVolume.test.ts", "core/test/VfsError.test.ts",
+    "persistence/test/R2LiveImageStore.test.ts", "persistence/test/SqliteLiveImageStore.test.ts", "-t",
+    "should reject an oversized candidate|should attribute failure to commit|should preserve pre-write digest")
 } finally {
   await rm(scratch, { recursive: true, force: true })
 }
