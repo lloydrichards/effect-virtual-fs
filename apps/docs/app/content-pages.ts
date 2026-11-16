@@ -78,13 +78,6 @@ export const contentPages = [
   },
   {
     section: "Examples",
-    label: "Compile TypeScript on a Node VFS mount",
-    href: "/examples/node-workbench",
-    routePath: "examples/node-workbench",
-    contentPath: "content/examples/node-workbench.mdx"
-  },
-  {
-    section: "Examples",
     label: "Build and save a browser filesystem",
     href: "/examples/virtual-build",
     routePath: "examples/virtual-build",
