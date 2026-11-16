@@ -12,8 +12,9 @@ import {
   Save,
   Terminal
 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { FileAccess, Workspace } from "~/lib/playground/volume"
+import { PlaygroundEditor } from "./playground-editor"
 import { Button } from "./ui/button"
 
 type Entry = Awaited<ReturnType<FileAccess["files"]>>[number]
@@ -74,15 +75,26 @@ export function FilesystemPlayground() {
   const [source, setSource] = useState("")
   const [dirty, setDirty] = useState(false)
   const [name, setName] = useState<string | null>(null)
+  const [hasCheckpoint, setHasCheckpoint] = useState(false)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState("Opening workspace…")
   const [output, setOutput] = useState("")
   const [error, setError] = useState("")
-  const gutter = useRef<HTMLPreElement>(null)
   const locked = useRef(false)
 
   useEffect(() => {
     let active = true
+
+    function refreshCheckpoint() {
+      void import("~/lib/playground/storage").then(({ hasSavedCheckpoint }) => hasSavedCheckpoint())
+        .catch(() => false)
+        .then((exists) => {
+          if (active) setHasCheckpoint(exists)
+        })
+    }
+
+    refreshCheckpoint()
+    window.addEventListener("focus", refreshCheckpoint)
 
     async function start() {
       const { openVolume } = await import("~/lib/playground/volume")
@@ -112,6 +124,7 @@ export function FilesystemPlayground() {
 
     return () => {
       active = false
+      window.removeEventListener("focus", refreshCheckpoint)
     }
   }, [])
 
@@ -146,6 +159,14 @@ export function FilesystemPlayground() {
     setPermissions(bits)
     setDirty(false)
   }
+
+  const edit = useCallback((text: string) => {
+    setSource(text)
+    setDirty(true)
+    setError("")
+    setOutput("")
+    setStatus("Working copy edited.")
+  }, [])
 
   const writable = (permissions & 2) !== 0
 
@@ -260,31 +281,13 @@ export function FilesystemPlayground() {
             <span className="break-all">{path}{dirty && <span aria-label="Modified">*</span>}</span>
             <span className="ms-auto text-muted-foreground">{writable ? "Read / write" : "Read only"}</span>
           </div>
-          <div className="flex h-44 overflow-hidden py-3 font-mono text-sm leading-6 text-code-block-foreground">
-            <pre
-              aria-hidden="true"
-              ref={gutter}
-              className="m-0 shrink-0 overflow-hidden border-e px-2 text-end font-mono text-sm leading-6 text-muted-foreground"
-            >{source.split("\n").map((_, i) => i + 1).join("\n")}</pre>
-            <textarea
-              aria-label={`Edit ${path}`}
-              readOnly={!writable}
-              spellCheck={false}
-              wrap="off"
-              value={source}
-              onScroll={(event) => {
-                if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop
-              }}
-              onChange={(event) => {
-                setSource(event.target.value)
-                setDirty(true)
-                setError("")
-                setOutput("")
-                setStatus("Working copy edited.")
-              }}
-              className="min-w-0 flex-1 resize-none bg-transparent px-3 font-mono text-sm leading-6 focus-visible:outline-primary"
-            />
-          </div>
+          <PlaygroundEditor
+            path={path}
+            label={`Edit ${path}`}
+            value={source}
+            readOnly={!writable || busy}
+            onEdit={edit}
+          />
         </div>
       </div>
       <div className="border-t bg-muted/30 px-3 py-2">
@@ -295,7 +298,7 @@ export function FilesystemPlayground() {
         {output && (
           <div className="mt-2">
             <h3 className="text-xs font-semibold">Generated bundle</h3>
-            <pre className="mt-1 overflow-auto font-mono text-xs"><code>{output}</code></pre>
+            <PlaygroundEditor path="bundle.js" label="Generated bundle" value={output} readOnly />
           </div>
         )}
       </div>
@@ -307,6 +310,7 @@ export function FilesystemPlayground() {
               await flush(caller)
               const { saveCheckpoint } = await import("~/lib/playground/storage")
               await saveCheckpoint(await volume.snapshot())
+              setHasCheckpoint(true)
               setStatus("Saved workspace.sqlite in this browser.")
             })}
         >
@@ -314,6 +318,7 @@ export function FilesystemPlayground() {
         </Button>
         <Button
           variant="ghost"
+          disabled={!hasCheckpoint}
           onClick={() =>
             act(async () => {
               const { readCheckpoint } = await import("~/lib/playground/storage")
@@ -325,6 +330,7 @@ export function FilesystemPlayground() {
         </Button>
         <Button
           variant="ghost"
+          disabled={!hasCheckpoint}
           onClick={() =>
             act(async () => {
               const { readCheckpoint } = await import("~/lib/playground/storage")
