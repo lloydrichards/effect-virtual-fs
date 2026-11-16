@@ -71,10 +71,8 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
     identity: { uid: 2000, gid: 2000, groups: [], privileged: false }
   })
 
-  const starterPaths = new Set(["/main.js", "/src/value.js", "/secret.js"])
-
   const bind = (caller: Vfs.Caller) => ({
-    setSecretMode: (mode: 0o600 | 0o644) => caller.chmod("/secret.js", mode),
+    setFileMode: (path: string, mode: 0o600 | 0o644) => caller.chmod(path, mode),
     permissions: (path: string) => caller.access(path, 6),
     resolve: (path: string) =>
       caller.realPath(path).pipe(Effect.flatMap(Vfs.pathToBytes), Effect.map((bytes) => decoder.decode(bytes))),
@@ -85,7 +83,7 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
           const directory = entry.kind === "directory"
           const readable = directory || ((yield* caller.access(path, 4)) & 4) !== 0
 
-          const policy = entry.kind === "file" && starterPaths.has(path)
+          const policy = entry.kind === "file"
             ? yield* Effect.all({
               metadata: caller.stat(entry.reference),
               reader: reader.access(path, 6),

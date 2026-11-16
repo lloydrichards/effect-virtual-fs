@@ -1,9 +1,12 @@
-import { CheckpointDiagram } from "~/components/checkpoint-diagram"
+import { RegistryProvider } from "@effect/atom-react"
+import { CheckpointDiagram, FilePermissions } from "~/components/checkpoint-diagram"
 import { FilesystemPlayground } from "~/components/filesystem-playground"
 
 # Build and save a browser filesystem
 
 Select **Build and run** to see `Reading: 20` under **Console output**. All three callers can run the public sensor example. As **Editor**, change `20` to `21` in `src/value.js` and build again. The output changes to `Reading: 21`.
+
+<RegistryProvider>
 
 <FilesystemPlayground />
 
@@ -17,6 +20,12 @@ Select a file or folder by name, then use the **Files** toolbar to rename or del
 4. As **Admin**, open `secret.js` and set **File access** to **Everyone can read**. Keep the import enabled. The diagram now shows mode `0644` and read-only access for Editor and Reader.
 5. Switch to **Reader**. The lock disappears from `secret.js`. Open the file and select **Build and run**. Reader can inspect the calibration and run it, but only Admin can edit it.
 6. To restrict the file again, switch to **Admin** and set **File access** to **Private**. The mode returns to `0600`. **Save checkpoint** keeps the current permissions with the files.
+
+Admin can change **File access** on any regular file. **Private** keeps read and write access for the owner and Admin. **Everyone can read** also grants read access to other callers. Changing access preserves ownership.
+
+<FilePermissions />
+
+</RegistryProvider>
 
 ## Follow the bytes
 

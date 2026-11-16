@@ -1,4 +1,4 @@
-import { RegistryProvider, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import {
   Braces,
@@ -26,7 +26,6 @@ import {
   type Operation,
   playgroundAtom
 } from "~/lib/playground/atoms"
-import { FilePermissions } from "./checkpoint-diagram"
 import { PlaygroundBundle } from "./playground-bundle"
 import { PlaygroundEditor } from "./playground-editor"
 import { Button } from "./ui/button"
@@ -93,15 +92,6 @@ function FileList({ entries, parent, selected, onSelect }: {
 }
 
 export function FilesystemPlayground() {
-  return (
-    <RegistryProvider>
-      <WorkspacePanel />
-      <FilePermissions />
-    </RegistryProvider>
-  )
-}
-
-function WorkspacePanel() {
   const { volume, role, permissions, entries, path, source, dirty, folder, busy, status, output, error } = useAtomValue(
     playgroundAtom
   )
@@ -111,8 +101,8 @@ function WorkspacePanel() {
   const checkpoint = useAtomValue(checkpointAtom)
   const refresh = useAtomRefresh(checkpointAtom)
   const hasCheckpoint = AsyncResult.isSuccess(checkpoint) && checkpoint.value
-  const secret = entries.find((entry) => entry.path === "/secret.js")?.policy
   const selected = folder || path
+  const policy = entries.find((entry) => entry.path === selected)?.policy
   const renameAction = folder ? "Rename folder" : "Rename file"
   const [operation, setOperation] = useState<Operation | null>(null)
   const [name, setName] = useState("")
@@ -253,12 +243,12 @@ function WorkspacePanel() {
           <div className="flex flex-wrap items-center gap-2 border-b bg-card px-3 py-2 font-mono text-xs">
             <Braces className="size-3.5 text-primary" />
             <span className="break-all">{path || "No file open"}{dirty && <span aria-label="Modified">*</span>}</span>
-            {role === "admin" && selected === "/secret.js" && secret?.metadata.uid === 0 && (
+            {role === "admin" && policy && (
               <label className="flex items-center gap-2 font-sans">
                 File access
                 <NativeSelect
-                  value={secret.metadata.mode === 0o644 ? "public" : "private"}
-                  onChange={(event) => void run({ secretMode: event.target.value === "public" ? 0o644 : 0o600 })}
+                  value={policy.metadata.mode === 0o644 ? "public" : "private"}
+                  onChange={(event) => void run({ fileMode: event.target.value === "public" ? 0o644 : 0o600 })}
                 >
                   <option value="private">Private</option>
                   <option value="public">Everyone can read</option>
