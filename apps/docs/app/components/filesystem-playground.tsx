@@ -50,7 +50,7 @@ function FileList({ entries, parent, selected, onSelect }: {
                   aria-expanded={expanded}
                   onClick={() =>
                     setCollapsed(expanded ? [...collapsed, entry.path] : collapsed.filter((p) => p !== entry.path))}
-                  className="rounded p-1 hover:bg-sidebar-accent"
+                  className="grid size-6 shrink-0 place-items-center rounded hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-coarse:size-11"
                 >
                   <ChevronRight className={expanded ? "size-3 rotate-90" : "size-3"} />
                 </button>
@@ -60,7 +60,7 @@ function FileList({ entries, parent, selected, onSelect }: {
                 aria-label={entry.path}
                 aria-current={entry.path === selected ? "true" : undefined}
                 onClick={() => onSelect(entry)}
-                className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-left font-mono text-xs hover:bg-sidebar-accent aria-current:bg-accent aria-current:font-semibold aria-current:text-primary"
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-left font-mono text-xs hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-coarse:min-h-11 aria-current:bg-accent aria-current:font-semibold aria-current:text-primary"
               >
                 <Icon className="size-3.5 shrink-0" />
                 <span className="break-all">{name}</span>
@@ -245,6 +245,7 @@ export function FilesystemPlayground() {
               <Button
                 key={action}
                 size="icon-xs"
+                className="pointer-coarse:size-11"
                 variant="ghost"
                 aria-label={action}
                 title={action}
@@ -265,6 +266,7 @@ export function FilesystemPlayground() {
             ))}
             <Button
               size="icon-xs"
+              className="pointer-coarse:size-11"
               variant="ghost"
               aria-label={folder ? "Delete folder" : "Delete file"}
               title={folder ? `Delete ${folder} and its contents` : `Delete ${path}`}
