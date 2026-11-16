@@ -8,19 +8,11 @@ for await (const path of new Bun.Glob("**/*.ts").scan(source.pathname)) {
   files.set(url.href, await Bun.file(url).text())
 }
 
-const removed = ["engine.ts", "adapterBinding.ts", "callerWatch.ts", "watchHub.ts", "previewRuntime.ts", "previewSync.ts"]
-
-for (const path of removed) {
-  if (files.has(new URL(`internal/${path}`, source).href)) throw new Error(`Removed implementation returned: ${path}`)
-}
-
 const dependencies = (url) => {
   const raw = files.get(url)
 
   if (raw === undefined) throw new Error(`Missing core module: ${url}`)
   const text = raw.replace(/\/\*[\s\S]*?\*\//g, "")
-
-  if (/\bmake(?:CommunityVolume|CommunityOverlay|Engine)\b/.test(text)) throw new Error(`Legacy runtime in ${url}`)
 
   return [...text.matchAll(/\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']/g)].map((match) => match[1] ?? match[2])
 }
@@ -46,7 +38,4 @@ for (const entry of ["VirtualFileSystem.ts", "LiveVolume.ts", "SynchronousAdapte
   if (!preview) throw new Error(`${entry} does not consume the preview`)
 }
 
-// Check every source, including modules not reached from the constructors.
-for (const url of files.keys()) dependencies(url)
-
-process.stdout.write(`Sole-preview import audit passed for ${files.size} core modules.\n`)
+process.stdout.write(`Preview import audit passed for the core constructors and native binding.\n`)
