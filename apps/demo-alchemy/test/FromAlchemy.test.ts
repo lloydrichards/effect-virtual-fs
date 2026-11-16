@@ -1,7 +1,7 @@
 import { makeReadWrite, R2Error } from "@alchemy.run/cloudflare/R2"
 import { LiveVolume } from "@effect-vfs/core"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { RuntimeContext } from "alchemy/RuntimeContext"
 import { ByteSize, Effect, Layer } from "effect"

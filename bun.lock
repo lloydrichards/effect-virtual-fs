@@ -9,12 +9,14 @@
         "@changesets/cli": "^3.0.3",
         "@effect/docgen": "~4.1.4",
         "@effect/tsgo": "0.67.5",
+        "@effect/vitest": "4.1.4",
         "@oxlint/plugins": "1.92.0",
         "dprint": "^0.58.0",
         "husky": "9.1.7",
         "lint-staged": "17.6.0",
         "oxlint": "1.92.0",
         "oxlint-tsgolint": "7.0.2006",
+        "tsx": "4.23.15",
         "turbo": "^2.11.10",
         "typescript": "7.0.2",
         "vitest": "^5.1.0",
@@ -142,6 +144,7 @@
       "devDependencies": {
         "@mdx-js/rollup": "^3.1.1",
         "@react-router/dev": "8.5.1",
+        "@repo/config-typescript": "workspace:*",
         "@shikijs/transformers": "^4.6.0",
         "@tailwindcss/vite": "^4.3.5",
         "@types/bun": "^1.4.4",
@@ -201,8 +204,8 @@
         "vite": "8.3.7",
       },
       "devDependencies": {
-        "@effect/vitest": "4.1.4",
         "@repo/config-typescript": "workspace:*",
+        "@types/node": "26.6.6",
       },
     },
     "packages/config-typescript": {

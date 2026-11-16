@@ -87,8 +87,9 @@ function fixture() {
     }
   }
 
-  copyTypes(path.dirname(require.resolve("@types/node/package.json")), "/node_modules/@types/node")
-  copyTypes(path.dirname(require.resolve("undici-types/package.json")), "/node_modules/undici-types")
+  const nodeTypes = require.resolve("@types/node/package.json")
+  copyTypes(path.dirname(nodeTypes), "/node_modules/@types/node")
+  copyTypes(path.dirname(createRequire(nodeTypes).resolve("undici-types/package.json")), "/node_modules/undici-types")
 
   return { entries, rootMetadata: { mode: 0o755 } }
 }
