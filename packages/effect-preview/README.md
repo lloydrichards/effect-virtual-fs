@@ -42,7 +42,7 @@ Use this package's `BytePath`, `Schema`, and `DateTime` exports when using the p
 BytePath values are authenticated by one module-local registry. Convert community paths through bytes when crossing
 implementations. References, revisions, handles, and callers belong to their issuing filesystem and are not transferable.
 
-## Try durable mkdir and final-handle cleanup
+## Try durable writes, cleanup and recovery
 
 From the repository root, run the storage-decision experiment with the workspace dependencies installed.
 
@@ -71,7 +71,13 @@ and the existing core cleanup tests.
 After removing an open directory, the candidate retains its inode for the handle. The v1 image omits the detached
 directory because no path reaches it. The last close offers one cleanup commit and releases the inode on every
 storage decision. After a rejected or unknown close, reopening either image preserves the allocator and leaves the old
-directory key stale. Process-death recovery remains open. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
+directory key stale.
+
+The runner also executes the two SQLite writer-death tests against the temporary core build. After the writer
+acknowledges creating `/durable` and receives `SIGKILL`, a fresh process reads the committed bytes `[7, 8, 9]`.
+When the writer receives `SIGKILL` before SQLite commits an overwrite with `[4, 5, 6]`, the fresh process reads
+the previous bytes `[7, 8, 9]`. Both cases verify the original volume identity. Physical power-loss qualification
+has a separate procedure. [Power-loss testing](../persistence/POWER_LOSS_TESTING.md)
 
 ## Regenerate the pinned port offline
 

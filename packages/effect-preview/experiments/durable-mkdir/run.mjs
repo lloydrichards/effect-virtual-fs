@@ -69,6 +69,18 @@ try {
 
   run(vitest, "run", "core/test/LiveVolume.test.ts", "core/test/internal/virtualFileSystem.test.ts", "-t",
     "detached directory|retain open content until close|typed commit failure also contains|stop paths, observations|persist final unlinked-file cleanup|release handles and disable|include open unlinked files|retain inode identity and open unlinked content|stop the volume when final handle cleanup")
+
+  const persistence = join(scratch, "persistence")
+
+  for (const path of ["src", "test/SqliteLiveImageStore.test.ts", "test/fixtures/live-restart.ts"]) {
+    await cp(resolve(preview, "../persistence", path), join(persistence, path), { recursive: true })
+  }
+
+  // The test and its independent Bun workers must all import the scratch core build.
+  await mkdir(join(persistence, "node_modules/@effect-vfs"), { recursive: true })
+  await symlink(core, join(persistence, "node_modules/@effect-vfs/core"), "dir")
+  run(vitest, "run", "persistence/test/SqliteLiveImageStore.test.ts", "-t", "when the writer is killed",
+    "--reporter", "verbose")
 } finally {
   await rm(scratch, { recursive: true, force: true })
 }

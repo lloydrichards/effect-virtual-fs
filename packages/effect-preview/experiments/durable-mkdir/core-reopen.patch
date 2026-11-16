@@ -43,7 +43,7 @@
      const work = runtime.gate.withPermit(Effect.gen(function*() {
 +      if (runtime.storageReady) yield* runtime.storageReady
 +      if (runtime.frozen) return yield* Errors.fsFailure("VolumeUnavailable", operation)
-+      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "write", "close", "unlink", "openDirectory", "rmdir"].includes(operation)) {
++      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "writeFile", "write", "close", "unlink", "openDirectory", "rmdir"].includes(operation)) {
 +        return yield* blocked("mkdirTrialOnly")
 +      }
        const readers = runtime.captureReaders
