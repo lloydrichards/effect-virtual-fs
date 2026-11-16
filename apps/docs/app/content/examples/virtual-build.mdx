@@ -3,7 +3,7 @@ import { FilesystemPlayground } from "~/components/filesystem-playground"
 
 # Build and save a browser filesystem
 
-Change `20` to `21` in `src/value.js`, then select **Run build**. The bundle exports `43`: `main.js` imports your value and adds `22`.
+As **Admin**, change `20` to `21` in `src/value.js`, then select **Run build**. The bundle exports `43`: `main.js` imports your value and adds the offset from `secret.js`.
 
 <FilesystemPlayground />
 
@@ -11,7 +11,7 @@ Select a file or folder by name, then use the **Files** toolbar to rename or del
 
 ## Try another caller
 
-Switch **Caller** to **Reader** and run the build again. Both callers see the same volume. File permissions determine what each identity can do.
+Open `secret.js` as **Admin** to see the offset, `22`. Switch to **Editor** and try opening it again. The filename is visible, but its owner-only permissions (`0600`) deny the read. **Run build** also fails because the bundler reads each import as the selected caller. Try **Reader** on `src/value.js`, then switch back to **Admin** to build.
 
 <CallerDiagram />
 

@@ -37,21 +37,32 @@ export function CheckpointDiagram() {
 
 export function CallerDiagram() {
   return (
-    <figure
-      aria-label="Editor and Reader share one virtual file"
-      className="my-4 grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-xl border bg-card p-3 text-xs"
-    >
-      <strong>Editor</strong>
-      <span className="flex items-center gap-2 text-muted-foreground">
-        Read + write <ArrowRight aria-hidden="true" className="size-3" />
-      </span>
-      <code className="row-span-2 break-all rounded-md border border-code-border bg-code p-2 text-center font-mono text-code-foreground">
-        /src/value.js
-      </code>
-      <strong>Reader</strong>
-      <span className="flex items-center justify-between text-muted-foreground">
-        Read <ArrowRight aria-hidden="true" className="size-3" />
-      </span>
+    <figure className="my-4 rounded-xl border bg-card p-3 text-xs">
+      <figcaption className="mb-3 font-semibold">Starter volume · imports read by /main.js</figcaption>
+      <table className="w-full text-start">
+        <thead>
+          <tr className="border-b text-muted-foreground">
+            <th scope="col" className="p-1 text-start">Caller</th>
+            <th scope="col" className="p-1 text-start font-mono">/src/value.js</th>
+            <th scope="col" className="p-1 text-start font-mono">/secret.js</th>
+            <th scope="col" className="p-1 text-start">Build</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[
+            ["Admin", "Read + write", "Read + write", "Succeeds"],
+            ["Editor", "Read + write", "Denied", "Fails"],
+            ["Reader", "Read", "Denied", "Fails"]
+          ].map(([caller, value, secret, build]) => (
+            <tr key={caller} className="border-b last:border-0">
+              <th scope="row" className="p-1 text-start">{caller}</th>
+              <td className="p-1">{value}</td>
+              <td className="p-1">{secret}</td>
+              <td className="p-1">{build}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </figure>
   )
 }
