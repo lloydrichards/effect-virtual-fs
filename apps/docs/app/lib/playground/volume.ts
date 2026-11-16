@@ -61,14 +61,13 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
       caller.realPath(path).pipe(Effect.flatMap(Vfs.pathToBytes), Effect.map((bytes) => decoder.decode(bytes))),
     files: () =>
       caller.walk("/").pipe(
-        Stream.mapEffect((entry) =>
-          Vfs.pathToBytes(entry.path).pipe(
-            Effect.map((bytes) => ({
-              path: "/" + decoder.decode(bytes),
-              directory: entry.kind === "directory"
-            }))
-          )
-        ),
+        Stream.mapEffect(Effect.fnUntraced(function*(entry) {
+          const path = "/" + decoder.decode(yield* Vfs.pathToBytes(entry.path))
+          const directory = entry.kind === "directory"
+          const readable = directory || ((yield* caller.access(path, 4)) & 4) !== 0
+
+          return { path, directory, readable }
+        })),
         Stream.runCollect
       ),
     read: (path: string) => caller.readFile(path).pipe(Effect.map((bytes) => decoder.decode(bytes))),

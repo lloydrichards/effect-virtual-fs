@@ -9,6 +9,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  LockKeyhole,
   Pencil,
   Play,
   RotateCcw,
@@ -66,12 +67,16 @@ function FileList({ entries, parent, selected, onSelect }: {
               <button
                 type="button"
                 aria-label={entry.path}
+                aria-description={entry.readable ? undefined : "Read access denied for this caller"}
                 aria-current={entry.path === selected ? "true" : undefined}
                 onClick={() => onSelect(entry)}
                 className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-left font-mono text-xs hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-coarse:min-h-11 aria-current:bg-accent aria-current:font-semibold aria-current:text-primary"
               >
                 <Icon className="size-3.5 shrink-0" />
                 <span className="break-all">{name}</span>
+                {!entry.readable && (
+                  <LockKeyhole aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
+                )}
               </button>
             </div>
             {entry.directory && expanded && (
