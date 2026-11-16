@@ -388,17 +388,23 @@ export class NodeFileHandle {
     let total = 0
     const at = this.at(position, "writev")
 
-    for (const buffer of buffers) {
-      const count = this.writeSync(
-        buffer,
-        0,
-        buffer.byteLength,
-        position === null || position === undefined || position === -1 ? null : at + BigInt(total)
-      )
+    try {
+      for (const buffer of buffers) {
+        const count = this.writeSync(
+          buffer,
+          0,
+          buffer.byteLength,
+          position === null || position === undefined || position === -1 ? null : at + BigInt(total)
+        )
 
-      total += count
+        total += count
 
-      if (count < buffer.byteLength) break
+        if (count < buffer.byteLength) break
+      }
+    } catch (error) {
+      if (total > 0 && error instanceof NodeError && (error.code === "ENOSPC" || error.code === "EFBIG")) return total
+
+      throw error
     }
 
     return total
