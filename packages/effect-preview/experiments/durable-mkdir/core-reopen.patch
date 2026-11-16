@@ -173,11 +173,20 @@
        watch: (options) =>
          execute(
            runtime,
-@@ -3198,6 +3232,6 @@
+@@ -3198,6 +3232,15 @@
  
      runtimes.set(volume, runtime)
  
 -    return { volume, shutdown: Effect.void, observeSnapshot }
-+    return { volume, shutdown: Scope.close(rootScope, Exit.void), observeSnapshot }
++    const shutdown = durable
++      ? yield* Effect.cached(Effect.uninterruptible(Effect.gen(function*() {
++        // Let the active caller finish publishing before retiring the session.
++        yield* runtime.gate.withPermit(Effect.sync(() => { runtime.frozen = true }))
++        // A scope finalizer can already be committing last-handle cleanup outside the caller gate.
++        yield* runtime.storageReady!
++        yield* Scope.close(rootScope, Exit.void).pipe(Effect.ensuring(provider.shutdown))
++      })))
++      : provider.shutdown
++    return { volume, shutdown, observeSnapshot }
    }
  )

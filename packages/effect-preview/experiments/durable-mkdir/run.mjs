@@ -63,12 +63,16 @@ try {
   const vitest = join(dependencies, "vitest/vitest.mjs")
   run(vitest, "run", "test", "--maxWorkers", "2")
 
-  for (const path of ["test/VfsError.test.ts", "test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/internal/liveImage.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
+  for (const path of ["test/VfsError.test.ts", "test/LiveVolumeRegistry.test.ts", "test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/internal/liveImage.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
     await cp(resolve(preview, "../core", path), join(core, path))
   }
 
   run(vitest, "run", "core/test/LiveVolume.test.ts", "core/test/internal/virtualFileSystem.test.ts", "-t",
-    "detached directory|retain open content until close|typed commit failure also contains|stop paths, observations|persist final unlinked-file cleanup|release handles and disable|include open unlinked files|retain inode identity and open unlinked content|stop the volume when final handle cleanup")
+    "keep a memory volume usable when its no-op shutdown runs|detached directory|retain open content until close|typed commit failure also contains|stop paths, observations|persist final unlinked-file cleanup|release handles and disable|include open unlinked files|retain inode identity and open unlinked content|stop the volume when final handle cleanup")
+
+  run(vitest, "run", "core/test/LiveVolumeRegistry.test.ts", "core/test/LiveVolume.test.ts",
+    "core/test/internal/virtualFileSystem.test.ts", "-t",
+    "should finish the active commit before releasing the provider|should preserve hard-link inode identity with a new incarnation|shares one acquisition while concurrent borrowers wait|shuts down the volume before storage")
 
   const persistence = join(scratch, "persistence")
 
