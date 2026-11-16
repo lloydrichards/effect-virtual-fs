@@ -915,6 +915,25 @@ const liveScope = Effect.flatMap(
   (scope) => Predicate.isTagged(scope.state, "Closed") ? Effect.interrupt : Effect.void
 )
 
+/** @internal */
+export const growsFile = (bytes: Uint8Array, at: bigint, size: bigint) =>
+  bytes.length > 0 && at + BigInt(bytes.length) > size
+
+/** @internal */
+export const growthWritePrefix = Effect.fnUntraced(
+  function*(owner: P.Owner, data: Uint8Array, at: bigint, fileSize: bigint) {
+    const length = BigInt(data.length)
+    const used = yield* owner.usage
+    const fileAvailable = owner.limits.fileBytes - at
+    const volumeAvailable = fileSize + owner.limits.contentBytes - used.contentBytes - at
+    const available = fileAvailable < volumeAvailable ? fileAvailable : volumeAvailable
+
+    if (available <= 0n) return yield* Errors.fsFailure(fileAvailable <= 0n ? "FileTooLarge" : "NoSpace", "write")
+
+    return data.subarray(0, Number(available < length ? available : length))
+  }
+)
+
 const wrapFile = (
   runtime: Runtime,
   handle: P.FileHandle,
@@ -931,17 +950,11 @@ const wrapFile = (
     }
 
     const at = position ?? (append ? info.metadata.size : yield* mapped(handle.position()))
-    const used = yield* runtime.owner.usage
-    const free = runtime.owner.limits.contentBytes - used.contentBytes
-    const fileAvailable = runtime.owner.limits.fileBytes - at
-    const volumeAvailable = info.metadata.size + free - at
-    const available = fileAvailable < volumeAvailable ? fileAvailable : volumeAvailable
 
-    if (data.length > 0 && available <= 0n) {
-      return yield* Errors.fsFailure(fileAvailable <= 0n ? "FileTooLarge" : "NoSpace", "write")
-    }
+    const part = growsFile(data, at, info.metadata.size)
+      ? yield* growthWritePrefix(runtime.owner, data, at, info.metadata.size)
+      : data
 
-    const part = data.subarray(0, Number(available < BigInt(data.length) ? available : BigInt(data.length)))
     yield* mapped(
       (position === undefined ? handle : positioned).write(part, position === undefined ? undefined : { position })
     )
