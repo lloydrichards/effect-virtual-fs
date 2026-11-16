@@ -1,5 +1,5 @@
 .playground-editor .cm-editor {
-  height: 11rem;
+  height: clamp(18rem, 48vh, 32rem);
   color: var(--code-block-foreground);
   background: var(--code-block);
 }

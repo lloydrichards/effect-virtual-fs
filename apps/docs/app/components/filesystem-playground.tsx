@@ -10,7 +10,8 @@ import {
   Play,
   RotateCcw,
   Save,
-  Terminal
+  Terminal,
+  Trash2
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { FileAccess, Workspace } from "~/lib/playground/volume"
@@ -349,6 +350,19 @@ export function FilesystemPlayground() {
             })}
         >
           <RotateCcw />Reopen saved
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={!hasCheckpoint}
+          onClick={() =>
+            act(async () => {
+              const { deleteCheckpoint } = await import("~/lib/playground/storage")
+              await deleteCheckpoint()
+              setHasCheckpoint(false)
+              setStatus("Checkpoint deleted. Your working files are still open.")
+            })}
+        >
+          <Trash2 />Delete checkpoint
         </Button>
       </div>
     </fieldset>
