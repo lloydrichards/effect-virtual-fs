@@ -1,7 +1,5 @@
 # Research
 
-- [Effect preview drop-in evaluation](preview-drop-in.md) records the single-package experiment and the unresolved replacement contract.
-
 - [Effect filesystem public contract draft](effect-filesystem-contracts.md) assembles the stage 2 declarations, capture/restore model and adapter compatibility matrix for final review.
 
 - [Staged Effect filesystem implementation plan](minimal-effect-port.md) sequences engine-owned contracts, the Effect port, downstream packages and community-core retirement.

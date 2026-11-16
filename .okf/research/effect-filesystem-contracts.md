@@ -30,7 +30,7 @@ generated: { by: codex/okf, at: "2026-10-22T12:23:00+02:00" }
 
 # Effect filesystem public contract draft
 
-The former private core engine has been removed. The current experiment uses the single Effect preview runtime through existing core constructors; older implementation comparisons below are historical research. See [the current replacement evaluation](preview-drop-in.md).
+The implementation comparisons below predate the preview. See the [current volume architecture](../architecture/volume-caller-handle-model.md).
 
 Effect owns two modules: `VirtualFileSystem` for the in-memory filesystem and its callers, and `MemoryFileSystem` for adaptation to Effect FileSystem. Community core is retired after the [staged implementation plan](minimal-effect-port.md "implements") completes.
 

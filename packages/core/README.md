@@ -10,6 +10,8 @@ The package implements a documented subset of POSIX behavior. It does not claim 
 [implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/profiles/implemented-filesystem.md)
 for the exact permission, path, timestamp, quota, and atomicity rules.
 
+Core uses the private Effect VirtualFileSystem preview as its engine. For workspace setup and upstream refresh instructions, see the [preview package](../effect-preview/README.md).
+
 ## Install
 
 ```sh

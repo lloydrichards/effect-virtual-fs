@@ -224,6 +224,62 @@ describe("live image store service", () => {
   })
 
   it.layer(BunCrypto.layer)((it) => {
+    for (const persisted of [false, true]) {
+      const image = persisted ? "candidate" : "previous"
+      it.effect(`should restore reference keys, revisions and allocation from the ${image} image after an unknown commit`, () =>
+        Effect.gen(function*() {
+          let stored = yield* LiveVolume.prepareEmptyImage()
+          let uncertain = false
+
+          const session = yield* LiveVolume.openImage(stored, options.maxImageBytes, (candidate) =>
+            Effect.sync(() => {
+              if (!uncertain || persisted) stored = candidate
+
+              return uncertain ? "unknown" as const : "committed" as const
+            }))
+
+          const caller = yield* session.volume.caller()
+          yield* caller.mkdir("/anchor")
+          const anchor = yield* caller.stat("/anchor")
+          const key = yield* session.volume.referenceKey(yield* caller.lookup("/anchor"))
+          const before = yield* caller.stat("/")
+
+          uncertain = true
+          assert.strictEqual((yield* Effect.flip(caller.mkdir("/candidate"))).code, "OutcomeUnknown")
+          yield* session.shutdown
+
+          const reopened = yield* LiveVolume.openImage(
+            stored,
+            options.maxImageBytes,
+            () => Effect.succeed("committed" as const)
+          )
+
+          const restored = yield* reopened.volume.caller()
+          const reference = yield* reopened.volume.resolveReferenceKey(key)
+          assert.strictEqual(reference, yield* restored.lookup("/anchor"))
+          assert.deepEqual(yield* reopened.volume.referenceKey(reference), key)
+          assert.strictEqual((yield* restored.stat(reference)).revision, anchor.revision)
+          const revision = before.revision + (persisted ? 1n : 0n)
+          assert.strictEqual((yield* restored.stat("/")).revision, revision)
+
+          if (persisted) {
+            const candidate = yield* restored.stat("/candidate")
+            assert.strictEqual(candidate.ino, anchor.ino + 1n)
+            assert.strictEqual(candidate.revision, revision)
+          } else {
+            assert.strictEqual((yield* Effect.flip(restored.lookup("/candidate"))).code, "NotFound")
+          }
+
+          yield* restored.mkdir("/next")
+          const next = yield* restored.stat("/next")
+          assert.strictEqual(next.ino, anchor.ino + (persisted ? 2n : 1n))
+          assert.strictEqual(next.revision, revision + 1n)
+          yield* reopened.shutdown
+        }))
+    }
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
     it.effect(
       "should retain open content until close when unlink succeeds after rejection",
       () =>
