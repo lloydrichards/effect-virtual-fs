@@ -28,40 +28,49 @@ function FileList({ entries, parent, selected, onSelect }: {
   entries: ReadonlyArray<Entry>
   parent: string
   selected: string
-  onSelect: (path: string) => void
+  onSelect: (entry: Entry) => void
 }) {
+  const [collapsed, setCollapsed] = useState<ReadonlyArray<string>>([])
+
   return (
     <ul className="space-y-0.5">
       {entries.filter(({ path }) => path.slice(0, path.lastIndexOf("/")) === parent).map((entry) => {
         const name = entry.path.slice(parent.length + 1)
 
+        const expanded = !collapsed.includes(entry.path)
+        const Icon = entry.directory ? Folder : FileCode2
+
         return (
           <li key={entry.path}>
-            {entry.directory
-              ? (
-                <details open>
-                  <summary className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 font-mono text-xs hover:bg-sidebar-accent">
-                    <ChevronRight className="size-3 in-open:rotate-90" />
-                    <Folder className="size-3.5 text-muted-foreground" />
-                    {name}
-                  </summary>
-                  <div className="ms-3 border-s ps-1">
-                    <FileList entries={entries} parent={entry.path} selected={selected} onSelect={onSelect} />
-                  </div>
-                </details>
-              )
-              : (
+            <div className="flex items-center">
+              {entry.directory && (
                 <button
                   type="button"
-                  aria-label={entry.path}
-                  aria-current={entry.path === selected ? "true" : undefined}
-                  onClick={() => onSelect(entry.path)}
-                  className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left font-mono text-xs hover:bg-sidebar-accent aria-current:bg-accent aria-current:font-semibold aria-current:text-primary"
+                  aria-label={`${expanded ? "Collapse" : "Expand"} ${entry.path}`}
+                  aria-expanded={expanded}
+                  onClick={() =>
+                    setCollapsed(expanded ? [...collapsed, entry.path] : collapsed.filter((p) => p !== entry.path))}
+                  className="rounded p-1 hover:bg-sidebar-accent"
                 >
-                  <FileCode2 className="size-3.5 shrink-0" />
-                  <span className="break-all">{name}</span>
+                  <ChevronRight className={expanded ? "size-3 rotate-90" : "size-3"} />
                 </button>
               )}
+              <button
+                type="button"
+                aria-label={entry.path}
+                aria-current={entry.path === selected ? "true" : undefined}
+                onClick={() => onSelect(entry)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-left font-mono text-xs hover:bg-sidebar-accent aria-current:bg-accent aria-current:font-semibold aria-current:text-primary"
+              >
+                <Icon className="size-3.5 shrink-0" />
+                <span className="break-all">{name}</span>
+              </button>
+            </div>
+            {entry.directory && expanded && (
+              <div className="ms-3 border-s ps-1">
+                <FileList entries={entries} parent={entry.path} selected={selected} onSelect={onSelect} />
+              </div>
+            )}
           </li>
         )
       })}
@@ -77,7 +86,10 @@ export function FilesystemPlayground() {
   const [path, setPath] = useState("/src/value.js")
   const [source, setSource] = useState("")
   const [dirty, setDirty] = useState(false)
-  const [operation, setOperation] = useState<"New file" | "New folder" | "Rename file" | null>(null)
+  const [folder, setFolder] = useState("")
+  const selected = folder || path
+  const renameAction = folder ? "Rename folder" : "Rename file"
+  const [operation, setOperation] = useState<"New file" | "New folder" | "Rename file" | "Rename folder" | null>(null)
   const [name, setName] = useState("")
   const [hasCheckpoint, setHasCheckpoint] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -228,7 +240,7 @@ export function FilesystemPlayground() {
             {([
               ["New file", FilePlus2],
               ["New folder", FolderPlus],
-              ["Rename file", Pencil]
+              [renameAction, Pencil]
             ] as const).map(([action, Icon]) => (
               <Button
                 key={action}
@@ -236,10 +248,16 @@ export function FilesystemPlayground() {
                 variant="ghost"
                 aria-label={action}
                 title={action}
-                disabled={role !== "editor" || (action === "Rename file" && !path)}
+                disabled={role !== "editor" || (action === renameAction && !selected)}
                 onClick={() => {
                   setOperation(operation === action ? null : action)
-                  setName(action === "Rename file" ? path.slice(1) : path.slice(1, path.lastIndexOf("/") + 1))
+                  setName(
+                    action === renameAction
+                      ? selected.slice(1)
+                      : folder
+                      ? folder.slice(1) + "/"
+                      : path.slice(1, path.lastIndexOf("/") + 1)
+                  )
                 }}
               >
                 <Icon />
@@ -248,18 +266,24 @@ export function FilesystemPlayground() {
             <Button
               size="icon-xs"
               variant="ghost"
-              aria-label="Delete file"
-              title={path ? `Delete ${path}` : "Delete file"}
-              disabled={role !== "editor" || !path}
+              aria-label={folder ? "Delete folder" : "Delete file"}
+              title={folder ? `Delete ${folder} and its contents` : `Delete ${path}`}
+              disabled={role !== "editor" || !selected}
               onClick={() =>
                 act(async (_, caller) => {
-                  await caller.unlink(path)
+                  if (folder) await caller.removeFolder(folder)
+                  else await caller.unlink(path)
                   const tree = await caller.files()
-                  await select(caller, tree.find((entry) => !entry.directory)?.path ?? "")
+
+                  if (!folder || !path || path.startsWith(folder + "/")) {
+                    await select(caller, tree.find((entry) => !entry.directory)?.path ?? "")
+                  }
+
+                  setFolder("")
                   setEntries(tree)
                   setOperation(null)
                   setOutput("")
-                  setStatus("Deleted " + path)
+                  setStatus("Deleted " + selected + (folder ? " and its contents." : ""))
                 })}
             >
               <Trash2 />
@@ -279,12 +303,12 @@ export function FilesystemPlayground() {
 
                   await flush(caller)
 
-                  if (operation === "Rename file") {
-                    if (entries.some((entry) => entry.path === next && next !== path)) {
+                  if (operation === renameAction) {
+                    if (entries.some((entry) => entry.path === next && next !== selected)) {
                       throw new Error("That path already exists.")
                     }
 
-                    await caller.rename(path, next)
+                    await caller.rename(selected, next)
                   } else if (operation === "New folder") {
                     await caller.mkdir(next)
                   } else {
@@ -293,9 +317,17 @@ export function FilesystemPlayground() {
 
                   setEntries(await caller.files())
 
-                  if (operation !== "New folder") await select(caller, next)
+                  if (operation === "Rename folder") {
+                    setFolder(next)
+
+                    if (path.startsWith(folder + "/")) await select(caller, next + path.slice(folder.length))
+                  } else if (operation !== "New folder") {
+                    await select(caller, next)
+                    setFolder("")
+                  }
+
                   setOperation(null)
-                  setStatus((operation === "Rename file" ? "Renamed to " : "Created ") + next)
+                  setStatus((operation === renameAction ? "Renamed to " : "Created ") + next)
                   setOutput("")
                 })
               }}
@@ -309,18 +341,20 @@ export function FilesystemPlayground() {
                 className="w-full rounded border bg-background p-1 font-mono text-xs"
               />
               <Button type="submit" size="xs" variant="outline">
-                {operation === "New folder" ? "Add folder" : operation === "Rename file" ? "Rename" : "Add file"}
+                {operation === "New folder" ? "Add folder" : operation === renameAction ? "Rename" : "Add file"}
               </Button>
             </form>
           )}
           <FileList
             entries={entries}
             parent=""
-            selected={path}
-            onSelect={(next) =>
+            selected={selected}
+            onSelect={(entry) =>
               act(async (_, caller) => {
                 await flush(caller)
-                await select(caller, next)
+
+                if (!entry.directory) await select(caller, entry.path)
+                setFolder(entry.directory ? entry.path : "")
                 setOperation(null)
               })}
           />
@@ -395,6 +429,7 @@ export function FilesystemPlayground() {
                   ? path
                   : fallback ?? ""
               )
+              setFolder("")
               setWorkspace(saved)
               setEntries(tree)
               setOperation(null)
