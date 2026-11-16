@@ -23,12 +23,15 @@ try {
   await cp(experiment, join(scratch, "experiments/durable-mkdir"), { recursive: true })
   await symlink(dependencies, join(scratch, "node_modules"), "dir")
 
-  const file = "publication.patch"
-  const patch = await readFile(join(experiment, file))
   const seriesPath = join(scratch, "patches/series.json")
   const series = JSON.parse(await readFile(seriesPath, "utf8"))
-  series.push({ file, sha256: createHash("sha256").update(patch).digest("hex") })
-  await writeFile(join(scratch, "patches", file), patch)
+
+  for (const file of ["publication.patch", "file-cleanup.patch"]) {
+    const patch = await readFile(join(experiment, file))
+    series.push({ file, sha256: createHash("sha256").update(patch).digest("hex") })
+    await writeFile(join(scratch, "patches", file), patch)
+  }
+
   await writeFile(seriesPath, JSON.stringify(series))
 
   const run = (...args) => execFileSync(process.execPath, args, { cwd: scratch, stdio: "inherit" })
@@ -56,14 +59,16 @@ try {
   execFileSync("git", ["apply", join(experiment, "core-reopen.patch")], { cwd: core })
   run(join(dependencies, ".bin/tsc"), "-p", join(core, "tsconfig.build.json"))
   run("experiments/durable-mkdir/reopen.mjs")
+  run("experiments/durable-mkdir/cleanup.mjs")
   const vitest = join(dependencies, "vitest/vitest.mjs")
   run(vitest, "run", "test", "--maxWorkers", "2")
 
-  for (const path of ["test/LiveVolume.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
+  for (const path of ["test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
     await cp(resolve(preview, "../core", path), join(core, path))
   }
 
-  run(vitest, "run", "core/test/LiveVolume.test.ts", "-t", "should stop paths, observations, and watch registration")
+  run(vitest, "run", "core/test/LiveVolume.test.ts", "core/test/internal/virtualFileSystem.test.ts", "-t",
+    "retain open content until close|typed commit failure also contains|stop paths, observations|persist final unlinked-file cleanup|release handles and disable|include open unlinked files|retain inode identity and open unlinked content|stop the volume when final handle cleanup")
 } finally {
   await rm(scratch, { recursive: true, force: true })
 }

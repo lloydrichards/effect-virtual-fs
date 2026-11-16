@@ -1,82 +1,94 @@
-// Compiled inside the disposable core checkout. Only single-directory candidates enter this experiment.
-import { type Candidate, makeCallerTrial } from "@effect-vfs/effect-preview/durable-mkdir"
-import type * as P from "@effect-vfs/effect-preview/VirtualFileSystem"
-import { Effect, Predicate } from "effect"
-import * as Hex from "effect/encoding/Hex"
-import { type CommitProvider, Errors, State } from "./model.js"
+// Build a detached v1 image from the trial transaction, including files pinned after unlink.
+import { BytePath } from "@effect-vfs/effect-preview"
+import { installStorage } from "@effect-vfs/effect-preview/durable-mkdir"
+import * as P from "@effect-vfs/effect-preview/VirtualFileSystem"
+import { Cause, Effect, Exit, Predicate } from "effect"
+import type { CommitOutcome } from "../LiveVolume.js"
+import { type CommitProvider, State } from "./model.js"
+import { assemble, type NodeSpec } from "./volumeState.js"
 
-export { resumeAllocator } from "@effect-vfs/effect-preview/durable-mkdir"
+export { cleanupError, resumeAllocator } from "@effect-vfs/effect-preview/durable-mkdir"
 
-export const makeLiveMkdir = (
+export const attachStore = (
+  actor: Parameters<typeof installStorage>[0],
   initial: State.VolumeState,
   provider: CommitProvider<State.VolumeState>,
-  freeze: () => void
+  freeze: () => void,
+  frozen: () => boolean
 ) => {
   let committed = initial
 
-  const offer = Effect.fnUntraced(function*(candidate: Candidate) {
-    const parent = State.getNode(committed, State.Ino(Number(candidate.parent.objectNumber)))
+  return installStorage(actor, (nodes, changed, next, operation) =>
+    Effect.gen(function*() {
+      const revision = committed.revision + 1n
+      const links = new Map<bigint, Array<State.Link>>()
+      const open = new Map<State.Ino, number>()
+      const specs: Array<NodeSpec> = []
 
-    if (parent?.kind !== "directory") throw new Error("Missing committed mkdir parent")
-    const name = Hex.encode(candidate.name)
-    const ino = State.Ino(Number(candidate.child.objectNumber))
-    const revision = committed.revision + 1n
+      for (const node of nodes.values()) {
+        if (node.kind !== "directory") continue
 
-    const metadata = (record: Candidate["child"]) => ({
-      kind: "directory" as const,
-      ino: record.objectNumber,
-      nlink: Number(record.nlink),
-      size: 0n,
-      uid: record.uid,
-      gid: record.gid,
-      mode: record.mode,
-      atimeNs: record.atime,
-      mtimeNs: record.mtime,
-      ctimeNs: record.ctime,
-      birthtimeNs: record.birthtime
-    })
+        for (const [name, entry] of node.entries.entries()) {
+          const names = links.get(entry.object) ?? []
+          names.push({ parent: State.Ino(Number(node.id)), name })
+          links.set(entry.object, names)
+        }
+      }
 
-    const inodes = State.setNode(committed.inodes, {
-      ...parent,
-      entries: new Map(parent.entries).set(name, ino),
-      metadata: metadata(candidate.parent),
-      revision
-    })
+      for (const node of nodes.values()) {
+        const ino = State.Ino(Number(node.id))
+        const names = links.get(node.id) ?? []
 
-    const state: State.VolumeState = {
-      ...committed,
-      inodes: State.setNode(inodes, {
-        kind: "directory",
-        ino,
-        parent: parent.ino,
-        name,
-        entries: new Map(),
-        metadata: metadata(candidate.child),
-        revision
-      }),
-      entries: committed.entries + 1,
-      nextInode: State.Ino(Number(candidate.nextObject)),
-      revision
-    }
-
-    const outcome = yield* provider.commit(state).pipe(Effect.orElseSucceed(() => "rejected" as const))
-
-    if (outcome === "committed") committed = state
-
-    return Predicate.isTagged(outcome, "Rejected") ? "rejected" : outcome
-  })
-
-  // eslint-disable-next-line effecttsgo/experimental-api-usage -- Compile against the trial preview caller.
-  return (actor: P.VirtualFileSystem, target: P.Path, options: P.MkdirOptions) =>
-    makeCallerTrial(actor, offer).mkdir(target, options).pipe(
-      Effect.mapError((error) => {
-        if (Predicate.isTagged(error, "VolumeUnavailable")) {
-          freeze()
-
-          return Errors.fsFailure("OutcomeUnknown", "mkdir")
+        const common = {
+          ino,
+          revision: changed.has(node.id) ? revision : State.getNode(committed, ino)!.revision,
+          metadata: {
+            mode: node.mode,
+            uid: node.uid,
+            gid: node.gid,
+            atimeNs: node.atime,
+            mtimeNs: node.mtime,
+            ctimeNs: node.ctime,
+            birthtimeNs: node.birthtime
+          }
         }
 
-        return Predicate.isTagged(error, "StorageRejected") ? Errors.fsFailure("StorageRejected", "mkdir") : error
-      })
-    )
+        if (node.kind === "directory") {
+          specs.push({
+            ...common,
+            kind: "directory",
+            parent: State.Ino(Number(node.parent ?? node.id)),
+            name: names[0]?.name ?? ""
+          })
+        } else if (node.kind === "file") {
+          if (names.length === 0) open.set(ino, 1)
+          specs.push({ ...common, kind: "file", links: names, data: node.data.slice() })
+        } else {
+          specs.push({ ...common, kind: "symlink", links: names, target: BytePath.toBytes(node.target) })
+        }
+      }
+
+      const candidate = { ...assemble(specs), open, revision, nextInode: State.Ino(Number(next)) }
+
+      const decision = yield* Effect.exit(
+        Effect.suspend((): Effect.Effect<CommitOutcome, { readonly code: "StorageRejected" }> =>
+          provider.commit(candidate)
+        )
+      )
+
+      if (Exit.isSuccess(decision) && decision.value === "committed") {
+        committed = candidate
+
+        return
+      }
+
+      const rejected = Exit.isSuccess(decision)
+        ? decision.value === "rejected" || Predicate.isTagged(decision.value, "Rejected")
+        : decision.cause.reasons.length > 0 && decision.cause.reasons.every(Cause.isFailReason)
+
+      if (!rejected || operation === "close") freeze()
+
+      // eslint-disable-next-line effecttsgo/experimental-api-usage -- Scratch preview storage decision.
+      return yield* new P.InvalidResource({ operation, reason: rejected ? "storageRejected" : "outcomeUnknown" })
+    }), frozen)
 }

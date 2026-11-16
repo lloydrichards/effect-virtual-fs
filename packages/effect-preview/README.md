@@ -42,7 +42,7 @@ Use this package's `BytePath`, `Schema`, and `DateTime` exports when using the p
 BytePath values are authenticated by one module-local registry. Convert community paths through bytes when crossing
 implementations. References, revisions, handles, and callers belong to their issuing filesystem and are not transferable.
 
-## Try a durable mkdir
+## Try durable mkdir and final file-handle cleanup
 
 From the repository root, run the storage-decision experiment with the workspace dependencies installed.
 
@@ -50,8 +50,8 @@ From the repository root, run the storage-decision experiment with the workspace
 bun packages/effect-preview/experiments/durable-mkdir/run.mjs
 ```
 
-The runner applies an experimental patch after the 27 MVP patches in a temporary package, compiles it, and runs the
-mkdir checks and the existing preview tests. The store receives the new directory, its parent’s staged metadata,
+The runner applies experimental patches after the 27 MVP patches in a temporary package, compiles it, and runs the
+publication checks and the existing preview tests. The store receives the new directory, its parent’s staged metadata,
 the binding name and the next object number. A confirmed commit releases queued reads to see the new directory.
 Rejection preserves the parent revision and the object number for a retry. An uncertain outcome makes the trial
 session unavailable.
@@ -61,7 +61,12 @@ offers one mkdir to a file-backed store, closes the session and reopens the pers
 The checks resolve saved reference keys before any path lookup, compare root and child revisions, and allocate another
 directory after reopening. For an unknown decision the store either keeps the old image or writes the candidate before
 returning `unknown`. The initiating mkdir reports `OutcomeUnknown`. Queued work and later calls report
-`VolumeUnavailable` until a fresh session opens the image on disk. Process death and final handle cleanup remain open. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
+`VolumeUnavailable` until a fresh session opens the image on disk.
+
+For file cleanup, the trial persists unlinked bytes while a handle remains open. Closing the last handle offers
+one image without the file. Rejection or an unknown outcome releases the handle and freezes the session. Reopen drops
+unlinked files from either image and preserves the inode allocator. The runner exercises explicit close, scope cleanup
+and the existing core file-cleanup tests. Process death and detached-directory cleanup remain open. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
 
 ## Regenerate the pinned port offline
 

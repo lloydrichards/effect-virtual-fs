@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Exit, Result } from "effect"
+import { Context, Data, Effect, Exit, Result, Semaphore } from "effect"
 import * as BytePath from "../../src/compat/BytePath.js"
 import * as Atomic from "../../src/virtual-file-system/internal/atomic.js"
 import * as Engine from "../../src/virtual-file-system/internal/engine.js"
@@ -50,7 +50,7 @@ export const makeMkdirTrial = Effect.fnUntraced(function*(offer: Offer) {
   return makeCallerTrial(authorized, offer)
 })
 
-export const makeCallerTrial = (authorized: Model.VirtualFileSystem, offer: Offer) => {
+const makeCallerTrial = (authorized: Model.VirtualFileSystem, offer: Offer) => {
   const caller = Engine.callers.get(authorized)
 
   if (caller === undefined) throw new Error("Missing authorized preview caller")
@@ -194,4 +194,23 @@ export const resumeAllocator = (authorized: Model.VirtualFileSystem, nextObject:
   engine.nextObject = nextObject
 
   return (ino: bigint) => engine.reference(ino)
+}
+
+export { cleanupError } from "../../src/virtual-file-system/internal/handles.js"
+
+export const installStorage = (
+  actor: Model.VirtualFileSystem,
+  offer: NonNullable<Engine.Engine["offer"]>,
+  frozen: () => boolean
+) => {
+  const caller = Engine.callers.get(actor)
+
+  if (!caller) throw new Error("Missing durable caller")
+  const engine = Engine.resolveEngine(caller)
+  const gate = Semaphore.makeUnsafe(1)
+  engine.offer = offer
+  engine.runtime.storageUnavailable = frozen
+  engine.runtime.storageTurn = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(effect)
+
+  return gate.withPermit(Effect.void)
 }

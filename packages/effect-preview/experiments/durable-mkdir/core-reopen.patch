@@ -13,55 +13,54 @@
    VolumeTestSeams,
    WriteFileOptions as WriteSchema
  } from "./model.js"
-+import { makeLiveMkdir, resumeAllocator } from "./durableMkdirTrial.js"
++import { attachStore, cleanupError, resumeAllocator } from "./durableMkdirTrial.js"
 +import type * as LiveImage from "./liveImage.js"
  import * as Limits from "./volumeLimits.js"
  import { assemble, type NodeSpec, reachableValue } from "./volumeState.js"
  import * as VolumeWatch from "./volumeWatch.js"
-@@ -168,6 +170,8 @@
+@@ -114,6 +116,9 @@
+
+     {
+       switch (error.reason) {
++        case "storageRejected": return "StorageRejected"
++        case "outcomeUnknown": return "OutcomeUnknown"
++        case "volumeUnavailable": return "VolumeUnavailable"
+         case "symlinkCycle":
+         case "symlinkLimit":
+         case "refusedSymlink":
+@@ -168,6 +173,8 @@
  }
  
  export interface Runtime {
 +  frozen?: boolean
-+  liveMkdir?: ReturnType<typeof makeLiveMkdir>
++  storageReady?: Effect.Effect<void>
    readonly owner: P.Owner
    readonly subscribeCaller: ReturnType<typeof VolumeWatch.make>["subscribeCaller"]
    readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
-@@ -299,6 +303,10 @@
+@@ -299,6 +306,11 @@
  
      // Keep the arrival gate while a stale read waits, so later observers cannot overtake it.
      const work = runtime.gate.withPermit(Effect.gen(function*() {
++      if (runtime.storageReady) yield* runtime.storageReady
 +      if (runtime.frozen) return yield* Errors.fsFailure("VolumeUnavailable", operation)
-+      if (runtime.liveMkdir && !["root", "mkdir", "lookup", "stat", "watch"].includes(operation)) {
++      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "write", "close", "unlink"].includes(operation)) {
 +        return yield* blocked("mkdirTrialOnly")
 +      }
        const readers = runtime.captureReaders
-
-       if (readers === undefined || captureObservations.has(operation)) return yield* run
-@@ -2077,7 +2085,7 @@
-           Effect.gen(function*() {
-             const selected = o?.exactMode ? yield* withMask(actor, t, 0) : actor
  
--            return yield* selected.makeDirectory(t, {
-+            const options: P.MkdirOptions = {
-               mode: creationMode(o?.mode, 0o1777, o?.exactMode),
-               recursive: o?.recursive,
-               preserveTimes: o?.times === undefined ? undefined : {
-@@ -2086,7 +2094,13 @@
-                   o.times.modification.kind === "value" ? o.times.modification.nanoseconds : runtime.readClock()
-                 )
-               }
--            })
-+            }
-+
-+            if (runtime.liveMkdir) {
-+              if ((!Predicate.isString(t) && !Path.isBytePath(t)) || options.recursive) return yield* blocked("mkdirTrialOnly")
-+              return yield* runtime.liveMkdir(selected, t, options)
-+            }
-+            return yield* selected.makeDirectory(t, options)
-           }),
-         o?.recursive
+       if (readers === undefined || captureObservations.has(operation)) return yield* run
+@@ -993,8 +1005,10 @@
+       mapped(handle.stat()).pipe(
+         Effect.andThen(handle.close()),
+         Effect.andThen(positioned === handle ? Effect.void : positioned.close()),
+-        Effect.andThen(Effect.sync(() => {
++        Effect.andThen(Effect.suspend(() => {
+           closed = true
++          const error = runtime.storageReady && (cleanupError(handle) ?? cleanupError(positioned))
++          return error ? Effect.fail(failure(error, "close")) : Effect.void
+         }))
        )
+     )
 @@ -2928,16 +2942,19 @@
    | { readonly _tag: "Restored" | "Overlay"; readonly value: State.VolumeState }
    | {
@@ -80,17 +79,19 @@
 -    if (provider.mode !== "memory" || Predicate.isTagged(source, "Live")) return yield* blocked("durableCommit")
 +    const live = input._tag === "Live" ? input.restored : undefined
 +    const source = input._tag === "Live" ? { _tag: "Live" as const, value: input.restored.value } : input
-+    if ((provider.mode === "durable") !== (live !== undefined)) return yield* blocked("durableCommit")
++    const durable = provider.mode === "durable"
      const checked = yield* Effect.fromResult(Limits.configuration(options))
      const limits = checked.limits
  
-@@ -3063,11 +3080,20 @@
+@@ -3063,11 +3080,22 @@
      }
  
      const random = yield* SecureRandom.SecureRandom
 -    const identity = checked.identity ?? VolumeIdentity.make(Hex.encode(yield* random.randomBytes(16)))
++    if (durable) {
++      runtime.storageReady = attachStore(ownerCaller, live?.value ?? State.emptyState(initialTime), provider, () => { runtime.frozen = true }, () => runtime.frozen === true)
++    }
 +    if (live) {
-+      runtime.liveMkdir = makeLiveMkdir(live.value, provider, () => { runtime.frozen = true })
 +      runtime.revision = live.value.revision
 +      const referenceFor = resumeAllocator(ownerCaller, BigInt(live.value.nextInode))
 +      for (const [, node] of live.value.inodes) {
@@ -108,20 +109,20 @@
  
      const keyTag = (ino: bigint) => {
        const message = new Uint8Array(40)
-@@ -3105,6 +3131,12 @@
+@@ -3105,6 +3133,12 @@
 
      const observe = <A, E, R>(observation: Effect.Effect<A, E, R>) => {
        const readers = runtime.captureReaders
 +
-+      if (live) {
-+        return runtime.gate.withPermit(Effect.suspend((): Effect.Effect<A, E | V.FsFailure, R> =>
++      if (durable) {
++        return runtime.gate.withPermit(Effect.andThen(runtime.storageReady!, (): Effect.Effect<A, E | V.FsFailure, R> =>
 +          runtime.frozen ? Effect.fail(Errors.fsFailure("VolumeUnavailable", "observe")) : observation
 +        ))
 +      }
 
        if (readers === undefined) return observation
 
-@@ -3145,7 +3177,7 @@
+@@ -3145,7 +3179,7 @@
          ))
 
          return wrapCaller(runtime, caller, limits, [], [1n], chosen.identity)
@@ -130,7 +131,7 @@
        watch: (options) =>
          execute(
            runtime,
-@@ -3198,6 +3230,6 @@
+@@ -3198,6 +3232,6 @@
  
      runtimes.set(volume, runtime)
  
