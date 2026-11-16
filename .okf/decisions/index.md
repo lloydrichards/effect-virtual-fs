@@ -9,6 +9,7 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 - [Snapshot search](snapshot-search.md) accepts Unicode filename search and explicit native-regex content search over immutable snapshots, with paired Streams and bounded reports. Implementation is tracked in three slices.
 - [Explicit API and Effect services](core/explicit-api-and-effect-services.md)
 - [Strict string filename boundary](core/strict-string-filename-boundary.md)
+- [Confined caller authority](core/confined-caller-authority.md) defines identity-rooted authority and imported boundaries.
 - [Explicit caller privilege](core/explicit-caller-privilege.md)
 - [Snapshot-local file identity](core/snapshot-local-file-identity.md)
 - [JSON and base64 snapshots](core/json-and-base64-snapshots.md)
@@ -54,6 +55,7 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 - [NFS profile ladder](nfs/nfs-profile-ladder.md) separates NFSv4.1 capability profiles from maturity labels and fixes the evidence each level requires.
 - [NFS authentication and export policy](nfs/nfs-authentication-and-export-policy.md) excludes Kerberos, and maps trusted `AUTH_SYS` identity to VFS callers behind an application-supplied policy.
 - [NFS filesystem error mapping](nfs/error-mapping.md) defines the core-error map and writable operation overrides.
+- [Writable NFS owner strings](nfs/writable-owner-strings.md) defines accepted numeric IDs and who may change ownership.
 - [Writable NFS export scope](nfs/writable-export-scope.md) records the accepted authority, operation, lock, durability, and restart milestones.
 - [NFS interoperability and fault evidence](nfs/nfs-interoperability-evidence.md) fixes the pinned clients and suites, the CI and release gates, the five suite-failure classes, and the fault cases each stage needs.
 

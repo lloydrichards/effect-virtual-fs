@@ -6,9 +6,9 @@ status: stable
 tags: [fixtures, testing, validation]
 sources:
   - id: fixtures
-    resource: ../../../packages/core/src/internal/virtualFileSystem/fixture.ts
+    resource: ../../../packages/core/src/internal/fixture.ts
     title: Fixture validation and construction
-generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Final-state fixtures

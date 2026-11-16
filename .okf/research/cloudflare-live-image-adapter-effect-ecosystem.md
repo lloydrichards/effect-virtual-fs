@@ -9,7 +9,7 @@ sources:
     resource: https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts
     title: LiveImageStore contract
   - id: writable-test-app
-    resource: https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/nfs-r2-writable-test/README.md
+    resource: ../../apps/demo-r2-nfs/README.md
     title: Local R2-backed writable NFS test app
   - id: effect-manifest
     resource: https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/package.json
@@ -74,7 +74,7 @@ sources:
   - id: alchemy-do
     resource: https://alchemy.run/cloudflare/compute/durable-objects/
     title: Alchemy Durable Object deployment and typed RPC
-generated: { by: codex/okf, at: "2026-10-02T10:00:00+00:00" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Effect integration choices for a Cloudflare live image store
@@ -110,7 +110,7 @@ Cloudflare documents a one-per-second limit for **concurrent** writes to the sam
 
 The basic adapter is small because the core supplies image serialization and staged mutation. The larger work is proving exclusive ownership, stale-writer fencing, recovery from ambiguous writes, size and throughput under whole-image replacement, and the stable-write guarantee through the NFS response path. A Durable Object can supply a serialized owner, but using it as the authoritative volume rather than a remote store changes the gateway design. [Existing Cloudflare feasibility note](cloudflare-durable-object-live-image.md "builds on").
 
-The [writable NFS test app](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/nfs-r2-writable-test/README.md) now uses public `NfsServer.make({ writable: true })` with a verified R2 S3 endpoint, an explicit one-identity policy, and a bounded image. The public constructor rejects `memory-only` volumes; the app explicitly asserts `survives-power-loss` from Cloudflare's documented rule that a successful R2 API write has been persisted to disk. The application must run one gateway for the image; there is no distributed lease. On 2026-09-21 independent macOS and Debian NFSv4.1 clients passed alternating writes and visibility; Debian passed acknowledged `fsync` plus gateway `SIGKILL` recovery. Through the public profile, Debian passed write, `fsync`, rename, readback, and fresh-process reopen. A real HTTP fault discarded R2's successful response during a file-content `WRITE`: Debian received `EIO`, and a fresh gateway recovered the complete new bytes. Another fault during `mkdir` returned `EIO`, refused the next mutation, and recovered only the first directory. The first mount earlier revealed a missing mapped-caller write grant in NFS `ACCESS`; that has a regression test. This evidence supports the narrow single-gateway R2 profile, but it does not test Cloudflare's physical infrastructure or provide unattended client state recovery. [R2 durability](https://developers.cloudflare.com/r2/reference/durability/).
+The writable NFS test app in `apps/demo-r2-nfs` now uses public `NfsServer.make({ writable: true })` with a verified R2 S3 endpoint, an explicit one-identity policy, and a bounded image. The public constructor rejects `memory-only` volumes; the app explicitly asserts `survives-power-loss` from Cloudflare's documented rule that a successful R2 API write has been persisted to disk. The application must run one gateway for the image; there is no distributed lease. On 2026-09-21 independent macOS and Debian NFSv4.1 clients passed alternating writes and visibility; Debian passed acknowledged `fsync` plus gateway `SIGKILL` recovery. Through the public profile, Debian passed write, `fsync`, rename, readback, and fresh-process reopen. A real HTTP fault discarded R2's successful response during a file-content `WRITE`: Debian received `EIO`, and a fresh gateway recovered the complete new bytes. Another fault during `mkdir` returned `EIO`, refused the next mutation, and recovered only the first directory. The first mount earlier revealed a missing mapped-caller write grant in NFS `ACCESS`; that has a regression test. This evidence supports the narrow single-gateway R2 profile, but it does not test Cloudflare's physical infrastructure or provide unattended client state recovery. [R2 durability](https://developers.cloudflare.com/r2/reference/durability/).
 
 [^alchemy-adapter]: `fromAlchemy` adapts native R2 reads and conditional writes with image metadata.
 

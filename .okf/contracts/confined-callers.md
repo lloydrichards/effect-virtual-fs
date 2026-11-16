@@ -6,12 +6,8 @@ status: stable
 tags: [authority, callers, confinement, watches]
 sources:
   - resource: ../../packages/core/src/internal/runtime.ts
-    title: Draft-aware live membership checks
-  - resource: ../../packages/core/src/internal/runtime.ts
-    title: Confined lookup and imported bases
-  - resource: ../../packages/core/src/internal/runtime.ts
-    title: Caller, handle, and coordinated mutation integration
-  - resource: ../../packages/core/src/internal/callerWatch.ts
+    title: Core caller, handle, and confined lookup integration
+  - resource: ../../packages/core/src/internal/callerWatchSelection.ts
     title: Publication-time watch selection
   - resource: ../../packages/core/test/Confinement.test.ts
     title: Escape, scope, staged removal, and rejected commit acceptance
@@ -19,7 +15,7 @@ sources:
     title: Alias selection, terminal delivery, and imported authority acceptance
   - resource: ../../packages/memory/test/BindCaller.test.ts
     title: Borrowed adapter and temporary cleanup acceptance
-generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Confined callers

@@ -20,7 +20,7 @@ sources:
   - id: restore-tests
     resource: ../../packages/core/test/Snapshot.test.ts
     title: Restored revisions match across captured and decoded snapshots
-generated: { by: claude/okf, at: "2026-09-26T15:00:00+02:00" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Mutation revisions and coordinated observations
@@ -48,3 +48,5 @@ Focused fixed-clock tests cover same-length writes, hard-link aliases, metadata 
 [^replacement-tests]: Existing replacement tests ground publication and failure invariants that revisions must preserve.
 
 [^restore-tests]: The round-trip suite restores one snapshot four ways and compares the revisions each reports and advances.
+
+[^reference-tests]: Atomic reference mutation result tests.

@@ -26,7 +26,7 @@ sources:
   - id: nfs-source
     resource: ../../packages/nfs/src/NfsServer.ts
     title: NFS server public implementation
-generated: { by: codex/okf, at: "2026-10-04T17:12:00Z" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Implemented filesystem
@@ -42,6 +42,8 @@ The core also creates writable [overlay workspaces](../contracts/overlay-workspa
 The supported behavior is a [bounded POSIX profile](bounded-posix.md "constrained by"), not POSIX certification. Detailed rules are organized in `.okf/contracts/index.md`, with central ownership described by [resources and authority](../contracts/resources-and-authority.md "refined by") and durable state by [snapshots and fixtures](../contracts/snapshots-and-fixtures.md "refined by").
 
 `@effect-vfs/memory` binds a core volume to Effect's existing `FileSystem` service and preserves adapter-specific compatibility behavior. `make` and `layer` create a fresh volume containing `/tmp`; `bind` exposes an existing volume without changing its tree. See the [memory adapter compatibility contract](../contracts/memory-adapter-compatibility.md "refined by").
+
+The [direct Node provider](../contracts/node-provider.md "refined by") binds a synchronous memory-backed volume to Node. The [mounted filesystem contract](../contracts/node-mounted.md "refined by") records qualified filesystem, stream and module-loader behavior and the pinned Node runtime.
 
 Snapshots use a strict version 1 JSON/base64 representation. Capture and restore isolate storage, retain reachable namespace and metadata, and exclude live handles, caller state, subscriptions, and unreachable content. The [virtual-build consumer contract](../contracts/virtual-build-consumer.md "refined by") demonstrates build and rebuild through public exports, including a bounded virtual-package import case.
 

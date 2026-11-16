@@ -9,14 +9,16 @@ sources:
     title: Repository overview
   - resource: ../../package.json
     title: Workspace definition
+  - resource: ../../apps/docs/app/api-pages.ts
+    title: Generated API page registry
   - resource: ../../apps/docs/package.json
     title: Documentation application manifest
-generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Project knowledge overview
 
-Effect Virtual FS provides a runtime-neutral filesystem core with overlay workspaces and portable snapshot deltas, an Effect `FileSystem` adapter, a [direct Node provider](../contracts/node-provider.md "implemented by"), SQLite-backed named checkpoints, a read-only NFSv4.1 export for local native tools, and a bounded virtual-build consumer. Its static documentation application publishes a landing page and generated API references for the public core, memory, and persistence entrypoints; the NFS package is documented by its README and the [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "described by").
+Effect Virtual FS provides a runtime-neutral core with snapshots, overlays, portable deltas, and adapters for Effect and Node. The [direct Node provider](../contracts/node-provider.md "implemented by") and [mounted Node contract](../contracts/node-mounted.md "implemented by") describe the two Node entry points. Persistence supplies named SQLite checkpoints and live-image stores. The [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "described by") records which native clients, storage guarantees, and restart behavior each export supports. The virtual-build application exercises package consumption. The documentation site publishes generated API references for core, memory, persistence, and NFS.
 
 Start with the [system boundaries](../architecture/system-boundaries.md "described by") to understand ownership, then use the [implemented filesystem profile](implemented-filesystem.md "implemented by") to reach current behavior. Work outside that contract is listed under [deferred capabilities](deferred-capabilities.md "excludes") and must remain distinguishable from implemented support.
 

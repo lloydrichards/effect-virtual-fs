@@ -12,7 +12,7 @@ sources:
     resource: ../../../packages/core/src/internal/virtualFileSystem.ts
     title: Admission and change publication
   - id: hub
-    resource: ../../../packages/core/src/internal/watchHub.ts
+    resource: ../../../packages/core/src/internal/volumeWatch.ts
     title: Per-subscriber watch queues
   - id: adapter
     resource: ../../../packages/memory/src/internal/memoryFileSystem.ts
@@ -27,16 +27,16 @@ sources:
     resource: ../../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter overflow test
   - id: pubsub
-    resource: ../../../node_modules/effect/src/PubSub.ts
+    resource: ../../../packages/core/node_modules/effect/src/PubSub.ts
     title: Effect PubSub publishUnsafe implementation
-generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Watch event overflow
 
 ## Admission
 
-`maxPendingOperations` defaults to 64. The volume admits at most 65 callers at once, the same number as the gate holds permits; an observation takes one and a mutation or watch registration takes them all. Excess mutations, observations, and watch registrations fail with retryable `FsError` code `VolumeBusy` before mutation or durable commit. All three permit waits are interruptible; watch registration installs its finalizer before it waits, so a scope that closes during registration still removes the subscriber. Cleanup finalizers and provider shutdown can still enter the volume. NFS maps `VolumeBusy` to `NFS4ERR_DELAY` in both the default read-only and guarded writable profiles.[^engine]
+`maxPendingOperations` defaults to 64. The volume admits at most 65 callers at once, the same number as the gate holds permits; an observation takes one and a mutation or watch registration takes them all. Excess mutations, observations, and watch registrations fail with retryable `VfsError` code `VolumeBusy` before mutation or durable commit. All three permit waits are interruptible; watch registration installs its finalizer before it waits, so a scope that closes during registration still removes the subscriber. Cleanup finalizers and provider shutdown can still enter the volume. NFS maps `VolumeBusy` to `NFS4ERR_DELAY` in both the default read-only and guarded writable profiles.[^engine]
 
 ## Watch retention and recovery
 

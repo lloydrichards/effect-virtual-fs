@@ -27,15 +27,15 @@ sources:
     resource: ../../packages/core/test/SnapshotDelta.test.ts
     title: Hostile decoding and exact-boundary limit tests
   - id: effect-crypto
-    resource: https://github.com/Effect-TS/effect/blob/main/packages/effect/src/Crypto.ts
-    title: Effect platform-neutral Crypto service
+    resource: ../../packages/core/node_modules/effect/src/crypto/Digest.ts
+    title: Installed Effect digest service and Web Crypto provider
   - id: merge
     resource: ../../packages/core/src/internal/snapshotMerge.ts
     title: Merge classification, hard-link partition check, resolutions and emission
   - id: merge-tests
     resource: ../../packages/core/test/SnapshotMerge.test.ts
     title: Merge conflict table and property laws
-generated: { by: claude/okf, at: 2026-11-11T20:35:41+00:00 }
+generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
 
 # Portable snapshot deltas
@@ -84,7 +84,7 @@ Hard links are merged per node, using each side's final tree to tell which names
 
 [^budget]: `budget.ts` holds the internal budget, and `DecodeLimits` and `SnapshotDeltaLimits` decode into it with their public field names unchanged.
 
-[^effect-crypto]: Runtime packages provide native Node, Bun, browser and Deno implementations; the filesystem core depends only on the Effect service interface.
+[^effect-crypto]: The core API accepts the Effect services. Its examples provide NodeCrypto.layer, BunCrypto.layer, or the two Web Crypto layers.
 
 [^merge]: `snapshotMerge.ts` indexes both verified documents by path, classifies paths top down with timestamp-only updates treated as unchanged, compares each side's partition of a base node's names before the path loop, and emits one change list by lineage for the existing fold to validate and digest.
 
