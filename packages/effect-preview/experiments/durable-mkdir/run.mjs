@@ -2,7 +2,7 @@
 /* eslint-disable effecttsgo/node-builtin-import */
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
-import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -33,13 +33,29 @@ try {
 
   const run = (...args) => execFileSync(process.execPath, args, { cwd: scratch, stdio: "inherit" })
   run("scripts/sync.mjs")
+  // Compile the trial alongside this engine so the caller registry and revision tokens share one instance.
+  const trialSource = await readFile(join(experiment, "trial.ts"), "utf8")
+  await mkdir(join(scratch, "src/trial"))
+  await writeFile(join(scratch, "src/trial/mkdir.ts"), trialSource.replaceAll("../../src/", "../"))
+  const manifestPath = join(scratch, "package.json")
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"))
+  manifest.exports["./durable-mkdir"] = { types: "./dist/trial/mkdir.d.ts", import: "./dist/trial/mkdir.js" }
+  await writeFile(manifestPath, JSON.stringify(manifest))
   run(join(dependencies, ".bin/tsc"), "-p", "tsconfig.build.json")
-  await writeFile(join(scratch, "tsconfig.trial.json"), JSON.stringify({
-    extends: "./tsconfig.json",
-    include: ["experiments/durable-mkdir/trial.ts"]
-  }))
-  run(join(dependencies, ".bin/tsc"), "--noEmit", "-p", "tsconfig.trial.json")
   run("experiments/durable-mkdir/check.mjs")
+
+  const core = join(scratch, "core")
+
+  for (const path of ["src", "package.json", "tsconfig.build.json"]) {
+    await cp(resolve(preview, "../core", path), join(core, path), { recursive: true })
+  }
+
+  await mkdir(join(core, "node_modules/@effect-vfs"), { recursive: true })
+  await symlink(scratch, join(core, "node_modules/@effect-vfs/effect-preview"), "dir")
+  await cp(join(experiment, "core-adapter.ts"), join(core, "src/internal/durableMkdirTrial.ts"))
+  execFileSync("git", ["apply", join(experiment, "core-reopen.patch")], { cwd: core })
+  run(join(dependencies, ".bin/tsc"), "-p", join(core, "tsconfig.build.json"))
+  run("experiments/durable-mkdir/reopen.mjs")
   run(join(dependencies, "vitest/vitest.mjs"), "run", "test", "--maxWorkers", "2")
 } finally {
   await rm(scratch, { recursive: true, force: true })

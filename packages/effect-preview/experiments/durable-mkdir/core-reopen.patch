@@ -1,0 +1,114 @@
+--- a/src/internal/runtime.ts
++++ b/src/internal/runtime.ts
+@@ -3,7 +3,7 @@
+ import { BytePath as Path, VirtualFileSystem as P } from "@effect-vfs/effect-preview"
+ import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
+ import { unsafeFromOwnedRecords } from "@effect-vfs/effect-preview/internal/ownedCapture"
+-import { ByteSize, Data, Effect, Iterable, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
++import { ByteSize, Data, Effect, Exit, Iterable, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
+ import * as Clock from "effect/Clock"
+ import * as SecureRandom from "effect/crypto/SecureRandom"
+ import * as Hex from "effect/encoding/Hex"
+@@ -42,6 +42,8 @@
+   VolumeTestSeams,
+   WriteFileOptions as WriteSchema
+ } from "./model.js"
++import { makeLiveMkdir, resumeAllocator } from "./durableMkdirTrial.js"
++import type * as LiveImage from "./liveImage.js"
+ import * as Limits from "./volumeLimits.js"
+ import { assemble, type NodeSpec, reachableValue } from "./volumeState.js"
+ import * as VolumeWatch from "./volumeWatch.js"
+@@ -168,6 +170,7 @@
+ }
+ 
+ export interface Runtime {
++  liveMkdir?: ReturnType<typeof makeLiveMkdir>
+   readonly owner: P.Owner
+   readonly subscribeCaller: ReturnType<typeof VolumeWatch.make>["subscribeCaller"]
+   readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
+@@ -269,6 +272,7 @@
+   destination?: V.TargetInput | V.EntryInput
+ ): Effect.Effect<A, V.FsFailure, R> =>
+   Effect.suspend(() => {
++    if (runtime.liveMkdir && !["mkdir", "lookup", "stat"].includes(operation)) return blocked("mkdirTrialOnly")
+     if (runtime.owner.limits.synchronous && runtime.busy) return Effect.fail(Errors.fsFailure("VolumeBusy", operation))
+ 
+     const run = Effect.acquireUseRelease(
+@@ -2077,7 +2081,7 @@
+           Effect.gen(function*() {
+             const selected = o?.exactMode ? yield* withMask(actor, t, 0) : actor
+ 
+-            return yield* selected.makeDirectory(t, {
++            const options: P.MkdirOptions = {
+               mode: creationMode(o?.mode, 0o1777, o?.exactMode),
+               recursive: o?.recursive,
+               preserveTimes: o?.times === undefined ? undefined : {
+@@ -2086,7 +2090,13 @@
+                   o.times.modification.kind === "value" ? o.times.modification.nanoseconds : runtime.readClock()
+                 )
+               }
+-            })
++            }
++
++            if (runtime.liveMkdir) {
++              if ((!Predicate.isString(t) && !Path.isBytePath(t)) || options.recursive) return yield* blocked("mkdirTrialOnly")
++              return yield* runtime.liveMkdir(selected, t, options)
++            }
++            return yield* selected.makeDirectory(t, options)
+           }),
+         o?.recursive
+       )
+@@ -2928,16 +2938,19 @@
+   | { readonly _tag: "Restored" | "Overlay"; readonly value: State.VolumeState }
+   | {
+     readonly _tag: "Live"
++    readonly restored: LiveImage.Restored
+   }
+ 
+ export const makeVolume = Effect.fnUntraced(
+   function*(
+-    source: Source,
++    input: Source,
+     provider: CommitProvider<State.VolumeState>,
+     options?: V.VolumeOptions,
+     _durability?: V.VolumeDurability
+   ) {
+-    if (provider.mode !== "memory" || Predicate.isTagged(source, "Live")) return yield* blocked("durableCommit")
++    const live = input._tag === "Live" ? input.restored : undefined
++    const source = input._tag === "Live" ? { _tag: "Live" as const, value: input.restored.value } : input
++    if ((provider.mode === "durable") !== (live !== undefined)) return yield* blocked("durableCommit")
+     const checked = yield* Effect.fromResult(Limits.configuration(options))
+     const limits = checked.limits
+ 
+@@ -3063,11 +3076,20 @@
+     }
+ 
+     const random = yield* SecureRandom.SecureRandom
+-    const identity = checked.identity ?? VolumeIdentity.make(Hex.encode(yield* random.randomBytes(16)))
++    if (live) {
++      runtime.liveMkdir = makeLiveMkdir(live.value, provider)
++      runtime.revision = live.value.revision
++      const referenceFor = resumeAllocator(ownerCaller, BigInt(live.value.nextInode))
++      for (const [, node] of live.value.inodes) {
++        const observed = yield* mapped(ownerCaller.stat(referenceFor(BigInt(node.ino))))
++        token(runtime, observed).number = node.revision
++      }
++    }
++    const identity = live?.identity ?? checked.identity ?? VolumeIdentity.make(Hex.encode(yield* random.randomBytes(16)))
+     const incarnation = VolumeIncarnation.make(Hex.encode(yield* random.randomBytes(16)))
+     const identityBytes = Result.getOrThrow(Hex.decode(identity))
+-    const epochBytes = yield* random.randomBytes(16)
+-    const secret = yield* random.randomBytes(16)
++    const epochBytes = live ? Result.getOrThrow(Hex.decode(live.epoch)) : yield* random.randomBytes(16)
++    const secret = live ? Result.getOrThrow(Hex.decode(live.keySecret)) : yield* random.randomBytes(16)
+ 
+     const keyTag = (ino: bigint) => {
+       const message = new Uint8Array(40)
+@@ -3198,6 +3220,6 @@
+ 
+     runtimes.set(volume, runtime)
+ 
+-    return { volume, shutdown: Effect.void, observeSnapshot }
++    return { volume, shutdown: Scope.close(rootScope, Exit.void), observeSnapshot }
+   }
+ )

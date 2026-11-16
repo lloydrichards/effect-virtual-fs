@@ -54,8 +54,13 @@ The runner applies an experimental patch after the 27 MVP patches in a temporary
 mkdir checks and the existing preview tests. The store receives the new directory, its parent’s staged metadata,
 the binding name and the next object number. A confirmed commit releases queued reads to see the new directory.
 Rejection preserves the parent revision and the object number for a retry. An uncertain outcome makes the trial
-session unavailable. The trial uses an in-memory store callback. Crash recovery, live-image compatibility and final
-handle cleanup remain open for the durable-volume design. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
+session unavailable.
+
+The runner also compiles a temporary copy of core against the experimental preview. It opens a version 1 live image,
+offers one mkdir to a file-backed store, closes the session and reopens the persisted bytes through `LiveVolume.openImage`.
+The checks resolve saved reference keys before any path lookup, compare root and child revisions, and allocate another
+directory after both acceptance and rejection. Process death, uncertain writes across restart, and final handle cleanup
+remain open. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
 
 ## Regenerate the pinned port offline
 
@@ -68,7 +73,7 @@ bun run --cwd packages/effect-preview sync:check
 bun run --cwd packages/effect-preview test:sync
 ```
 
-Regeneration uses the checked-in snapshot, Bun, and the system `patch` command. It does not fetch source or resolve dependencies.
+Regeneration uses the checked-in snapshot, Bun, and `git apply`. It does not fetch source or resolve dependencies.
 `sync:check` verifies every input checksum, compares generated files byte for byte, and rejects unexpected files.
 The build runs this check before compilation. `test:sync` regenerates a temporary package and proves that manual
 engine edits, extra generated files, and corrupted snapshots or contribution patches fail verification.

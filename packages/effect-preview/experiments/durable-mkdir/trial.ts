@@ -28,7 +28,7 @@ const directoryRecord = (engine: Engine.Engine, node: Engine.DirectoryNode) =>
     namespaceRevision: node.namespace
   })
 
-interface Candidate {
+export interface Candidate {
   readonly name: Uint8Array
   readonly parent: ReturnType<typeof directoryRecord>
   readonly child: ReturnType<typeof directoryRecord>
@@ -46,6 +46,11 @@ export const makeMkdirTrial = Effect.fnUntraced(function*(offer: Offer) {
   // eslint-disable-next-line effecttsgo/experimental-api-usage -- Exercise the pinned preview constructor.
   const owner = yield* Vfs.make()
   const authorized = yield* owner.authorize({ credentials: { uid: 0, gid: 0, privileged: true } })
+
+  return makeCallerTrial(authorized, offer)
+})
+
+export const makeCallerTrial = (authorized: Model.VirtualFileSystem, offer: Offer) => {
   const caller = Engine.callers.get(authorized)
 
   if (caller === undefined) throw new Error("Missing authorized preview caller")
@@ -124,10 +129,10 @@ export const makeMkdirTrial = Effect.fnUntraced(function*(offer: Offer) {
   })
 
   return Object.freeze({
-    mkdir: (path: Model.Path) =>
+    mkdir: (path: Model.Path, options?: Model.MkdirOptions) =>
       turn<Created>("makeDirectory", path, (tx, path) =>
         Result.gen(function*() {
-          const created = yield* Atomic.makeDirectory(tx, path)
+          const created = yield* Atomic.makeDirectory(tx, path, options)
           // Finalize timestamps, revisions and quotas before constructing the store's candidate.
           const transition = yield* tx.transitionResult(created)
           const child = tx.changes.get(created.metadata.objectNumber)
@@ -176,4 +181,17 @@ export const makeMkdirTrial = Effect.fnUntraced(function*(offer: Offer) {
         }))
     })
   })
-})
+}
+
+// Core v1 persists its own revision numbers. Preview observation tokens are session-local.
+export const resumeAllocator = (authorized: Model.VirtualFileSystem, nextObject: bigint) => {
+  const caller = Engine.callers.get(authorized)
+
+  if (caller === undefined) throw new Error("Missing restored caller")
+  const engine = Engine.resolveEngine(caller)
+
+  if (nextObject < engine.nextObject) throw new Error("Invalid restored allocator")
+  engine.nextObject = nextObject
+
+  return (ino: bigint) => engine.reference(ino)
+}
