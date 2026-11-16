@@ -33,7 +33,10 @@ jobs:
       - run: bun run lint
       - run: bun run lint:effects
       - run: bun run type-check
-      - run: bun run test
+      # Run the two 100-case model checks without competition from other Vitest workers.
+      - name: Core failure sequences
+        run: bun --bun run vitest run --config vitest.config.ts --project core --reporter=verbose packages/core/test/behaviour/failureSequences.test.ts
+      - run: bun run test --reporter=verbose
       - name: Benchmark correctness smoke
         env:
           CONFINEMENT_BENCH_DEPTHS: "1,8"
