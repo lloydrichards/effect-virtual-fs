@@ -80,9 +80,9 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
         Stream.mapEffect(Effect.fnUntraced(function*(entry) {
           const path = "/" + decoder.decode(yield* Vfs.pathToBytes(entry.path))
           const directory = entry.kind === "directory"
-          const readable = directory || ((yield* caller.access(path, 4)) & 4) !== 0
+          const permissions = yield* caller.access(path, 6)
 
-          return { path, directory, readable }
+          return { path, directory, permissions, readable: directory || (permissions & 4) !== 0 }
         })),
         Stream.runCollect
       ),

@@ -1,4 +1,4 @@
-import { CallerDiagram, CheckpointDiagram } from "~/components/checkpoint-diagram"
+import { CheckpointDiagram } from "~/components/checkpoint-diagram"
 import { FilesystemPlayground } from "~/components/filesystem-playground"
 
 # Build and save a browser filesystem
@@ -15,8 +15,6 @@ Select a file or folder by name, then use the **Files** toolbar to rename or del
 2. Switch to **Reader** and build the same files. Reader can read the public sensor value but cannot read the calibration module either.
 3. Switch to **Admin** and build again. The import runs `secret.js`, which adds its private offset to the sensor reading and logs the result. With the starter reading, you see `Secret: 42 (20 + 22)` followed by `Reading: 20`. Change the reading to `21` and run again to see `Secret: 43 (21 + 22)`.
 4. Comment out the private import in `main.js` and switch back to **Reader**. The public build succeeds again.
-
-<CallerDiagram />
 
 ## Follow the bytes
 
