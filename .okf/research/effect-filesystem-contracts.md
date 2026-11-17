@@ -15,6 +15,10 @@ sources:
     title: Effect file cursor adaptation
   - resource: ../../packages/memory/src/internal/fileSystemAdapter.ts
     title: Temporary cleanup and unsupported watch profile
+  - resource: ../../packages/memory/test/FileSystemTest.ts
+    title: Shared observable FileSystem contract cases
+  - resource: ../../packages/memory/test/MinimalFileSystem.test.ts
+    title: Local unsupported-watch profile across both execution modes
   - resource: ../../packages/core/src/internal/tree.ts
     title: Existing snapshot validation and numeric limits
   - resource: ../../packages/core/src/internal/volumeState.ts
@@ -25,7 +29,7 @@ sources:
     title: Upstream VirtualFileSystem acceptance
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/309
     title: Upstream MemoryFileSystem acceptance
-generated: { by: codex/okf, at: "2026-10-22T12:23:00+02:00" }
+generated: { by: codex/okf, at: "2026-11-17T23:18:29+01:00" }
 ---
 
 # Effect filesystem public contract draft
@@ -616,6 +620,21 @@ The installed source reviewed is Effect 4.0.5. It is evidence for the matrix, no
 | stream / sink                                 | Target offsets, lengths, chunk sizes, flags, modes, cancellation and scoped-file behavior through the target's helpers.                                                                           |
 | glob                                          | Root/exclude options, strict borrowed-caller errors and documented ordering/symlink/Unicode rules; supply a compatible implementation until the selected target provides one.                     |
 | watch                                         | Fail when consumed with PlatformError reason Unknown, module FileSystem, method watch, description WatchUnsupported. No registration or onReady callback. Maintainer acceptance remains required. |
+
+The local shared suite now runs the positioned-read boundary case against the community memory provider and the
+two private bind-operations profiles. On installed Effect 4.1.4 it checks that explicit offsets preserve the
+sequential cursor, huge in-range offsets return EOF, and negative or out-of-range offsets fail without advancing
+the cursor. The same suite exercises final-symlink classification. The private profiles also test that unsupported
+watch fails when consumed and leaves `onReady` uncalled. The community provider runs the supported-watch cases.
+
+Reproduce this subset after building the repository with its pinned toolchain:
+
+```sh
+bun run --cwd packages/memory test MinimalFileSystem.test.ts MemoryFileSystem.test.ts FileSystemOptions.test.ts --pool=threads --maxWorkers=3
+```
+
+Both private profiles are repository test bindings over community core. The runs qualify the installed Effect
+interface and these local bindings only. The full member audit and upstream candidate qualification remain open.
 
 Use FileSystem.make for helpers it actually derives at the pinned revision: exists, string read/write, stream, sink and service branding in the installed source. Do not overwrite those derivations without a compatibility reason. Public inherited members and options added by a later baseline require an explicit owning test rather than a cast.
 

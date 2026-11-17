@@ -9,8 +9,6 @@ import { makeGlob } from "../src/internal/glob.js"
 
 const encode = new TextEncoder()
 
-const decode = new TextDecoder()
-
 describe("filesystem adapter compatibility", () => {
   it.layer(NodeCrypto.layer)((it) => {
     it.effect("should include hidden entries only when the local glob dot option is enabled", () =>
@@ -19,35 +17,6 @@ describe("filesystem adapter compatibility", () => {
         yield* fs.writeFileString("/.hidden", "x")
         assert.deepStrictEqual(yield* makeGlob(fs)("*", { dot: true }), [".hidden", "tmp"])
         assert.deepStrictEqual(yield* makeGlob(fs)("*"), ["tmp"])
-      }))
-    it.effect("should keep positioned reads independent of the sequential cursor", () =>
-      Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.make
-        yield* fs.writeFileString("/file", "abcdef")
-        const file = yield* fs.open("/file")
-        const buffer = new Uint8Array(2)
-        yield* file.read(buffer)
-        assert.strictEqual(decode.decode(buffer), "ab")
-        yield* file.read(buffer, { position: 3n })
-        assert.strictEqual(decode.decode(buffer), "de")
-        const explicit = yield* file.readAlloc(1, { position: 0n })
-        assert.strictEqual(decode.decode(Option.getOrThrow(explicit)), "a")
-        assert.strictEqual(yield* file.seek(0n, "current"), 2n)
-
-        for (const position of [9007199254740992n, 0x7fffffffffffffffn]) {
-          assert.strictEqual(yield* file.read(buffer, { position }), 0)
-          assert.isTrue(Option.isNone(yield* file.readAlloc(1, { position })))
-          assert.strictEqual(yield* file.seek(0n, "current"), 2n)
-        }
-
-        const tooLarge = yield* Effect.flip(file.read(buffer, { position: 0x8000000000000000n }))
-        assert.strictEqual(tooLarge.reason._tag, "BadArgument")
-        assert.strictEqual(yield* file.seek(0n, "current"), 2n)
-        yield* file.read(buffer)
-        assert.strictEqual(decode.decode(buffer), "cd")
-        const invalid = yield* Effect.flip(file.read(buffer, { position: -1n }))
-        assert.strictEqual(invalid.reason._tag, "BadArgument")
-        assert.strictEqual(yield* file.seek(0n, "current"), 4n)
       }))
     it.effect("should report link kinds and reject final links while following parent links", () =>
       Effect.gen(function*() {
