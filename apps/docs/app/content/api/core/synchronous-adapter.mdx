@@ -1,0 +1,110 @@
+# SynchronousAdapter.ts overview
+
+Checked synchronous operations for native adapters over an existing memory volume.
+This adapter contract is versioned with core. Volumes from another package copy are rejected.
+
+Since v0.10.0
+
+---
+
+## constructors
+
+### bind
+
+Binds only constructor-qualified synchronous memory volumes. The scope owns all opened handles.
+No arbitrary Effect can be submitted to this binding.
+
+**Example**
+
+```ts
+import * as Adapter from "@effect-vfs/core/SynchronousAdapter"
+import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import * as Effect from "effect/Effect"
+
+const readSynchronously = Effect.scoped(
+  Effect.gen(function* () {
+    const volume = yield* Vfs.make({ execution: "sync" })
+    const binding = yield* Adapter.bind(volume)
+    return binding.stat("/").kind
+  })
+)
+```
+
+**Signature**
+
+```ts
+declare const bind: (
+  volume: Volume,
+  options?: {
+    readonly identity?: {
+      readonly uid: number
+      readonly gid: number
+      readonly groups: ReadonlyArray<number>
+      readonly privileged: boolean
+    }
+    readonly umask?: number
+  }
+) => Effect.Effect<Binding, FsFailure, Scope.Scope>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SynchronousAdapter.ts#L76)
+
+Since v0.10.0
+
+## models
+
+### Binding (interface)
+
+Synchronous filesystem operations. Failures throw the core FsFailure value.
+
+**Signature**
+
+```ts
+export interface Binding {
+  readonly stat: (target: TargetInput) => Metadata
+  readonly readDirectory: (path: string) => Effect.Success<ReturnType<Caller["readDirectory"]>>
+  readonly readLink: (path: string) => Uint8Array
+  readonly realPath: (path: string) => Uint8Array
+  readonly access: (path: string, bits: number) => number
+  readonly mkdir: (path: string, options?: MkdirOptions) => void
+  readonly rmdir: (path: string) => void
+  readonly unlink: (path: string) => void
+  readonly rename: (from: string, to: string) => void
+  readonly link: (from: TargetInput, to: string) => void
+  readonly symlink: (target: string, path: string) => void
+  readonly chmod: (target: TargetInput, mode: number) => void
+  readonly chown: (target: TargetInput, owner: OwnerUpdate) => void
+  readonly utimes: (target: TargetInput, times: Times) => void
+  readonly open: (path: string, options: OpenOptions, noFollow: boolean, directory: boolean) => Handle
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SynchronousAdapter.ts#L39)
+
+Since v0.10.0
+
+### Handle (interface)
+
+A private-scope handle. Explicit close checks reentry before touching its scope.
+
+**Signature**
+
+```ts
+export interface Handle {
+  readonly closed: boolean
+  readonly directory: boolean
+  readonly stat: () => Metadata
+  readonly read: (length: number, position: bigint) => Uint8Array
+  readonly write: (bytes: Uint8Array, position: bigint, append: boolean) => number
+  readonly truncate: (length: bigint) => void
+  readonly chmod: (mode: number) => void
+  readonly chown: (owner: OwnerUpdate) => void
+  readonly utimes: (times: Times) => void
+  readonly sync: () => void
+  readonly close: () => void
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SynchronousAdapter.ts#L20)
+
+Since v0.10.0

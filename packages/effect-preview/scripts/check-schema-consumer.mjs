@@ -1,20 +1,20 @@
 // Compile the emitted imports, reference definitions and root expression as a package consumer.
 /* eslint-disable effecttsgo/node-builtin-import */
+import * as BytePath from "@effect-vfs/effect-preview/BytePath"
+import * as PreviewSchema from "@effect-vfs/effect-preview/Schema"
+import { Result, Schema, SchemaRepresentation } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import * as BytePath from "@effect-vfs/effect-preview/BytePath"
-import * as PreviewSchema from "@effect-vfs/effect-preview/Schema"
-import { Result, Schema, SchemaRepresentation } from "effect"
 
 const input = Schema.Struct({ path: PreviewSchema.BytePath, label: Schema.String })
 
 const document = SchemaRepresentation.toCodeDocument(SchemaRepresentation.toRepresentations([input.ast]))
 
 const source = [
-  'import * as Schema from "effect/Schema"',
+  "import * as Schema from \"effect/Schema\"",
   ...document.artifacts.map((artifact) => {
     assert.equal(artifact._tag, "Import")
 
@@ -34,7 +34,14 @@ try {
   await writeFile(consumer, source)
   execFileSync(process.execPath, [
     fileURLToPath(import.meta.resolve("typescript-js/bin/tsc")),
-    "--strict", "--module", "NodeNext", "--target", "ES2024", "--skipLibCheck", "--noEmitOnError", consumer
+    "--strict",
+    "--module",
+    "NodeNext",
+    "--target",
+    "ES2024",
+    "--skipLibCheck",
+    "--noEmitOnError",
+    consumer
   ], { stdio: "inherit" })
   const { Entry } = await import(pathToFileURL(join(temporary, "consumer.mjs")).href)
   const path = Result.getOrThrow(BytePath.fromBytes(Uint8Array.of(47, 255)))

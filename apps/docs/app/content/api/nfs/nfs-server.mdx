@@ -25,7 +25,7 @@ The `option` field names the rejected configuration key.
 declare class ConfigurationError
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L462)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L473)
 
 Since v0.1.0
 
@@ -39,7 +39,7 @@ Raised when the NFS server cannot start or cannot continue listening.
 declare class NfsServerError
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L473)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L484)
 
 Since v0.1.0
 
@@ -56,6 +56,61 @@ export type LoopbackHost = "127.0.0.1" | "::1"
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L73)
+
+Since v0.1.0
+
+### NfsCredential (type alias)
+
+RPC identity claims. They grant no authority until the application policy maps them.
+
+**Signature**
+
+```ts
+type NfsCredential =
+  | { readonly flavor: "none" }
+  | {
+      readonly flavor: "sys"
+      readonly uid: number
+      readonly gid: number
+      readonly groups: ReadonlyArray<number>
+      readonly machineName: string
+    }
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L418)
+
+Since v0.1.0
+
+### NfsIdentityPolicy (type alias)
+
+A policy returns an identity for this volume or null to deny the request.
+
+**Signature**
+
+```ts
+type NfsIdentityPolicy = (request: {
+  readonly credential: NfsCredential
+  readonly peer: NfsPeer
+}) => NonNullable<Vfs.RootCallerOptions["identity"]> | null
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L434)
+
+Since v0.1.0
+
+### NfsPeer (type alias)
+
+Peer details from the transport; UNIX sockets do not expose a client IP or port.
+
+**Signature**
+
+```ts
+type NfsPeer =
+  | { readonly transport: "tcp"; readonly address: string; readonly port: number }
+  | { readonly transport: "unix"; readonly address: null; readonly port: null; readonly path: string }
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L408)
 
 Since v0.1.0
 
@@ -287,6 +342,46 @@ export type NfsServerNetworkTcpAddress = { readonly host: string; readonly port:
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L349)
+
+Since v0.1.0
+
+### NfsServerNetworkedOptions (type alias)
+
+Network server configuration with application-supplied identity and peer policies.
+
+**Signature**
+
+```ts
+type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
+  readonly volume: Vfs.Volume
+  /** Enable mutations only for a volume qualified to survive power loss. */
+  readonly writable?: true
+  readonly policy: NfsIdentityPolicy
+  /** Evaluated in each accepted socket's context; null closes a connection without a trustworthy peer. */
+  readonly peer: Effect.Effect<NfsPeer | null>
+  /** Required when the supplied socket server binds outside loopback. */
+  readonly allowNonLoopback?: true
+  /** Flavors advertised by SECINFO; defaults to AUTH_SYS only. */
+  readonly acceptedFlavors?: ReadonlyArray<"sys" | "none">
+  readonly caller?: never
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L444)
+
+Since v0.1.0
+
+### NfsServerOptions (type alias)
+
+Configuration for a local caller or an application-authenticated network server.
+
+**Signature**
+
+```ts
+type NfsServerOptions = NfsServerLocalOptions | NfsServerNetworkedOptions
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L463)
 
 Since v0.1.0
 
@@ -775,105 +870,28 @@ Since v0.1.0
 
 The running NFS server, exposing the address it bound to.
 
+**Example**
+
+```ts
+import { NfsServer } from "@effect-vfs/nfs/NfsServer"
+import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import * as Effect from "effect/Effect"
+
+const serve = Effect.scoped(
+  Effect.gen(function* () {
+    const volume = yield* Vfs.make()
+    const caller = yield* volume.caller()
+    return yield* NfsServer.make({ volume, caller })
+  })
+)
+```
+
 **Signature**
 
 ```ts
 declare class NfsServer
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L760)
-
-Since v0.1.0
-
-## utils
-
-### NfsCredential (type alias)
-
-RPC identity claims. They grant no authority until the application policy maps them.
-
-**Signature**
-
-```ts
-type NfsCredential =
-  | { readonly flavor: "none" }
-  | {
-      readonly flavor: "sys"
-      readonly uid: number
-      readonly gid: number
-      readonly groups: ReadonlyArray<number>
-      readonly machineName: string
-    }
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L416)
-
-Since v0.1.0
-
-### NfsIdentityPolicy (type alias)
-
-A policy returns an identity for this volume or null to deny the request.
-
-**Signature**
-
-```ts
-type NfsIdentityPolicy = (request: {
-  readonly credential: NfsCredential
-  readonly peer: NfsPeer
-}) => NonNullable<Vfs.RootCallerOptions["identity"]> | null
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L431)
-
-Since v0.1.0
-
-### NfsPeer (type alias)
-
-Peer details from the transport; UNIX sockets do not expose a client IP or port.
-
-**Signature**
-
-```ts
-type NfsPeer =
-  | { readonly transport: "tcp"; readonly address: string; readonly port: number }
-  | { readonly transport: "unix"; readonly address: null; readonly port: null; readonly path: string }
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L407)
-
-Since v0.1.0
-
-### NfsServerNetworkedOptions (type alias)
-
-**Signature**
-
-```ts
-type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
-  readonly volume: Vfs.Volume
-  /** Enable mutations only for a volume qualified to survive power loss. */
-  readonly writable?: true
-  readonly policy: NfsIdentityPolicy
-  /** Evaluated in each accepted socket's context; null closes a connection without a trustworthy peer. */
-  readonly peer: Effect.Effect<NfsPeer | null>
-  /** Required when the supplied socket server binds outside loopback. */
-  readonly allowNonLoopback?: true
-  /** Flavors advertised by SECINFO; defaults to AUTH_SYS only. */
-  readonly acceptedFlavors?: ReadonlyArray<"sys" | "none">
-  readonly caller?: never
-}
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L437)
-
-Since v0.1.0
-
-### NfsServerOptions (type alias)
-
-**Signature**
-
-```ts
-type NfsServerOptions = NfsServerLocalOptions | NfsServerNetworkedOptions
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L452)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L784)
 
 Since v0.1.0

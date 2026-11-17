@@ -6,8 +6,10 @@ import { Clock, Effect, Exit, Option, Result, Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { owners } from "../../src/virtual-file-system/internal/engine.js"
 import * as VFS from "../../src/virtual-file-system/VirtualFileSystem.js"
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
+import { spawn } from "node:child_process"
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 const credentials = { uid: 0, gid: 0 }
 const bytes = (...values: Array<number>) => new Uint8Array(values)
@@ -32,11 +34,34 @@ const emptyUsage = {
   reservedTransientBytes: 0n
 }
 
-const execute = promisify(execFile)
+const execute = async (command: string, args: Array<string>, options: { readonly maxBuffer: number }) => {
+  const directory = mkdtempSync(join(tmpdir(), "effect-vfs-probe-"))
+  const output = join(directory, "stdout")
+  const errors = join(directory, "stderr")
+  const stdout = openSync(output, "w")
+  const stderr = openSync(errors, "w")
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command, args, { stdio: ["ignore", stdout, stderr] })
+      child.once("error", reject)
+      child.once("close", (code) => {
+        if (code === 0) resolve()
+        else reject(new Error(readFileSync(errors, "utf8") || "Identity probe exited with code " + code))
+      })
+    })
+    const text = readFileSync(output, "utf8")
+    if (new TextEncoder().encode(text).length > options.maxBuffer) throw new Error("Identity probe output exceeds maxBuffer")
+    return { stdout: text }
+  } finally {
+    closeSync(stdout)
+    closeSync(stderr)
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
 const publicUrl = new URL("../../dist/virtual-file-system/VirtualFileSystem.js", import.meta.url).href
 const effectUrl = import.meta.resolve("effect/Effect")
 const sourceUrl = new URL("../../dist/", import.meta.url).href
-const nodeModulesUrl = new URL("../../../../node_modules/", import.meta.url).href
+const nodeModulesUrl = new URL("../../node_modules/", import.meta.url).href
 const imports = `
 const VFS = await import(${JSON.stringify(publicUrl)})
 const Effect = await import(${JSON.stringify(effectUrl)})

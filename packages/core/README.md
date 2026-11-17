@@ -18,7 +18,7 @@ Core uses the private Effect VirtualFileSystem preview as its engine. For worksp
 npm install @effect-vfs/core@latest
 ```
 
-The package declares its exact Effect version as a peer dependency. Volume constructors and snapshot delta functions require Effect's `Crypto` service. On Node, install the matching
+The package declares its supported Effect patch line as a peer dependency. Volume constructors and snapshot delta functions require Effect's crypto services. On Node, install the matching
 provider and supply `NodeCrypto.layer` when running these effects:
 
 ```sh

@@ -10,11 +10,8 @@ import { setImmediate } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { VirtualFileSystem as Vfs } from "../../packages/core/dist/index.js"
 
-import * as Memory from "../../packages/memory/dist/MemoryFileSystem.js"
 import { withVolumeTestSeams } from "../../packages/core/dist/internal/model.js"
-
-
-
+import * as Memory from "../../packages/memory/dist/MemoryFileSystem.js"
 
 const scenarios = [
   ...[1, 16, 64].flatMap((size) => ["partial", "growth"].map((kind) => `${kind}:${size}`)),
@@ -358,9 +355,14 @@ if (process.argv[2] === "--worker") {
             "packages/core/dist/internal/virtualFileSystem.js",
             "packages/core/dist/internal/directoryEntries.js",
             "scripts/capacity/measure.mjs"
-          ].flatMap((path) => existsSync(new URL(`../../${path}`, import.meta.url))
-            ? [[path, createHash("sha256").update(readFileSync(new URL(`../../${path}`, import.meta.url))).digest("hex")]]
-            : [])
+          ].flatMap((path) =>
+            existsSync(new URL(`../../${path}`, import.meta.url))
+              ? [[
+                path,
+                createHash("sha256").update(readFileSync(new URL(`../../${path}`, import.meta.url))).digest("hex")
+              ]]
+              : []
+          )
         ),
         node: process.version,
         effect:

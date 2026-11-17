@@ -403,6 +403,7 @@ export type NfsServerLocalOptions = NfsServerConfigOverrides & {
  * Peer details from the transport; UNIX sockets do not expose a client IP or port.
  *
  * @since 0.1.0
+ * @category models
  */
 export type NfsPeer =
   | { readonly transport: "tcp"; readonly address: string; readonly port: number }
@@ -412,6 +413,7 @@ export type NfsPeer =
  * RPC identity claims. They grant no authority until the application policy maps them.
  *
  * @since 0.1.0
+ * @category models
  */
 export type NfsCredential =
   | { readonly flavor: "none" }
@@ -427,13 +429,18 @@ export type NfsCredential =
  * A policy returns an identity for this volume or null to deny the request.
  *
  * @since 0.1.0
+ * @category models
  */
 export type NfsIdentityPolicy = (request: {
   readonly credential: NfsCredential
   readonly peer: NfsPeer
 }) => NonNullable<Vfs.RootCallerOptions["identity"]> | null
 
-/** @since 0.1.0 */
+/**
+ * Network server configuration with application-supplied identity and peer policies.
+ * @since 0.1.0
+ * @category models
+ */
 export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   /** Enable mutations only for a volume qualified to survive power loss. */
@@ -448,7 +455,11 @@ export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
   readonly caller?: never
 }
 
-/** @since 0.1.0 */
+/**
+ * Configuration for a local caller or an application-authenticated network server.
+ * @since 0.1.0
+ * @category models
+ */
 export type NfsServerOptions = NfsServerLocalOptions | NfsServerNetworkedOptions
 
 /**
@@ -753,6 +764,19 @@ const make = (
 
 /**
  * The running NFS server, exposing the address it bound to.
+ *
+ * @example
+ * ```ts
+ * import { NfsServer } from "@effect-vfs/nfs/NfsServer"
+ * import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+ * import * as Effect from "effect/Effect"
+ *
+ * const serve = Effect.scoped(Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *   return yield* NfsServer.make({ volume, caller })
+ * }))
+ * ```
  *
  * @category services
  * @since 0.1.0

@@ -6,7 +6,43 @@ Since v0.4.0
 
 ---
 
-## utils
+## layers
+
+### layer
+
+Reserve one SQLite connection and its exclusive lock for the Layer scope.
+The application supplies `SqlClient`, `FileSystem`, `Path`, and `Crypto`.
+
+**Example**
+
+```ts
+import * as SqliteLiveImageStore from "@effect-vfs/persistence/SqliteLiveImageStore"
+import { ByteSize } from "effect"
+
+const liveStore = SqliteLiveImageStore.layer({
+  filename: "/var/lib/my-app/live.sqlite",
+  maxImageBytes: ByteSize.megabytes(4),
+  maxDatabaseBytes: ByteSize.megabytes(16)
+})
+```
+
+**Signature**
+
+```ts
+declare const layer: (
+  options: Options
+) => Layer.Layer<
+  LiveVolume.LiveImageStore,
+  VfsError.ArgumentFailure | VfsError.StoreFailure,
+  SqlClient | Digest.Digest | FileSystem.FileSystem | Path.Path
+>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L81)
+
+Since v0.4.0
+
+## models
 
 ### Options (interface)
 
@@ -43,40 +79,6 @@ export interface Options {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L30)
-
-Since v0.4.0
-
-### layer
-
-Reserve one SQLite connection and its exclusive lock for the Layer scope.
-The application supplies `SqlClient`, `FileSystem`, `Path`, and `Crypto`.
-
-**Example**
-
-```ts
-import * as SqliteLiveImageStore from "@effect-vfs/persistence/SqliteLiveImageStore"
-import { ByteSize } from "effect"
-
-const liveStore = SqliteLiveImageStore.layer({
-  filename: "/var/lib/my-app/live.sqlite",
-  maxImageBytes: ByteSize.megabytes(4),
-  maxDatabaseBytes: ByteSize.megabytes(16)
-})
-```
-
-**Signature**
-
-```ts
-declare const layer: (
-  options: Options
-) => Layer.Layer<
-  LiveVolume.LiveImageStore,
-  VfsError.ArgumentFailure | VfsError.StoreFailure,
-  SqlClient | Digest.Digest | FileSystem.FileSystem | Path.Path
->
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L79)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L31)
 
 Since v0.4.0

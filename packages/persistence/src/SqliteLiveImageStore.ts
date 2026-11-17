@@ -26,6 +26,7 @@ import { makeDigest, type StoreFailures, storeFailures } from "./internal/storeS
  * ```
  *
  * @since 0.4.0
+ * @category models
  */
 export interface Options {
   readonly filename: string
@@ -75,6 +76,7 @@ interface Ownership {
  * ```
  *
  * @since 0.4.0
+ * @category layers
  */
 export const layer = (options: Options): Layer.Layer<
   LiveVolume.LiveImageStore,
