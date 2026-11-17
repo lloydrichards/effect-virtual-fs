@@ -26,10 +26,22 @@ sources:
   - id: writable-app
     resource: ../../../apps/demo-r2-nfs/standalone-nfs.md
     title: Writable R2 gateway client and fault runs
+  - id: third-client
+    resource: https://github.com/lloydrichards/effect-virtual-fs/issues/164
+    title: Third native client qualification
+  - id: freebsd-mount
+    resource: https://man.freebsd.org/cgi/man.cgi?query=mount_nfs&sektion=8&manpath=FreeBSD+15.0-RELEASE+and+Ports
+    title: FreeBSD NFSv4 minor-version and mount options
+  - id: windows-nfs
+    resource: https://learn.microsoft.com/en-us/windows-server/storage/nfs/nfs-overview
+    title: Microsoft Client for NFS protocol versions
+  - id: windows-ms-nfs41
+    resource: https://github.com/kofemann/ms-nfs41-client
+    title: Windows NFSv4.1 client driver
   - id: rfc8881
     resource: https://www.rfc-editor.org/rfc/rfc8881.html
     title: RFC 8881 NFSv4.1
-generated: { by: claude/okf, at: 2026-09-24T09:00:00+02:00 }
+generated: { by: codex/okf, at: 2026-11-17T22:52:05+01:00 }
 ---
 
 # NFS interoperability and fault evidence
@@ -53,6 +65,45 @@ A kernel client cannot be frozen by an image digest or package pin, because the 
 - **Every pull request** runs the protocol test suites. When it changes `packages/core`, `packages/nfs`, the preview app, the lockfile, or the root build configuration, it also runs the pinned pynfs gate. pynfs needs no mount or privilege, and the suite itself runs in under a minute.[^pynfs-workflow]
 - **On demand or with the `nfs-gate` label**, the Linux mount gate runs. It needs `sudo` to mount, so it stays out of the default sequence.[^linux-workflow]
 - **Release gates**, run by hand and recorded before a maturity claim: the macOS mount, the writable gateway's client and fault runs, the third client, and Bake-a-thon participation.[^writable-app]
+
+## Third-client qualification plan
+
+[#164](https://github.com/lloydrichards/effect-virtual-fs/issues/164) remains open. Prefer the native FreeBSD
+kernel client in a disposable FreeBSD guest. It can request minor version 1 explicitly and reuse the preview's
+POSIX verifier. Confirm the guest issued the NFS requests itself. A Linux NFS mount shared into a guest provides
+another Linux run. Keep pynfs results in the external-suite row.
+
+Microsoft's built-in Client for NFS supports v2 and v3, including on Windows Server. The separate
+[ms-nfs41-client driver](https://github.com/kofemann/ms-nfs41-client) supports v4.1. A Windows run would need an
+approved driver build, a verified v4.1 negotiation, and a way to measure the same filesystem semantics. Prefer
+FreeBSD for the first run so it can use the existing Bash verifier.
+
+Keep the preview on host loopback at port 2049. Use a disposable guest with a guest-loopback TCP forward on
+port 20490 to the host's preview listener over a private host–guest link. Keep the forward and preview off
+public interfaces. The following command is a candidate derived from the
+[FreeBSD mount manual](https://man.freebsd.org/cgi/man.cgi?query=mount_nfs&sektion=8&manpath=FreeBSD+15.0-RELEASE+and+Ports).
+It has yet to run against this server.
+
+```sh
+# In the FreeBSD guest, with the forward already running and the mount directory created.
+mount_nfs -o nfsv4,minorversion=1,tcp,sec=sys,port=20490,actimeo=1,retrycnt=1 \
+  127.0.0.1:/ /mnt/effect-vfs-nfs-preview
+nfsstat -m
+bash apps/nfs-preview/scripts/verify-mount.sh /mnt/effect-vfs-nfs-preview
+```
+
+Mount with guest administrator privileges and run the verifier as the intended guest user. Leave the mount
+writable on the client so the read-only preview rejects mutations on the server. Save the exact invocation,
+`freebsd-version -kru`, kernel and architecture, effective mount options, server revision and runtime, verifier
+output, and unmount result. Confirm v4.1 from the effective mount options. Preserve the listing, symlink,
+hard-link identity, mutation visibility, and refused-write checks. If the verifier misreads the guest's mount
+output, record that as a harness problem and retain the semantic checks in any adaptation.
+
+Record a real run in the conformance baseline. Separate guest, transport, and harness failures from protocol
+failures. For an unexpected operation reply, record the operation and returned status, then compare the
+operation rule and valid status list in RFC 8881 Sections 18 and 15.2. A local errno alone cannot establish
+the server's protocol status. Keep client-specific failures visible and leave the maturity gate open until
+the run is recorded.
 
 ## Classifying suite failures
 
