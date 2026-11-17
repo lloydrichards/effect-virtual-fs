@@ -150,6 +150,34 @@ export const ruleCases = {
     valid: ["const value = new Missing({ id: 1 })", "const value = systemError({ _tag: 'BadResource' })"],
     invalid: ["const value = { _tag: 'Missing', id: 1 }"]
   },
+  "anti-slop-effect/no-package-spans": {
+    valid: [
+      "import { Effect } from 'effect'; Effect.fn(function* () { return 1 })",
+      "import { fn } from 'effect/Effect'; function* body() { return 1 } fn(body)",
+      "import { Effect } from 'effect'; Effect.fnUntraced(function* () { return 1 })",
+      "import { Effect } from 'effect'; export const tracing = Effect.withSpan",
+      "import type * as Effect from 'effect/Effect'; export type Trace = typeof Effect.withSpan",
+      "import { Effect } from 'effect'; function run(Effect: Logger) { Effect.withSpan('log'); Effect.fn('item') }",
+      "import { withSpan } from 'effect/Stream'; function run(withSpan: Logger) { withSpan('log') }",
+      "import { Effect } from 'another-library'; Effect.withSpan('log')",
+      "const Effect = { withSpan: String, fn: String }; Effect.withSpan('log'); Effect.fn('item')",
+      "const first = second; const second = first; first('item')"
+    ],
+    invalid: [
+      "import { Effect } from 'effect'; Effect.fn('library.read')(function* () { return 1 })",
+      "import * as FX from 'effect/Effect'; FX.fn(`library.${operation}`)",
+      "import { fn as build } from 'effect/Effect'; const name = 'library.read'; build(name)",
+      "import { Effect } from 'effect'; Effect.fn(cached ? 'library.cache' : 'library.read')",
+      "import { fn as build } from 'effect/Effect'; function run(name: string) { return build(name) }",
+      "import { Effect as Provider } from 'effect'; const E = Provider; const make = E.fn; make('library.read')",
+      "import { Effect } from 'effect'; Effect.withSpan('library.read')",
+      "import { withSpan as trace } from 'effect/Effect'; const wrap = trace; wrap(task, 'library.read')",
+      "import * as FX from 'effect'; const { Effect: E } = FX; const { withSpan: trace } = E; trace('library.read')",
+      "import { Stream } from 'effect'; task.pipe(Stream.withSpan('library.stream'))",
+      "import * as S from 'effect/Stream'; S['withSpan']('library.stream')",
+      "import { withSpan as trace } from 'effect/Stream'; trace('library.stream')"
+    ]
+  },
   "anti-slop-effect/prefer-effect-match": {
     valid: [
       "const result = value._tag === 'First' ? 'one' : 'other'",

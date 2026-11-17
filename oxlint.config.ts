@@ -2,6 +2,8 @@ import { effectNative, recommended } from "@effect/tsgo/oxlint-presets"
 import { defineConfig } from "oxlint"
 import compiler from "./packages/config-typescript/base.json" with { type: "json" }
 
+import { policies } from "./tools/checks/repository.mjs"
+
 const [languageService] = compiler.compilerOptions.plugins
 
 if (languageService === undefined) throw new Error("Missing shared Effect language-service policy")
@@ -134,6 +136,14 @@ export default defineConfig({
   },
   "overrides": [
     {
+      "files": Object.entries(policies).flatMap(([workspace, policy]) =>
+        policy.kind === "library" ? [`${workspace}/src/**/*.{ts,tsx}`] : []
+      ),
+      "rules": {
+        "anti-slop-effect/no-package-spans": "error"
+      }
+    },
+    {
       "files": [
         "packages/persistence/src/**/*.ts",
         "packages/persistence/test/SqliteLiveImageStore.test.ts",
@@ -168,7 +178,8 @@ export default defineConfig({
         "**/{test,typetest,examples,benchmark,bundle,scripts,scratchpad}/**"
       ],
       "rules": {
-        "eslint/no-console": "off"
+        "eslint/no-console": "off",
+        "anti-slop-effect/no-package-spans": "off"
       }
     },
     {
@@ -181,7 +192,8 @@ export default defineConfig({
         "**/test/**/*.tsx"
       ],
       "rules": {
-        "anti-slop-effect/no-manual-tagged-construction": "off"
+        "anti-slop-effect/no-manual-tagged-construction": "off",
+        "anti-slop-effect/no-package-spans": "off"
       }
     },
     {
