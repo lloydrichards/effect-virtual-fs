@@ -6,6 +6,7 @@ import path from "node:path"
 import policy from "../../../oxlint.config.ts"
 
 import { ruleCases } from "./cases.mjs"
+import { checkCustomLintIntegration } from "./integration.mjs"
 
 const root = path.resolve(import.meta.dirname, "../../..")
 
@@ -80,5 +81,7 @@ try {
 } finally {
   await rm(directory, { recursive: true, force: true })
 }
+
+await checkCustomLintIntegration()
 
 console.log(`Custom lint policy passed: ${enabledRules.length} rules, ${fixtures} isolated fixtures.`)

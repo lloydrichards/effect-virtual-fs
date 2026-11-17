@@ -83,6 +83,9 @@ export const ruleCases = {
       "export { type Item } from './internal/model.js'",
       "/** @internal */\nexport { read } from './internal/model.js'",
       "import { read } from './internal/model.js'; export { type read }",
+      "import * as Internal from './internal/model.js'; const read: typeof Internal.read = Internal.read; export default read",
+      "import * as Internal from './internal/model.js'; export default (Internal => Internal.read)(external)",
+      "import * as Internal from './internal/model.js';\n/** @internal */\nexport default Internal.read",
       "import * as Public from './public.js'; export const read = Public.read"
     ],
     invalid: [
@@ -90,6 +93,10 @@ export const ruleCases = {
       "import * as Internal from './internal/model.js'; const read = Internal.read; export { read }",
       "import { read } from './internal/model.js'; export { read }",
       "import * as Internal from './internal/model.js'; const original = Internal.read; export const read = original",
+      "import * as Internal from './internal/model.js'; export default Internal.read",
+      "import { read as internalRead } from './internal/model.js'; export default internalRead",
+      "import * as Internal from './internal/model.js'; const read = Internal.read; const alias = read; export default alias",
+      "import * as Internal from './internal/model.js'; export default Internal.read satisfies Read",
       "export { read } from './internal/model.js'",
       "export * from './internal/model.js'",
       "import * as Internal from './internal/model.js'; export const read = Internal.deep.read"
