@@ -91,9 +91,10 @@ function FileList({ entries, parent, selected, onSelect }: {
 }
 
 export function FilesystemPlayground() {
-  const { volume, role, permissions, entries, path, source, dirty, folder, busy, status, output, error } = useAtomValue(
-    playgroundAtom
-  )
+  const { volume, role, permissions, entries, path, source, dirty, folder, busy, pendingView, status, output, error } =
+    useAtomValue(
+      playgroundAtom
+    )
 
   const run = useAtomSet(commandAtom, { mode: "promise" })
   const edit = useAtomSet(editAtom)
@@ -126,7 +127,7 @@ export function FilesystemPlayground() {
       className="my-5 min-w-0 overflow-hidden rounded-xl border border-code-block-border bg-card text-card-foreground shadow-sm"
     >
       <legend className="sr-only">Virtual filesystem editor</legend>
-      <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2">
+      <div inert={Boolean(pendingView)} className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2">
         <span className="me-auto inline-flex items-center gap-2 text-sm font-semibold">
           <Terminal className="size-4 text-primary" />Workspace
         </span>
@@ -153,7 +154,11 @@ export function FilesystemPlayground() {
           <Play />Build and run
         </Button>
       </div>
-      <div aria-busy={opening} className="grid min-w-0 sm:grid-cols-[minmax(8rem,28%)_minmax(0,1fr)]">
+      <div
+        inert={Boolean(pendingView)}
+        aria-busy={opening}
+        className="grid min-w-0 sm:grid-cols-[minmax(8rem,28%)_minmax(0,1fr)]"
+      >
         <aside aria-label="Project files" className="min-w-0 border-b bg-sidebar p-2 sm:border-e sm:border-b-0">
           <div className="mb-2 flex flex-wrap gap-1 border-b pb-1">
             {([
@@ -260,7 +265,7 @@ export function FilesystemPlayground() {
                   path={path}
                   label={`Edit ${path}`}
                   value={source}
-                  readOnly={!writable || busy}
+                  readOnly={!writable || busy || Boolean(pendingView)}
                   onEdit={edit}
                 />
               ) :
@@ -278,6 +283,16 @@ export function FilesystemPlayground() {
         {error && (
           <pre role="alert" className="mt-2 whitespace-pre-wrap break-words text-xs text-destructive">{error}</pre>
         )}
+        {pendingView && (
+          <Button
+            size="xs"
+            variant="outline"
+            className="mt-2"
+            onClick={() => void run("refresh").then(closeOnSuccess)}
+          >
+            Refresh workspace
+          </Button>
+        )}
         {output && (
           <div className="mt-2">
             <h3 className="text-xs font-semibold">Generated bundle</h3>
@@ -294,7 +309,7 @@ export function FilesystemPlayground() {
           </div>
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-1 border-t p-2">
+      <div inert={Boolean(pendingView)} className="flex flex-wrap items-center gap-1 border-t p-2">
         <Button
           variant="outline"
           onClick={() => void run("save")}
