@@ -4,6 +4,9 @@ import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it, vi } from "@effect/vitest"
 import { ByteSize, Cause, Context, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import * as Digest from "effect/crypto/Digest"
+import * as Hex from "effect/encoding/Hex"
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- Exercise the native Node S3 response body and its cleanup.
+import { Readable } from "node:stream"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
@@ -74,7 +77,7 @@ const makeS3Fixture = Effect.fnUntraced(function*() {
           })
         )
         : Promise.resolve({
-          Body: { transformToByteArray: () => Promise.resolve(record.bytes) },
+          Body: new Blob([new Uint8Array(record.bytes)]).stream(),
           ETag: record.etag,
           Metadata: { generation: record.generation, digest: record.digest }
         })
@@ -115,13 +118,13 @@ const makeS3Fixture = Effect.fnUntraced(function*() {
 
   const transport = R2LiveImageStore.fromS3(sdk, "bucket")
 
-  const open = Effect.fnUntraced(function*(key = "main") {
+  const open = Effect.fnUntraced(function*(key = "main", maxImageBytes = ByteSize.kibibytes(64)) {
     const scope = yield* Scope.make()
     const close = Scope.close(scope, Exit.void)
     yield* Effect.addFinalizer(() => close)
 
     const context = yield* Layer.buildWithScope(
-      R2LiveImageStore.layer({ key, maxImageBytes: ByteSize.kibibytes(64) }).pipe(
+      R2LiveImageStore.layer({ key, maxImageBytes }).pipe(
         Layer.provide(Layer.succeed(R2LiveImageStore.Client, transport))
       ),
       scope
@@ -246,13 +249,16 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       const body = promiseGate<Uint8Array>()
       s3.send.mockImplementationOnce(() =>
         Promise.resolve({
-          Body: {
-            transformToByteArray: () => {
+          Body: new ReadableStream({
+            pull(controller) {
               readingBody.release()
 
-              return body.promise
+              return body.promise.then((chunk) => {
+                controller.enqueue(chunk)
+                controller.close()
+              })
             }
-          }
+          }, { highWaterMark: 0 })
         })
       )
       const release = Effect.sync(() => body.release(bytes("body")))
@@ -268,6 +274,98 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
         yield* Fiber.join(closing)
         assert.strictEqual(s3.send.mock.calls.length, 1)
       }).pipe(Effect.ensuring(release))
+    }))
+
+  it.effect("passes the original store limit to a custom bounded transport", () =>
+    Effect.gen(function*() {
+      const options = { key: "main", maxImageBytes: ByteSize.bytes(4) }
+      const { client } = makeClient()
+      const read = vi.fn(client.read)
+      const readBounded = vi.fn((_key: string, _limit: ByteSize.ByteSize) => Effect.succeed(null))
+
+      const context = yield* Layer.build(
+        R2LiveImageStore.layer(options).pipe(
+          Layer.provide(Layer.succeed(R2LiveImageStore.Client, { ...client, read, readBounded }))
+        )
+      )
+
+      options.maxImageBytes = ByteSize.bytes(10)
+
+      const store = Context.get(context, LiveVolume.LiveImageStore)
+      assert.deepStrictEqual(yield* store.loadOrCreate(bytes("a")), bytes("a"))
+      assert.deepStrictEqual(readBounded.mock.calls, [["main", ByteSize.bytes(4)]])
+      assert.strictEqual(read.mock.calls.length, 0)
+    }))
+
+  it.effect("releases a known oversized S3 body without consuming it", () =>
+    Effect.gen(function*() {
+      const s3 = yield* makeS3Fixture()
+      const owner = yield* s3.open("main", ByteSize.bytes(4))
+      const read = vi.fn()
+      const transformToByteArray = vi.fn(() => Promise.resolve(bytes("abcde")))
+      const body = Object.assign(new Readable({ read }), { transformToByteArray })
+      s3.send.mockImplementationOnce(() => Promise.resolve({ Body: body, ContentLength: 5 }))
+
+      const error = yield* Effect.flip(owner.store.loadOrCreate(bytes("a")))
+
+      assert.deepStrictEqual([error.code, error.operation], ["CorruptStore", "R2LiveImageStore.loadOrCreate"])
+      assert.strictEqual(read.mock.calls.length, 0)
+      assert.strictEqual(transformToByteArray.mock.calls.length, 0)
+      assert.isTrue(body.destroyed)
+      assert.strictEqual(s3.send.mock.calls.length, 1)
+    }))
+
+  for (const contentLength of [undefined, 2]) {
+    it.effect(`stops and cancels an oversized S3 stream with ContentLength ${contentLength}`, () =>
+      Effect.gen(function*() {
+        const s3 = yield* makeS3Fixture()
+        const owner = yield* s3.open("main", ByteSize.bytes(4))
+        const cancel = vi.fn()
+        let consumed = 0
+
+        const body = new ReadableStream({
+          pull(controller) {
+            const chunk = bytes("ab")
+            consumed += chunk.length
+            controller.enqueue(chunk)
+          },
+          cancel
+        }, { highWaterMark: 0 })
+
+        s3.send.mockImplementationOnce(() => Promise.resolve({ Body: body, ContentLength: contentLength }))
+
+        const error = yield* Effect.flip(owner.store.loadOrCreate(bytes("a")))
+
+        assert.deepStrictEqual([error.code, error.operation], ["CorruptStore", "R2LiveImageStore.loadOrCreate"])
+        assert.strictEqual(consumed, 6)
+        assert.strictEqual(cancel.mock.calls.length, 1)
+        assert.isFalse(body.locked)
+        assert.strictEqual(s3.send.mock.calls.length, 1)
+      }))
+  }
+
+  it.effect("accepts exact-limit and empty chunked S3 images", () =>
+    Effect.gen(function*() {
+      const s3 = yield* makeS3Fixture()
+      const digest = yield* Digest.Digest
+
+      for (const chunks of [[bytes("ab"), bytes("cd")], []]) {
+        const image = bytes(chunks.length === 0 ? "" : "abcd")
+        const hash = Hex.encode(yield* digest.digest(Digest.sha256, image))
+        const owner = yield* s3.open("main", ByteSize.bytes(4))
+        const body = Readable.from(chunks, { objectMode: false })
+        s3.send.mockImplementationOnce(() =>
+          Promise.resolve({
+            Body: body,
+            ETag: "version",
+            Metadata: { generation: "0", digest: hash }
+          })
+        )
+
+        assert.deepStrictEqual(yield* owner.store.loadOrCreate(bytes("a")), image)
+        assert.isTrue(body.readableEnded)
+        yield* owner.close
+      }
     }))
 
   it.effect("keeps a settled but unacknowledged S3 write uncertain", () =>

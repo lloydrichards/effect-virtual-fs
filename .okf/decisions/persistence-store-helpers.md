@@ -62,7 +62,7 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/182
     title: Persistence store helpers
-generated: { by: codex/okf, at: "2026-11-17T20:54:51+01:00" }
+generated: { by: codex/okf, at: "2026-11-17T21:24:50+01:00" }
 ---
 
 # Persistence store helpers
@@ -95,6 +95,8 @@ Follows the [public API decision](core/public-api-targets-services-and-errors.md
 
 13. **R2 ownership handoff drains local requests.** Run reads and conditional writes in the store scope. The caller may stop waiting while the transport continues, and the request owns its write bytes until it settles. Keep the store scope open for direct store use and for the lifetime of any volume using it. Closing the old owner waits for pending transport operations, including S3 response-body consumption, and does not close the borrowed SDK client. Scope closure establishes local drainage only. If a settled transport failure leaves remote completion uncertain, keep the key offline until provider or transport evidence rules out a later remote write and the authoritative image has been verified. A GET while that uncertainty remains cannot establish a safe replacement.
 
+14. **R2 uses the store's image limit during S3 reads.** Prefer the optional `R2Client.readBounded` capability so the transport can release oversized bodies before fully materializing them. The S3 implementation rejects a reported length above the limit, then counts actual bytes when a body is read. A transport may have buffered some bytes before exposing them to the adapter. An oversized stored image still fails with `CorruptStore`. Legacy clients and direct calls to the unbounded S3 `read` method retain their previous transport behavior.
+
 ## Consequences
 
-The service shapes, stored layouts, commit outcomes, entry-point operation names and shutdown order are unchanged. SQLite oversized initial input intentionally changes from `CorruptStore` to `InvalidArgument`. Failed BEGIN and cancelled writes require a new owner. This wider protocol supersedes the failure-and-digest-only boundary from #182 because independent ownership implementations had drifted. Sharing the checkpoint database exposed that the Bun SQLite driver drops a leading U+FEFF from bound names.
+Existing service implementations remain compatible. Stored layouts, commit outcomes, entry-point operation names and shutdown order are unchanged. SQLite oversized initial input intentionally changes from `CorruptStore` to `InvalidArgument`. Failed BEGIN and cancelled writes require a new owner. This wider protocol supersedes the failure-and-digest-only boundary from #182 because independent ownership implementations had drifted. Sharing the checkpoint database exposed that the Bun SQLite driver drops a leading U+FEFF from bound names.
