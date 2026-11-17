@@ -27,8 +27,12 @@ sources:
     resource: ../../packages/persistence/src/SqliteLiveImageStore.ts
     title: SQLite bounded reads and transaction outcomes
   - id: r2-store
-    resource: ../../packages/persistence/src/R2LiveImageStore.ts
-    title: R2 reads and ETag compare-and-swap
+    resource: ../../packages/persistence/src/R2Store.ts
+    title: R2 client capability and ownership
+  - resource: ../../packages/persistence/src/R2S3Transport.ts
+    title: AWS SDK reads and ETag conditions
+  - resource: ../../tools/checks/consumers.mjs
+    title: Packed R2Store resolution without the AWS SDK
   - id: sql-image-key
     resource: ../../packages/persistence/src/internal/sqlLiveImageKey.ts
     title: Well-formed SQL image keys preserve UTF-8 identity
@@ -100,3 +104,21 @@ Follows the [public API decision](core/public-api-targets-services-and-errors.md
 ## Consequences
 
 Existing service implementations remain compatible. Stored layouts, commit outcomes, entry-point operation names and shutdown order are unchanged. SQLite oversized initial input intentionally changes from `CorruptStore` to `InvalidArgument`. Failed BEGIN and cancelled writes require a new owner. This wider protocol supersedes the failure-and-digest-only boundary from #182 because independent ownership implementations had drifted. Sharing the checkpoint database exposed that the Bun SQLite driver drops a leading U+FEFF from bound names.
+
+## R2 transport import boundaries
+
+Use `R2Store` for the SDK-independent store and `R2S3Transport` to adapt a supplied S3 client. The original
+`R2LiveImageStore` entrypoint re-exports the same bindings. Keep the existing service key and operation names
+so both import paths interoperate and preserve failure handling. The AWS SDK remains a package dependency.
+
+The packed consumer extracts the actual persistence and core archives with the Effect peer, omitting the SDK
+and ambient Node types. It imports `R2Store` on Node and checks the declarations on the supported TypeScript
+versions. A manifest-driven package manager still installs the SDK, including for consumers using only other
+persistence subpaths.
+
+On the #394 merge baseline with this split applied, Node 26.12.0 module tracing recorded 12 distinct AWS or
+Smithy package names while importing `R2LiveImageStore`, and zero for `R2Store`. Bun 1.4.4 browser builds that
+exported only `Client` and `layer` produced 5,082 bytes for each route after minification, or 1,948 bytes with
+gzip. Both builds externalized Effect and core. Bun already removed the unused S3 adapter from the legacy
+bundle in this probe. These results justify an independent runtime and declaration boundary. Installed
+dependencies remain the same, and optional-peer migration needs a separate compatibility decision.

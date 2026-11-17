@@ -30,6 +30,14 @@
       "types": "./dist/R2LiveImageStore.d.ts",
       "import": "./dist/R2LiveImageStore.js"
     },
+    "./R2Store": {
+      "types": "./dist/R2Store.d.ts",
+      "import": "./dist/R2Store.js"
+    },
+    "./R2S3Transport": {
+      "types": "./dist/R2S3Transport.d.ts",
+      "import": "./dist/R2S3Transport.js"
+    },
     "./PgLiveImageStore": {
       "types": "./dist/PgLiveImageStore.d.ts",
       "import": "./dist/PgLiveImageStore.js"

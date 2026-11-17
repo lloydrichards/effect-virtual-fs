@@ -15,6 +15,8 @@
 
 - Enforce R2 image limits during S3 body reads through an optional bounded transport operation.
 
+- Separate SDK-independent R2 store imports from the S3 adapter. Preserve the legacy entrypoint and package dependency policy.
+
 - Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
 
 - Reject unused Oxlint disable directives and verify that production, test, tooling, and generated paths participate according to root policy.
