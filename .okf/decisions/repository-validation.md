@@ -27,7 +27,7 @@ sources:
     title: Custom rule provenance and local contract
   - resource: ../../packages/effect-preview/upstream/manifest.json
     title: Imported engine provenance
-generated: { by: codex/okf, at: "2026-11-17T12:14:52+00:00" }
+generated: { by: codex/okf, at: "2026-11-17T12:29:07+00:00" }
 ---
 
 # Repository validation policy
@@ -95,7 +95,8 @@ Oxlint through `prepare`; do not introduce a separate compiler version or experi
 
 ## Preserve dependency and generated ownership
 
-Check runtime cycles separately from type-only imports. Enforce the [package dependency model](../architecture/package-dependency-model.md "implements")
+With `verbatimModuleSyntax`, statement-level `import type` and `export type` declarations have no runtime edge, while
+inline type-only specifiers retain an empty module load. Preserve those loads in the cycle graph. Enforce the [package dependency model](../architecture/package-dependency-model.md "implements")
 in manifests and source imports. Reject cross-package relative imports, unsupported private package entrypoints, and host
 runtime dependencies in the engine. Core's private preview integration is intentional. Export maps remain explicit allowlists.
 

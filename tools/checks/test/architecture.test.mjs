@@ -11,17 +11,17 @@ await test("should omit runtime edges when imports and reexports are type-only",
   assert.deepEqual(
     imports(`
     import type * as A from "./a.js"
-    import { type B } from "./b.js"
     export type { C } from "./c.js"
-    export { type D } from "./d.js"
     type E = import("./e.js").E
   `),
-    ["./a.js", "./b.js", "./c.js", "./d.js", "./e.js"].map((specifier) => ({ specifier, runtime: false }))
+    ["./a.js", "./c.js", "./e.js"].map((specifier) => ({ specifier, runtime: false }))
   )
 })
 
 await test("should retain runtime edges when modules are loaded for execution", () => {
   const actual = imports(`
+    import { type A } from "./inline-import.js"
+    export { type B } from "./inline-export.js"
     import "./side.js"
     import Default, { type A } from "./default.js"
     import { value, type B } from "./mixed.js"
@@ -30,7 +30,7 @@ await test("should retain runtime edges when modules are loaded for execution", 
     require("./require.js")
   `)
 
-  assert.equal(actual.length, 6)
+  assert.equal(actual.length, 8)
   assert(actual.every((entry) => entry.runtime))
 })
 
@@ -100,6 +100,10 @@ await test("should enforce package boundaries when the complete source graph is 
       modules: 2,
       workspaces: 2
     })
+    await writeFile(a, "import { type B } from \"@test/b\"; export const A = 1; export type T = B")
+    await assert.rejects(checkBoundaries({ directory, workspaces: entries, quiet: true }), /Runtime import cycle/)
+    await writeFile(a, "export { type B } from \"@test/b\"; export const A = 1")
+    await assert.rejects(checkBoundaries({ directory, workspaces: entries, quiet: true }), /Runtime import cycle/)
     await writeFile(a, "import { B } from \"@test/b\"; export const A = B")
     await assert.rejects(checkBoundaries({ directory, workspaces: entries, quiet: true }), /Runtime import cycle/)
     await writeFile(a, "import { B } from \"../../b/src/index.js\"; export const A = B")
