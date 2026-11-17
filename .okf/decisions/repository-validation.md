@@ -7,6 +7,10 @@ tags: [tooling, effect, validation, public-api]
 sources:
   - resource: ../../tools/checks/repository.mjs
     title: Workspace classification and export discovery
+  - resource: ../../packages/config-typescript/base.json
+    title: Shared Effect diagnostic policy and scoped exceptions
+  - resource: ../../oxlint.config.ts
+    title: Native Oxlint configuration derived from the shared diagnostic policy
   - resource: ../../tools/checks/effects.mjs
     title: Workspace-derived Effect diagnostics
   - resource: ../../tools/checks/boundaries.mjs
@@ -23,7 +27,7 @@ sources:
     title: Custom rule provenance and local contract
   - resource: ../../packages/effect-preview/upstream/manifest.json
     title: Imported engine provenance
-generated: { by: codex/okf, at: "2026-11-17T10:54:56+00:00" }
+generated: { by: codex/okf, at: "2026-11-17T12:14:52+00:00" }
 ---
 
 # Repository validation policy
@@ -60,6 +64,34 @@ Custom lint rules have isolated accepted and rejected fixtures and a checked Typ
 tooling may use host filesystem APIs and process output. Native Node methods, Schema inputs, opaque identity and protocol
 boundaries justify narrow exceptions when a general restriction would conflict with their contracts. A safety comment
 explains an assertion; it does not prove it.
+
+## Share Effect diagnostic configuration
+
+The shared TypeScript preset owns Effect diagnostic severities and per-file exceptions. The editor keeps language-service
+`diagnostics: false` because Oxlint owns interactive reporting. The dedicated diagnostic runner reads the same plugin settings
+and enables diagnostics only for its pass. Oxlint's typed configuration derives native rule names and scoped severity overrides
+from that policy; do not maintain another independent severity list in the runner.
+
+Use untraced Effect function suggestions for library work. Require `effectFnOpportunity`, `lazyEffect` and `allOfMapToForEach`.
+Retain the existing opt-outs for native array/record/string APIs, global JSON, structural Schema classes, error payload names,
+Result conversion style and strict layer provision. These are policy or compatibility choices, not authorization for automatic
+source rewrites. Keep the Result conversions, nominal branding and published error-field changes in separate implementation
+or compatibility work.
+
+Unstable API usage remains disabled, matching the upstream tooling reference and the repository's pinned Effect dependencies.
+Experimental APIs remain checked outside the existing core preview boundary. Scope its exception to the internal runtime,
+synchronous adapter, durable storage, volume-watch bridge and preview-runtime contract test. The synchronous adapter alone
+also permits nested Effect runners because its checked synchronous region implements the native filesystem boundary. Do not
+replace these runners merely to satisfy a generic diagnostic or widen the exception to other modules.
+
+Language-service override paths are relative to each workspace's tsconfig. All inventoried workspaces are two directories below
+the repository root, so explicit `../../packages/core/...` paths identify the owning files. The native configuration translates
+those paths to repository-relative paths. Use file patterns ending in actual filenames or file extensions; directory-only glob
+patterns do not reliably select files in the TypeScript matcher. A policy regression must retain correctness errors inside the
+excepted file and experimental-API warnings outside it.
+
+Pin `@effect/tsgo` with compatible TypeScript, Oxlint and oxlint-tsgolint versions. Installation patches both the compiler and
+Oxlint through `prepare`; do not introduce a separate compiler version or experimental tsrs backend as part of a tooling update.
 
 ## Preserve dependency and generated ownership
 

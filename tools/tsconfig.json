@@ -3,7 +3,13 @@
   "compilerOptions": {
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "lib": ["ES2023", "DOM"]
+    "lib": [
+      "ES2023",
+      "DOM"
+    ]
   },
-  "include": ["oxlint/**/*.ts"]
+  "include": [
+    "oxlint/**/*.ts",
+    "../oxlint.config.ts"
+  ]
 }

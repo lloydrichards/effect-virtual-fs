@@ -1,8 +1,25 @@
-{
-  "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+import { effectNative, recommended } from "@effect/tsgo/oxlint-presets"
+import { defineConfig } from "oxlint"
+import compiler from "./packages/config-typescript/base.json" with { type: "json" }
+
+const [languageService] = compiler.compilerOptions.plugins
+
+if (languageService === undefined) throw new Error("Missing shared Effect language-service policy")
+
+// Native rule names use kebab-case; the language service uses camelCase.
+const diagnosticRules = (severities: Record<string, string>) => {
+  const entries: Array<[string, "off" | "warn" | "error"]> = Object.entries(severities).map(([name, severity]) => [
+    `effecttsgo/${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
+    severity === "off" ? "off" : severity === "error" ? "error" : "warn"
+  ])
+
+  return Object.fromEntries(entries)
+}
+
+export default defineConfig({
   "extends": [
-    "./node_modules/@effect/tsgo/oxlint-presets/recommended.json",
-    "./node_modules/@effect/tsgo/oxlint-presets/effect-native.json"
+    recommended,
+    effectNative
   ],
   "options": {
     "denyWarnings": true
@@ -18,14 +35,7 @@
     }
   ],
   "rules": {
-    "effecttsgo/prefer-effect-array": "off",
-    "effecttsgo/prefer-effect-record": "off",
-    "effecttsgo/prefer-effect-string": "off",
-    "effecttsgo/global-json": "off",
-    "effecttsgo/schema-class-missing-brand": "off",
-    "effecttsgo/error-payload-shadows-name": "off",
-    "effecttsgo/result-match-to-from-result": "off",
-    "effecttsgo/unstable-api-usage": "off",
+    ...diagnosticRules(languageService.diagnosticSeverity),
     "typescript/consistent-type-imports": [
       "error",
       {
@@ -115,7 +125,6 @@
     "anti-slop-effect/prefer-effect-match": "error",
     "typescript/no-unsafe-type-assertion": "off",
     "typescript/consistent-return": "off",
-    "effecttsgo/strict-effect-provide": "off",
     "import/no-unassigned-import": [
       "error",
       {
@@ -248,7 +257,11 @@
         "effecttsgo/async-function": "off",
         "eslint/no-console": "off"
       }
-    }
+    },
+    ...languageService.overrides.map((override) => ({
+      files: override.include.map((file) => file.replace(/^\.\.\/\.\.\//, "")),
+      rules: diagnosticRules(override.options.diagnosticSeverity)
+    }))
   ],
   "ignorePatterns": [
     "packages/effect-preview/src/**",
@@ -283,4 +296,4 @@
     "suspicious": "error",
     "perf": "error"
   }
-}
+})

@@ -1,4 +1,3 @@
-/* eslint-disable effecttsgo/experimental-api-usage */
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"

@@ -105,7 +105,6 @@ export const attachStore = (
         const first = decision.cause.reasons[0]
 
         if (first) {
-          // eslint-disable-next-line effecttsgo/experimental-api-usage -- Preserve provider attribution through the storage error channel.
           return yield* new P.InvalidResource({ operation, reason: "storageRejected", cause: first.error })
         }
       }
@@ -114,7 +113,6 @@ export const attachStore = (
 
       if (!rejected) freeze()
 
-      // eslint-disable-next-line effecttsgo/experimental-api-usage -- Map a durable storage decision into a preview operation error.
       return yield* new P.InvalidResource({ operation, reason: rejected ? "storageRejected" : "outcomeUnknown" })
     }), frozen)
 }
