@@ -193,6 +193,11 @@ export const predicate = ${identifier}.catchIf(task, error => error._tag === "Mi
 export const reason = ${identifier}.catch(task, error => error.reason._tag === "A" ? ${identifier}.succeed(1) : error.reason._tag === "B" ? ${identifier}.succeed(2) : ${identifier}.fail(error))
 export const external = ${identifier}.catch(task, error => state._tag === "Closed" ? ${identifier}.succeed(1) : ${identifier}.fail(error))
 export const externalChain = state._tag === "Closed" ? 1 : state._tag === "Open" ? 2 : 3
+type Failure = ${identifier}.Error<typeof task>
+export const directFallback = ${identifier}.catchIf(task, error => error.reason._tag === "A", () => ${identifier}.succeed(1), error => ${identifier}.fail(error))
+export const curriedFallback = task.pipe(${identifier}.catchIf((error: Failure) => error.reason._tag === "A", () => ${identifier}.succeed(1), error => ${identifier}.fail(error)))
+export const directExternal = ${identifier}.catchIf(task, () => state._tag === "Closed", () => ${identifier}.succeed(1), error => ${identifier}.fail(error))
+export const curriedExternal = task.pipe(${identifier}.catchIf((_error: Failure) => state._tag === "Closed", () => ${identifier}.succeed(1), error => ${identifier}.fail(error)))
 `
     )
 
@@ -213,6 +218,8 @@ export const externalChain = state._tag === "Closed" ? 1 : state._tag === "Open"
         diagnostic.labels[0].span.line
       ]).sort(),
       [
+        ["anti-slop-effect(no-manual-effect-error-tag)", 11],
+        ["anti-slop-effect(no-manual-effect-error-tag)", 12],
         ["anti-slop-effect(no-manual-effect-error-tag)", 7],
         ["anti-slop-effect(no-manual-tag-comparison)", 9],
         ["effecttsgo(catch-all-tag-dispatch-to-catch-tag)", 5],

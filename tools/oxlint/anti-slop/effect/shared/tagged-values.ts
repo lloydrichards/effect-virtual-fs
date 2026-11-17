@@ -80,8 +80,10 @@ export function broadEffectHandler(sourceCode: SourceCode, node: ESTree.Node) {
   if (!handler || call?.type !== "CallExpression") return
   const index = call.arguments.indexOf(handler)
   const method = effectMethod(sourceCode, call.callee, "Effect", broadEffectCatchMethods)
-  // Direct forms take the effect first. Curried forms begin at the callback.
-  if (method === undefined || index < 0 || index < call.arguments.length - (method === "catchIf" ? 2 : 1)) return
+  if (method === undefined || index < 0) return
+
+  // Every inline function passed to catchIf is a predicate, recovery callback, or fallback.
+  if (method !== "catchIf" && index !== call.arguments.length - 1) return
   return handler
 }
 
