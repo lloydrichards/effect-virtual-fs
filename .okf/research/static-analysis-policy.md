@@ -23,11 +23,23 @@ sources:
     title: Native and standalone diagnostic comparison
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/382
     title: Tracing fixture and proposed import-aware guard
+  - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/385
+    title: Vocabulary and syntax gate reassessment
+  - resource: ../../tools/oxlint/anti-slop/rules/no-runtime-typeof.ts
+    title: Runtime representation check matcher
+  - resource: ../../tools/oxlint/anti-slop/rules/no-shape-in-symbol-names.ts
+    title: Symbol substring matcher
+  - resource: ../../tools/oxlint/anti-slop/rules/no-conditional-empty-object-spread.ts
+    title: Empty-object spread matcher
+  - resource: ../../tools/checks/repository.mjs
+    title: Runtime checks for the manifest exports contract
+  - resource: ../../packages/node/src/internal/conversions.ts
+    title: String and number representations of native open flags
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/386
     title: Bounded unused-export investigation
   - resource: https://home-lab.tailc118cc.ts.net/reports/_releases/261117_effect-virtual-fs_static-analysis-audit/623afbe0625d43788544bd65325e717d/index.html
     title: Private static-analysis report with source excerpts and replayable probes
-generated: { by: codex/okf, at: "2026-11-17T21:12:17+01:00" }
+generated: { by: codex/okf, at: "2026-11-17T21:52:20+01:00" }
 ---
 
 # Static analysis policy opportunities
@@ -81,6 +93,75 @@ advice, not demonstrated production corruption.
 Application-owned tracing is already local policy. Untraced function suggestions and explicit public signatures do not
 enforce it: annotated named functions and direct span calls pass the current checks. The proposed guard applies to handwritten
 library implementations, while allowing consuming applications, tests and generated code at their existing boundaries.
+
+## Vocabulary and syntax gates
+
+The three rules are errors in the current root configuration. Isolated probes on checkout `812957e3` used
+Bun 1.4.4 and Oxlint 1.92.0. The probes exercise matcher behavior. They do not establish that any rejected snippet
+causes a runtime failure.
+
+| Rule                                 | Reported by the probe                                                                                                      | Accepted by the probe                                                    | Recommendation                                                                                                                                                          |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no-runtime-typeof`                  | Representation narrowing in a known union, diagnostic formatting, and a string type guard                                  | A missing-global existence probe and a TypeScript type query             | Retire the blanket rule. Keep validation at external boundaries as the policy. Permit ordinary runtime checks that narrow or describe known representations.            |
+| `no-shape-in-symbol-names`           | The imported `Shape` token aliased to `Geometry`, an owned geometric `Shape`, the generic name `InputShape`, and `reshape` | The local `Geometry` spelling                                            | Retire the substring rule. Suggest domain names during review when the proposed name obscures ownership. Preserve geometric vocabulary and imported or published names. |
+| `no-conditional-empty-object-spread` | Ternary spread with an empty alternate                                                                                     | Logical-and spread with the same omitted own key for a boolean condition | Retire the syntax restriction. Review omission and evaluation order where they affect the contract.                                                                     |
+
+Enabling `allowInTypeGuards` suppressed the predicate diagnostic alone. Known-union narrowing and diagnostic
+formatting still reported. In production, `flagsOf` already narrows Node's string/number open flags and then validates
+the numeric mask. In manifest tooling, `publicEntries` checks that export maps and targets are objects and validates
+their declaration and import paths. Its existing suppressions allow those runtime checks. A replacement boundary
+rule would need evidence that it detects missing validation while accepting these checks. An expression or identifier
+alone does not identify such a boundary.
+
+The trial emitted eight warnings and exited zero. Adding `--deny-warnings` preserved the eight diagnostics and
+changed the exit code to one. If reviewers still want these style suggestions, run them explicitly with a separate
+configuration and collect the findings outside CI. This report proposes the dispositions. The root rules and file
+overrides remain in force until a reviewed policy change.
+
+### Reproduce the vocabulary probes
+
+From the repository root after the frozen install, create an isolated fixture and lint configuration.
+
+```sh
+mkdir -p .cache/lint-vocabulary
+cat > .cache/lint-vocabulary/probes.ts <<'TS'
+import type { Shape as Geometry } from "geometry"
+export interface Shape { area(): number }
+export type InputShape = { value: number }
+export const area = (figure: Geometry) => figure.area()
+export const reshape = (value: number) => value
+export const render = (value: string | number) => typeof value === "string" ? value : String(value)
+export const report = (value: unknown) => ({ kind: typeof value })
+export const isString = (value: unknown): value is string => typeof value === "string"
+export const hasOptionalGlobal = () => typeof optionalGlobal !== "undefined"
+export type Render = typeof render
+export const fromTernary = (present: boolean) => ({ ...(present ? { value: 1 } : {}) })
+export const fromAnd = (present: boolean) => ({ ...(present && { value: 1 }) })
+TS
+bun -e '
+  const rules = [
+    "no-runtime-typeof",
+    "no-shape-in-symbol-names",
+    "no-conditional-empty-object-spread"
+  ]
+  await Bun.write(".cache/lint-vocabulary/oxlint.json", JSON.stringify({
+    jsPlugins: [{ name: "anti-slop", specifier: process.cwd() + "/tools/oxlint/anti-slop/index.ts" }],
+    categories: { correctness: "off" },
+    rules: Object.fromEntries(rules.map((rule) => ["anti-slop/" + rule, "warn"]))
+  }))
+'
+```
+
+Run the probe once in isolation and again with `--deny-warnings` appended.
+
+```sh
+bunx --no-install oxlint --config .cache/lint-vocabulary/oxlint.json \
+  --disable-nested-config --no-ignore --format json .cache/lint-vocabulary/probes.ts
+```
+
+Expect diagnostics on lines 1, 2, 3 and 5 for the name rule, lines 6–8 for the runtime check rule, and line 11
+for the spread rule. To check the type-guard option, set the runtime rule in the temporary config to
+`["warn", {"allowInTypeGuards": true}]` and repeat. The line 8 diagnostic disappears.
 
 ## Proposed rollout criteria
 

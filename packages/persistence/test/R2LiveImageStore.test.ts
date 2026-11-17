@@ -8,6 +8,14 @@ import * as Hex from "effect/encoding/Hex"
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- Exercise the native Node S3 response body and its cleanup.
 import { Readable } from "node:stream"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
+import { fromS3 } from "../src/R2S3Transport.js"
+import * as R2Store from "../src/R2Store.js"
+
+it("shares the same store and adapter across R2 entrypoints", () => {
+  assert.strictEqual(R2LiveImageStore.Client, R2Store.Client)
+  assert.strictEqual(R2LiveImageStore.layer, R2Store.layer)
+  assert.strictEqual(R2LiveImageStore.fromS3, fromS3)
+})
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 
