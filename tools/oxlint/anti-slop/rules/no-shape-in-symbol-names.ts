@@ -36,8 +36,8 @@ export const noForbiddenTermInSymbolNamesRule = defineRule({
   create(context) {
     const option = context.options?.[0]
     const allowedNames = new Set(
-      typeof option === "object" && option !== null && "allow" in option && Array.isArray(option.allow)
-        ? option.allow.filter((name): name is string => typeof name === "string")
+      typeof option === "object" && option !== null && "allow" in option && Array.isArray(option["allow"])
+        ? option["allow"].filter((name): name is string => typeof name === "string")
         : []
     )
     const reportForbiddenSymbolName = (node: ESTree.Node & { name: string }) => {

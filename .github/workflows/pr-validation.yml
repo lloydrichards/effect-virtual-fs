@@ -17,6 +17,7 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
+      - run: bun scripts/repository-policy.mjs
       - run: bun run format:check
       # Workspace packages export declarations from dist/. Build them before
       # Oxlint resolves their package imports during type-aware analysis.
@@ -33,6 +34,8 @@ jobs:
       - run: bun run lint
       - run: bun run lint:effects
       - run: bun run type-check
+      - run: bun run test:tooling
+      - run: bun run check:consumers
       - run: bun run test
       - name: Benchmark correctness smoke
         env:

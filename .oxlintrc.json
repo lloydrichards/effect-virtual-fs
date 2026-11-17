@@ -134,11 +134,23 @@
       ],
       "rules": {
         "effecttsgo/node-builtin-import": "error",
-        "eslint/no-restricted-imports": ["error", { "paths": ["bun:sqlite"], "patterns": ["node:*"] }]
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              "bun:sqlite"
+            ],
+            "patterns": [
+              "node:*"
+            ]
+          }
+        ]
       }
     },
     {
-      "files": ["apps/**"],
+      "files": [
+        "apps/**"
+      ],
       "rules": {
         "anti-slop/require-public-effect-fn-signature": "off",
         "anti-slop/require-public-internal-alias-type": "off"
@@ -214,26 +226,24 @@
     },
     {
       "files": [
-        "apps/demo-overlay/src/agent.ts",
-        "apps/demo-agent-tools/src/tools.ts",
-        "apps/demo-agent-tools/src/mcp.ts",
-        "apps/demo-agent-tools/src/codemode.ts",
-        "apps/demo-agent-tools/src/codemode-mcp.ts",
-        "apps/demo-overlay/test/agent.test.ts",
-        "apps/demo-r2-nfs/src/container-http.ts",
-        "apps/demo-r2-nfs/src/container-main.ts",
-        "packages/nfs/src/NfsServer.ts",
-        "packages/nfs/src/internal/server.ts",
-        "packages/nfs/test/NfsServer.test.ts",
-        "packages/persistence/compatibility/node-next/index.ts",
-        "packages/persistence/src/CheckpointStore.ts",
-        "packages/persistence/src/SqliteLiveImageStore.ts",
-        "packages/persistence/test/CheckpointStore.test.ts",
-        "packages/persistence/test/SqliteLiveImageStore.test.ts",
-        "packages/persistence/test/fixtures/live-restart.ts"
+        "**/internal/**",
+        "**/{test,typetest,benchmarks,compatibility,scripts}/**",
+        "tools/**"
       ],
       "rules": {
-        "effecttsgo/unstable-api-usage": "off"
+        "anti-slop/require-public-effect-fn-signature": "off",
+        "anti-slop/require-public-internal-alias-type": "off"
+      }
+    },
+    {
+      "files": [
+        "scripts/**",
+        "apps/docs/scripts/**"
+      ],
+      "rules": {
+        "effecttsgo/node-builtin-import": "off",
+        "effecttsgo/global-console": "off",
+        "effecttsgo/async-function": "off"
       }
     }
   ],

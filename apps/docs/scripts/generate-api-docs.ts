@@ -4,7 +4,7 @@ import { spawn } from "bun"
 import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { format } from "prettier"
-import { Project, ts, TypeFormatFlags } from "ts-morph"
+import { Node, Project, ts, TypeFormatFlags } from "ts-morph"
 import { apiPages } from "../app/api-pages"
 
 const stripFrontmatter = (content: string): string => content.replace(/^---[\s\S]*?---\n*/, "")
@@ -57,6 +57,77 @@ const typeFlags: TypeFormatFlags = TypeFormatFlags.NoTruncation | TypeFormatFlag
 
 const projects = new Map<string, Project>()
 
+const readablePublicType = (text: string, packagePath: string): string =>
+  text
+    .replace(/import\("[^"]*\/node_modules\/effect\/dist\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
+    .replace(/import\("effect\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
+    .replace(/import\("\.\/([^"]+)\.js"\)\.([A-Za-z_$][\w$]*)/g, (original, moduleName, name) =>
+      apiPages.some((page) =>
+          page.packageDir === packagePath && page.moduleName === moduleName
+        )
+        ? name
+        : original)
+
+// Render aliases through their owning declarations so docs never depend on private namespace names.
+// oxlint-disable-next-line effecttsgo/async-function -- Prettier exposes an asynchronous formatting API.
+const expandPublicAliases = async (packagePath: string, moduleName: string, content: string): Promise<string> => {
+  let project = projects.get(packagePath)
+
+  if (project === undefined) {
+    project = new Project({ tsConfigFilePath: path.join(root, packagePath, "tsconfig.json") })
+    projects.set(packagePath, project)
+  }
+
+  const source = project.getSourceFileOrThrow(path.join(root, packagePath, "src", `${moduleName}.ts`))
+  let result = content
+
+  for (const statement of source.getVariableStatements()) {
+    if (!statement.isExported()) continue
+
+    for (const declaration of statement.getDeclarations()) {
+      const annotation = declaration.getTypeNode()?.getText()
+
+      if (annotation === undefined || !/^typeof \w+\./.test(annotation)) continue
+
+      const name = declaration.getName()
+      const original = `declare const ${name}: ${annotation}`
+
+      if (!result.includes(original)) continue
+
+      const owner = declaration.getInitializer()?.getSymbol()?.getDeclarations().find(Node.isClassDeclaration)
+      let signature: string
+
+      if (owner !== undefined) {
+        const base = owner.getExtends()?.getText()
+        signature = `export declare class ${name}${base === undefined ? "" : ` extends ${base}`} {}`
+        // A constructor declaration also describes its instance type; keep its established heading.
+        result = result.replace(`### ${name}\n`, `### ${name} (class)\n`)
+        const typeHeading = `### ${name} (type alias)\n`
+        const start = result.indexOf(typeHeading)
+
+        if (start !== -1) {
+          const rest = result.slice(start + typeHeading.length)
+          const next = rest.search(/\n#{2,3} /)
+          result = result.slice(0, start) + (next === -1 ? "" : rest.slice(next + 1))
+        }
+      } else {
+        const resolved = readablePublicType(declaration.getType().getText(declaration, typeFlags), packagePath)
+
+        if (resolved.includes("import(\"") || resolved.includes(annotation)) {
+          throw new Error(`Could not render public value ${packagePath}/${moduleName}.${name}`)
+        }
+
+        signature = `export declare const ${name}: ${resolved}`
+      }
+
+      const readable = (await format(signature, { parser: "typescript", printWidth: 100, semi: false })).trimEnd()
+      result = result.replace(original, readable)
+    }
+  }
+
+  return result
+}
+
 // oxlint-disable-next-line effecttsgo/async-function -- Prettier exposes an asynchronous formatting API.
 const expandTypeAliases = async (packagePath: string, moduleName: string, content: string): Promise<string> => {
   let project = projects.get(packagePath)
@@ -105,9 +176,7 @@ const expandTypeAliases = async (packagePath: string, moduleName: string, conten
       ? typeNode.getText()
       : typeNode.getType().getText(alias, typeFlags)
 
-    const resolved = resolvedType
-      .replace(/import\("[^"]*\/node_modules\/effect\/dist\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
-      .replace(/import\("effect\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
+    const resolved = readablePublicType(resolvedType, packagePath)
 
     if (resolved.includes("import(\"") || resolved === alias.getName()) {
       throw new Error(`Could not render public type ${packagePath}/${moduleName}.${alias.getName()}`)
@@ -273,9 +342,13 @@ for (const packagePath of packageDirs) {
       await expandTypeAliases(
         packagePath,
         page.moduleName,
-        transformContent(keepPublishedExports(page.moduleName, content)).replace(
-          /https:\/\/github\.com\/lloydrichards\/effect-virtual-fs#readme\/blob\/main\/src\//g,
-          `https://github.com/lloydrichards/effect-virtual-fs/blob/main/${packagePath}/src/`
+        await expandPublicAliases(
+          packagePath,
+          page.moduleName,
+          transformContent(keepPublishedExports(page.moduleName, content)).replace(
+            /https:\/\/github\.com\/lloydrichards\/effect-virtual-fs#readme\/blob\/main\/src\//g,
+            `https://github.com/lloydrichards/effect-virtual-fs/blob/main/${packagePath}/src/`
+          )
         )
       )
     )

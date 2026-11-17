@@ -22,6 +22,7 @@ export const preferEffectMatchRule = defineRule({
     const comparedValue = (node: ESTree.Expression): string | undefined => {
       if (
         node.type !== "BinaryExpression" ||
+        node.operator === "in" ||
         !equalityOperators.has(node.operator) ||
         tagMemberFromComparison(node) === undefined
       ) {

@@ -62,7 +62,7 @@ export const noRuntimeTypeofRule = defineRule({
         const allowInTypeGuards = typeof option === "object" &&
           option !== null &&
           !Array.isArray(option) &&
-          option.allowInTypeGuards === true
+          option["allowInTypeGuards"] === true
         if (
           node.operator === "typeof" &&
           !isExistenceProbe(node) &&

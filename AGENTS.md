@@ -19,3 +19,19 @@ Check the owning package's tests and the [filesystem contracts](.okf/contracts/i
 ## Commits, branches, and reviews
 
 Omit Codex signatures and co-author trailers. Give new branches descriptive names without the `codex/` prefix.
+
+## Repository standards
+
+Follow the [repository validation policy](.okf/decisions/repository-validation.md). Discover workspaces and public exports
+from manifests; record policy choices and justified exclusions in `scripts/repository-policy.mjs`.
+
+- Use `bun run lint:repository` for inventory, dependency direction, and runtime cycles.
+- Use `bun run lint:anti-slop-policy` and `bun run type-check:tools` after editing lint rules.
+- Use `bun run test:tooling` after editing validation scripts or documentation checks.
+- Run `bun run build` before `bun run check:consumers`. The consumer check imports packed public entrypoints with
+  TypeScript 5.9.3 and 7.0.2; it does not establish support for every intervening compiler version.
+- Use `bun run lint:effects -- packages/core` for a focused diagnostic check. Generated preview output has a separate
+  reproducibility policy; change its snapshot or generator rather than applying handwritten-source style fixes.
+
+Preserve published contracts while tightening checks. Fix scoped violations before enabling a rule. Document a VFS-specific
+exception when an upstream convention conflicts with an integration or filesystem contract.

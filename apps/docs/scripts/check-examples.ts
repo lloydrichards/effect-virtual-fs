@@ -16,24 +16,18 @@
  */
 
 import { spawn } from "bun"
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
-
-const EXAMPLE_BLOCK = /@example\n\s*\*\s*```ts\n([\s\S]*?)\n\s*\*\s*```/g
-
-const OWNER = /(?:export (?:const|class|interface|type|function)|static) (\w+)/
-
-const EXPECTED_OUTPUT = /\n\/\/ ([^\n]*)$/
+import { publicEntries, validateInventory, type Workspace } from "../../../scripts/repository-policy.mjs"
+import { collectPublicExamples, expectedExampleOutput } from "./public-examples"
 
 const root = path.resolve(import.meta.dirname, "../../..")
 
-const packageDirs = ["packages/core", "packages/memory", "packages/persistence"]
+const workspaces = (await validateInventory()).filter((workspace) =>
+  workspace.policy.kind === "library" && workspace.manifest.private !== true
+)
 
 const tsc = path.join(root, "node_modules/.bin/tsc")
-
-const tsx = path.join(root, "node_modules/.bin/tsx")
-
-const undent = (block: string): string => block.split("\n").map((line) => line.replace(/^\s*\*\s?/, "")).join("\n")
 
 /** Node and Bun pad array inspections differently; compare on collapsed whitespace. */
 const normalise = (text: string): string => text.replace(/\s+/g, " ").trim()
@@ -46,31 +40,20 @@ interface Example {
   readonly expected: string | undefined
 }
 
-const collect = async (srcDir: string): Promise<Array<Example>> => {
-  const files = (await readdir(srcDir, { recursive: true }))
-    .filter((file) => file.endsWith(".ts") && !file.includes("internal/") && file !== "index.ts")
-
+const collect = async (workspace: Workspace): Promise<Array<Example>> => {
   const examples: Array<Example> = []
 
-  for (const file of files) {
-    const content = await Bun.file(path.join(srcDir, file)).text()
+  for (const entry of publicEntries(workspace)) {
+    const content = await Bun.file(path.join(root, entry.source)).text()
 
-    for (const match of content.matchAll(EXAMPLE_BLOCK)) {
-      const body = undent(match[1]!)
-
-      const line = content.slice(0, match.index).split("\n").length
-
-      const owner = content.slice(match.index).match(OWNER)?.[1] ?? "module"
-
-      const expected = body.includes(".then(console.log)")
-        ? EXPECTED_OUTPUT.exec(body)?.[1]
-        : undefined
+    for (const example of collectPublicExamples(content, entry.source)) {
+      const expected = expectedExampleOutput(example.body, `${entry.source}:${example.line}`)
 
       examples.push({
-        name: `${path.basename(file, ".ts")}-${owner}-${examples.length}`,
-        source: `${file}:${line}`,
-        line,
-        body,
+        name: `${path.basename(entry.source, ".ts")}-${examples.length}`,
+        source: `${path.basename(entry.source)}:${example.line}`,
+        line: example.line,
+        body: example.body,
         expected
       })
     }
@@ -85,83 +68,93 @@ let compiled = 0
 
 let asserted = 0
 
-for (const packagePath of packageDirs) {
+for (const workspace of workspaces) {
+  const packagePath = workspace.directory
   const packageDir = path.join(root, packagePath)
-  const stagingDir = path.join(packageDir, ".cache/examples")
+  const cacheDir = path.join(packageDir, ".cache")
 
-  await rm(stagingDir, { recursive: true, force: true })
-  await mkdir(stagingDir, { recursive: true })
+  await mkdir(cacheDir, { recursive: true })
+  const stagingDir = await mkdtemp(path.join(cacheDir, "examples-"))
 
-  const examples = await collect(path.join(packageDir, "src"))
+  try {
+    const examples = await collect(workspace)
 
-  if (examples.length === 0) {
-    await rm(stagingDir, { recursive: true, force: true })
-    continue
-  }
+    if (examples.length === 0) continue
 
-  for (const example of examples) {
-    await writeFile(path.join(stagingDir, `${example.name}.ts`), `${example.body}\n`, "utf8")
-  }
+    for (const example of examples) {
+      await writeFile(path.join(stagingDir, `${example.name}.ts`), `${example.body}\n`, "utf8")
+    }
 
-  await writeFile(
-    path.join(stagingDir, "tsconfig.json"),
-    `${
-      JSON.stringify(
-        {
-          extends: "../../tsconfig.json",
-          compilerOptions: { noEmit: true, rootDir: ".", types: [] },
-          include: ["*.ts"]
-        },
-        null,
-        2
-      )
-    }\n`,
-    "utf8"
-  )
+    await writeFile(
+      path.join(stagingDir, "tsconfig.json"),
+      `${
+        JSON.stringify(
+          {
+            extends: "../../tsconfig.json",
+            compilerOptions: {
+              noEmit: true,
+              rootDir: ".",
+              types: workspace.policy.runtime === "node" ? ["node"] : []
+            },
+            include: ["*.ts"]
+          },
+          null,
+          2
+        )
+      }\n`,
+      "utf8"
+    )
 
-  const typeCheck = spawn([tsc, "--project", path.join(stagingDir, "tsconfig.json")], {
-    cwd: packageDir,
-    stdout: "inherit",
-    stderr: "inherit"
-  })
-
-  if (await typeCheck.exited !== 0) {
-    throw new Error(`Examples failed to type-check in ${packagePath}`)
-  }
-
-  compiled += examples.length
-
-  for (const example of examples) {
-    if (example.expected === undefined) continue
-
-    const run = spawn([tsx, path.join(stagingDir, `${example.name}.ts`)], {
+    const typeCheck = spawn([tsc, "--project", path.join(stagingDir, "tsconfig.json")], {
       cwd: packageDir,
-      stdout: "pipe",
-      stderr: "pipe"
+      stdout: "inherit",
+      stderr: "inherit"
     })
 
-    const [stdout, stderr] = await Promise.all([
-      new Response(run.stdout).text(),
-      new Response(run.stderr).text()
-    ])
-
-    if (await run.exited !== 0) {
-      failures.push(`${packagePath}/src/${example.source} failed to run:\n${stderr.trim()}`)
-      continue
+    if (await typeCheck.exited !== 0) {
+      throw new Error(`Examples failed to type-check in ${packagePath}`)
     }
 
-    asserted += 1
+    compiled += examples.length
 
-    if (normalise(stdout) !== normalise(example.expected)) {
-      failures.push(
-        `${packagePath}/src/${example.source} output comment does not match\n`
-          + `  comment: ${normalise(example.expected)}\n`
-          + `  actual:  ${normalise(stdout)}`
-      )
+    for (const example of examples) {
+      if (example.expected === undefined) continue
+
+      const runtime = workspace.policy.runtime === "bun"
+        ? ["bun"]
+        : ["node", ...(workspace.policy.runtime === "node" ? ["--experimental-vfs"] : []), "--import", "tsx"]
+
+      // Regular files preserve Node console output when Bun launches the subprocess.
+      const stdoutFile = Bun.file(path.join(stagingDir, `${example.name}.stdout`))
+      const stderrFile = Bun.file(path.join(stagingDir, `${example.name}.stderr`))
+
+      const run = spawn([...runtime, path.join(stagingDir, `${example.name}.ts`)], {
+        cwd: packageDir,
+        stdout: stdoutFile,
+        stderr: stderrFile
+      })
+
+      const exitCode = await run.exited
+      const [stdout, stderr] = await Promise.all([stdoutFile.text(), stderrFile.text()])
+
+      if (exitCode !== 0) {
+        failures.push(`${packagePath}/src/${example.source} failed to run:\n${stderr.trim()}`)
+        continue
+      }
+
+      asserted += 1
+
+      if (normalise(stdout) !== normalise(example.expected)) {
+        failures.push(
+          `${packagePath}/src/${example.source} output comment does not match\n`
+            + `  comment: ${normalise(example.expected)}\n`
+            + `  actual:  ${normalise(stdout)}`
+        )
+      }
     }
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true })
   }
-
-  await rm(stagingDir, { recursive: true, force: true })
 }
 
 if (failures.length > 0) {

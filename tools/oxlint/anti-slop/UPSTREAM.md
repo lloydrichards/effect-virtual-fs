@@ -24,3 +24,11 @@ Intentional local policy deviations:
 The repository configuration exempts tests from manual tagged construction. Tests still require `SAFETY:` comments for non-const assertions, and deliberate chained assertions use targeted suppressions.
 
 The nested `vendor/eslint-stylistic/UPSTREAM.md` records the provenance and adaptations for the vendored readability rule.
+
+## Public contract checks
+
+The local public-contract rules cover inline and separately exported values, local alias chains, and direct internal value re-exports. The Effect function rule recognizes named and default exports, direct and curried calls through Effect namespace imports and named imports, and stable local factory aliases. An operation can state its contract on the exported binding or on every generator input and its return type.
+
+An explicit `typeof Internal.operation` annotation remains allowed. These syntax checks require declared ownership; clean consumer checks determine whether emitted declarations resolve without unavailable private dependencies. Internal type names alone do not establish an invalid published declaration.
+
+Run `bun run lint:anti-slop-policy` to check accepted and rejected cases for every enabled custom rule. The runner isolates each rule, rejects unexpected diagnostics, and fails if the lint subprocess crashes or returns an inconsistent status. Run `bun run type-check:tools` to check the plugin implementation and vendored support code.
