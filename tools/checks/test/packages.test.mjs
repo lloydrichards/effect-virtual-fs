@@ -1,8 +1,10 @@
 import { afterEach, expect, test } from "bun:test"
+import { strict as assert } from "node:assert"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { discoverWorkspaces, publicEntries, validateInventory } from "./repository-policy.mjs"
+import { validatePackedExports } from "../consumers.mjs"
+import { discoverWorkspaces, publicEntries, validateInventory } from "../repository.mjs"
 
 const temporary = []
 
@@ -36,13 +38,13 @@ const policy = {
   allowedDependencies: []
 }
 
-test("new workspaces require a validation policy", async () => {
+test("should reject an unclassified package when a workspace is added", async () => {
   const directory = await repository()
   const workspaces = await discoverWorkspaces(directory, {})
   await expect(validateInventory(workspaces, directory, {})).rejects.toThrow("missing repository validation policy")
 })
 
-test("published exports require corresponding source modules", async () => {
+test("should reject a public export when its source module is missing", async () => {
   const directory = await repository()
   const registry = { "packages/example": policy }
   await validateInventory(undefined, directory, registry)
@@ -50,19 +52,19 @@ test("published exports require corresponding source modules", async () => {
   await expect(validateInventory(undefined, directory, registry)).rejects.toThrow("has no source")
 })
 
-test("removed workspaces cannot leave stale exclusions", async () => {
+test("should reject stale policy when a workspace is removed", async () => {
   const directory = await repository()
   await expect(validateInventory(undefined, directory, { "packages/example": policy, "packages/removed": policy }))
     .rejects.toThrow("missing workspace packages/removed")
 })
 
-test("diagnostic exclusions need an explanation", async () => {
+test("should require a reason when diagnostics are excluded", async () => {
   const directory = await repository()
   await expect(validateInventory(undefined, directory, { "packages/example": { ...policy, effects: false } }))
     .rejects.toThrow("effects needs an explicit policy or exclusion reason")
 })
 
-test("export discovery includes the root but excludes blocked internals and metadata", () => {
+test("should discover typed entrypoints when internals and metadata are also exported", () => {
   expect(publicEntries({
     directory: "packages/example",
     manifest: {
@@ -79,7 +81,7 @@ test("export discovery includes the root but excludes blocked internals and meta
   ])
 })
 
-test("unsupported live exports cannot silently escape validation", () => {
+test("should reject unsupported exports when discovery cannot qualify them", () => {
   const unsupported = [
     "./dist/Example.js",
     ["./dist/Example.js"],
@@ -95,7 +97,7 @@ test("unsupported live exports cannot silently escape validation", () => {
   }
 })
 
-test("declaration mapping stays inside dist and matches the runtime module", () => {
+test("should reject invalid paths when declarations do not match their runtime module", () => {
   const unsupported = [
     { types: "./dist/Example.ts", import: "./dist/Example.js" },
     { types: "./other/Example.d.ts", import: "./other/Example.js" },
@@ -118,7 +120,7 @@ test("declaration mapping stays inside dist and matches the runtime module", () 
   })).toEqual([{ subpath: "./nested/Example", source: "packages/example/src/nested/Example.ts" }])
 })
 
-test("only the exact package metadata export is exempt", () => {
+test("should exempt metadata only when it exports the package manifest", () => {
   expect(
     publicEntries({ directory: "packages/example", manifest: { exports: { "./package.json": "./package.json" } } })
   ).toEqual([])
@@ -137,7 +139,7 @@ test("only the exact package metadata export is exempt", () => {
   }
 })
 
-test("a top-level shorthand or conditional export map needs an explicit policy implementation", () => {
+test("should reject shorthand maps when typed subpaths are not explicit", () => {
   for (
     const exports of [
       "./dist/Example.js",
@@ -149,10 +151,32 @@ test("a top-level shorthand or conditional export map needs an explicit policy i
   }
 })
 
-test("missing workspace names fail dependency inventory validation", async () => {
+test("should reject dependency inventory when a workspace has no name", async () => {
   const directory = await repository()
   const registry = { "packages/example": policy }
   const workspaces = await discoverWorkspaces(directory, registry)
   delete workspaces[0].manifest.name
   await expect(validateInventory(workspaces, directory, registry)).rejects.toThrow("missing workspace package name")
+})
+
+test("should reject a packed entrypoint when its runtime file is missing", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "vfs-packed-exports-"))
+
+  const manifest = {
+    name: "@test/package",
+    exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } }
+  }
+
+  try {
+    await mkdir(path.join(directory, "dist"))
+    await writeFile(path.join(directory, "dist/index.d.ts"), "export declare const value: number")
+    await assert.rejects(validatePackedExports(directory, manifest), /packed import target is missing/)
+    await writeFile(path.join(directory, "dist/index.js"), "export const value = 1")
+    await validatePackedExports(directory, manifest)
+    manifest.exports["."].types = "./dist/../../outside.d.ts"
+    manifest.exports["."].import = "./dist/../../outside.js"
+    await assert.rejects(validatePackedExports(directory, manifest), /unsupported public export/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })

@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
     "type-check": "tsc --noEmit",
     "start": "bun src/mcp.ts",
     "start:codemode": "bun src/codemode-mcp.ts",

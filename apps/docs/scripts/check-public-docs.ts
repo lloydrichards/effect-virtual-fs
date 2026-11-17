@@ -14,7 +14,7 @@ import {
   type TypeAliasDeclaration,
   type VariableStatement
 } from "ts-morph"
-import { publicEntries, validateInventory } from "../../../scripts/repository-policy.mjs"
+import { publicEntries, validateInventory } from "../../../tools/checks/repository.mjs"
 import { apiPages } from "../app/api-pages"
 
 const version = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/

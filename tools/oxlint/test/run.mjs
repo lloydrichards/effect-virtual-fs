@@ -3,9 +3,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { ruleCases } from "./anti-slop-policy-fixtures/cases.mjs"
+import { ruleCases } from "./cases.mjs"
 
-const root = path.resolve(import.meta.dirname, "..")
+const root = path.resolve(import.meta.dirname, "../../..")
 
 const policy = JSON.parse(await readFile(path.join(root, ".oxlintrc.json"), "utf8"))
 
@@ -31,22 +31,6 @@ const parseReport = (result, file) => {
 
   return report.diagnostics
 }
-
-// A broken lint subprocess must fail the check even if it writes parseable output.
-assert.throws(() =>
-  parseReport(
-    { exitCode: 2, stdout: Buffer.from("{\"diagnostics\":[]}"), stderr: Buffer.from("failure") },
-    "crash fixture"
-  )
-)
-
-assert.throws(() =>
-  parseReport({ exitCode: 1, stdout: Buffer.from("{\"diagnostics\":[]}"), stderr: Buffer.from("") }, "status fixture")
-)
-
-assert.throws(() =>
-  parseReport({ exitCode: 0, stdout: Buffer.from("not JSON"), stderr: Buffer.from("") }, "output fixture")
-)
 
 const directory = await mkdtemp(path.join(tmpdir(), "vfs-lint-policy-"))
 

@@ -2,6 +2,9 @@
 
 ## 2026-11-17
 
+- Consolidate validation under one local/CI sequence, keep Git hooks fast and read-only beyond staged formatting, and place
+  tests and fixtures with their owning tooling. Remove superseded launchers and reuse existing consumer contracts.
+
 - Record Effect-aligned repository validation: complete workspace and export classification, public documentation and
   type contracts, checked lint tooling, dependency direction, generated ownership, and selected packed-consumer compilers.
 

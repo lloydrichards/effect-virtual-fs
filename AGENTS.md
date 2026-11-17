@@ -22,16 +22,19 @@ Omit Codex signatures and co-author trailers. Give new branches descriptive name
 
 ## Repository standards
 
-Follow the [repository validation policy](.okf/decisions/repository-validation.md). Discover workspaces and public exports
-from manifests; record policy choices and justified exclusions in `scripts/repository-policy.mjs`.
+Follow the [repository validation policy](.okf/decisions/repository-validation.md) and
+[validation workflow](.okf/workflows/evidence-and-validation.md). Keep policy metadata in `tools/checks/repository.mjs`;
+workspace manifests discover packages and exports.
 
-- Use `bun run lint:repository` for inventory, dependency direction, and runtime cycles.
-- Use `bun run lint:anti-slop-policy` and `bun run type-check:tools` after editing lint rules.
-- Use `bun run test:tooling` after editing validation scripts or documentation checks.
-- Run `bun run build` before `bun run check:consumers`. The consumer check imports packed public entrypoints with
-  TypeScript 5.9.3 and 7.0.2; it does not establish support for every intervening compiler version.
-- Use `bun run lint:effects -- packages/core` for a focused diagnostic check. Generated preview output has a separate
-  reproducibility policy; change its snapshot or generator rather than applying handwritten-source style fixes.
+- Use `bun run check` for read-only formatting, inventory, dependency direction and runtime-cycle checks.
+- Use `bun run test:tooling` after editing policy checks or lint rules. `bun run lint` does not execute tests.
+- Use `bun run validate --list` to inspect the shared local/CI sequence and `bun run validate` to execute it.
+- Run `bun run build` before focused type-aware lint, documentation examples or packed-consumer checks.
+- Keep tests beside their owner: `tools/checks/test`, `tools/oxlint/test`, or the owning workspace's `test` directory.
+- Public inference assertions belong in the existing package consumer fixture. Verify supported consumers rather than
+  adding a parallel temporary compiler-test project.
+- Generated preview output belongs to its snapshot/generator. Preserve its regeneration and runtime qualification.
 
-Preserve published contracts while tightening checks. Fix scoped violations before enabling a rule. Document a VFS-specific
-exception when an upstream convention conflicts with an integration or filesystem contract.
+Git hooks format staged source before commit and run `check` before push. CI owns full validation and pinned runtime jobs.
+Preserve published contracts and current rules while consolidating their tooling. Fix scoped violations before enabling a
+check; document VFS-specific exceptions at their owning boundary.

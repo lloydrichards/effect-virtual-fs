@@ -1,4 +1,4 @@
-import { root, validateInventory } from "./repository-policy.mjs"
+import { root, validateInventory } from "./repository.mjs"
 
 const selected = process.argv.slice(2)
 

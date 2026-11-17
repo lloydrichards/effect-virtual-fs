@@ -2,11 +2,11 @@ import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { discoverWorkspaces, publicEntries } from "./repository-policy.mjs"
+import { discoverWorkspaces, publicEntries } from "./repository.mjs"
 
-const root = fileURLToPath(new URL("../", import.meta.url))
+const root = fileURLToPath(new URL("../../", import.meta.url))
 
-const require = createRequire(new URL("../packages/effect-preview/package.json", import.meta.url))
+const require = createRequire(new URL("../../packages/effect-preview/package.json", import.meta.url))
 
 const ts = require("typescript-js")
 

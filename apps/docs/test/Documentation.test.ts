@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { checkPublicSource } from "../check-public-docs"
-import { collectPublicExamples, expectedExampleOutput } from "../public-examples"
+import { checkPublicSource } from "../scripts/check-public-docs"
+import { collectPublicExamples, expectedExampleOutput } from "../scripts/public-examples"
 
 const documented = (declaration: string): string =>
   `/**
@@ -11,7 +11,7 @@ const documented = (declaration: string): string =>
 ${declaration}`
 
 describe("public documentation contracts", () => {
-  it("accepts documented declarations and re-exports owned by their defining module", () => {
+  it("should accept declarations when their documentation and public owner are explicit", () => {
     expect(
       checkPublicSource(
         `${documented("export const make = () => 1")}\nexport { other } from './other.js'`,
@@ -22,7 +22,7 @@ describe("public documentation contracts", () => {
       .toEqual([])
   })
 
-  it("rejects undocumented public declarations while leaving private helpers alone", () => {
+  it("should require documentation when a declaration is public", () => {
     const failures = checkPublicSource("const privateValue = 1; export const publicValue = privateValue", "api.ts")
     expect(failures).toHaveLength(3)
     expect(failures.some((failure) => failure.includes("description"))).toBe(true)
@@ -30,19 +30,19 @@ describe("public documentation contracts", () => {
     expect(failures.some((failure) => failure.includes("@category"))).toBe(true)
   })
 
-  it("rejects missing descriptions even when metadata exists", () => {
+  it("should require descriptions when declarations already have metadata", () => {
     const text = "/** @since 0.1.0\n * @category models\n */\nexport interface Options {}"
     expect(checkPublicSource(text, "api.ts")).toEqual(["api.ts:4: public declaration needs a description"])
   })
 
-  it("rejects malformed versions and empty categories", () => {
+  it("should reject metadata when versions or categories are invalid", () => {
     const text = documented("export type Options = string").replace("0.1.0", "next").replace("constructors", "")
     const failures = checkPublicSource(text, "api.ts")
     expect(failures.some((failure) => failure.includes("stable major.minor.patch"))).toBe(true)
     expect(failures.some((failure) => failure.includes("@category"))).toBe(true)
   })
 
-  it("resolves local links against public exports rather than private helpers", () => {
+  it("should reject local links when their target is private", () => {
     const text = documented("export const make = () => 1").replace("Builds a resource", "See {@link hidden}")
       + "\nconst hidden = 1"
 
@@ -50,14 +50,14 @@ describe("public documentation contracts", () => {
     expect(checkPublicSource(text.replace("{@link hidden}", "{@link make}"), "api.ts")).toEqual([])
   })
 
-  it("validates stability when supplied without assigning a stability promise", () => {
+  it("should validate stability when a declaration supplies a label", () => {
     expect(checkPublicSource(documented("export const make = () => 1"), "api.ts")).toEqual([])
     const text = documented("export const make = () => 1").replace("@since", "@stability preview\n * @since")
     expect(checkPublicSource(text, "api.ts").some((failure) => failure.includes("@stability"))).toBe(true)
     expect(checkPublicSource(text.replace("preview", "experimental"), "api.ts")).toEqual([])
   })
 
-  it("accepts internally marked declarations and inherited member metadata", () => {
+  it("should accept inherited metadata when members belong to a documented declaration", () => {
     const text = "/** @internal */\nexport const hidden = 1\n"
       + documented("export interface Options { readonly key: string }")
 
@@ -66,21 +66,21 @@ describe("public documentation contracts", () => {
 })
 
 describe("public examples", () => {
-  it("collects class examples with TypeScript fences and CRLF comments", () => {
+  it("should collect examples when class comments use TypeScript fences and CRLF lines", () => {
     const source =
       "/**\r\n * @example\r\n * ```typescript\r\n * const n = 1\r\n * ```\r\n */\r\nexport class Example {}"
 
     expect(collectPublicExamples(source, "api.ts")).toEqual([{ body: "const n = 1", line: 2 }])
   })
 
-  it("rejects examples that would otherwise be silently skipped", () => {
+  it("should reject examples when their code fence cannot be checked", () => {
     expect(() => collectPublicExamples("/** @example No executable block. */\nexport const value = 1", "api.ts"))
       .toThrow("@example needs a fenced TypeScript block")
   })
 })
 
 describe("example package names", () => {
-  it("keeps package names that the TypeScript JSDoc parser treats as tags inside a fence", () => {
+  it("should preserve package names when examples contain JSDoc-like tags", () => {
     const source =
       "/**\n * @example\n * ```ts\n * // from @effect/sql-sqlite-bun\n * const value = 1\n * ```\n * @since 0.1.0\n */\nexport const value = 1"
 
@@ -91,19 +91,19 @@ describe("example package names", () => {
 })
 
 describe("public export ownership", () => {
-  it("checks declarations exported separately and under an alias", () => {
+  it("should require documentation when a local declaration is exported under an alias", () => {
     expect(checkPublicSource("const value = 1; export { value as publicValue }", "api.ts"))
       .toHaveLength(3)
     expect(checkPublicSource(documented("const value = 1; export { value as publicValue }"), "api.ts"))
       .toEqual([])
   })
 
-  it("checks enum and namespace documentation", () => {
+  it("should require documentation when public declarations are enums or namespaces", () => {
     expect(checkPublicSource("export enum Value { A }", "api.ts")).toHaveLength(3)
     expect(checkPublicSource("export namespace Value { export const child = 1 }", "api.ts")).toHaveLength(3)
   })
 
-  it("rejects reexports without an inventoried public owner", () => {
+  it("should reject reexports when their defining module is not public", () => {
     expect(
       checkPublicSource("export { hidden } from './internal/hidden.js'", "api.ts").some((failure) =>
         failure.includes("public defining module")
@@ -111,7 +111,7 @@ describe("public export ownership", () => {
     ).toBe(true)
   })
 
-  it("keeps root barrels as reexports with documented public owners", () => {
+  it("should reject direct declarations when a module is a root barrel", () => {
     expect(
       checkPublicSource(documented("export const value = 1"), "index.ts").some((failure) =>
         failure.includes("reexports only")
@@ -121,11 +121,11 @@ describe("public export ownership", () => {
 })
 
 describe("example output assertions", () => {
-  it("keeps output assertions when an example ends in blank lines", () => {
+  it("should preserve output assertions when examples end in blank lines", () => {
     expect(expectedExampleOutput("program.then(console.log)\n// expected\n  \n", "api.ts:1")).toBe("expected")
   })
 
-  it("rejects output-producing examples whose expected comment is missing", () => {
+  it("should reject output examples when their expected comment is missing", () => {
     expect(() => expectedExampleOutput("program.then(console.log)", "api.ts:1"))
       .toThrow("api.ts:1: output-producing example needs a trailing // expected output comment")
     expect(expectedExampleOutput("const program = 1", "api.ts:1")).toBeUndefined()
@@ -133,7 +133,7 @@ describe("example output assertions", () => {
 })
 
 describe("exported link names", () => {
-  it("links through the exported alias rather than its private local name", () => {
+  it("should resolve links through aliases when the original name is private", () => {
     const text = documented("const localValue = 1; export { localValue as publicValue }")
       .replace("Builds a resource for the caller.", "See {@link localValue}.")
 

@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-export const root = fileURLToPath(new URL("../", import.meta.url))
+export const root = fileURLToPath(new URL("../../", import.meta.url))
 
 const config = "@repo/config-typescript"
 

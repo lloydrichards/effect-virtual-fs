@@ -18,7 +18,7 @@
 import { spawn } from "bun"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { publicEntries, validateInventory, type Workspace } from "../../../scripts/repository-policy.mjs"
+import { publicEntries, validateInventory, type Workspace } from "../../../tools/checks/repository.mjs"
 import { collectPublicExamples, expectedExampleOutput } from "./public-examples"
 
 const root = path.resolve(import.meta.dirname, "../../..")

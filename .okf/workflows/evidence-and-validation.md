@@ -8,6 +8,12 @@ sources:
   - id: pr-validation
     resource: ../../.github/workflows/pr-validation.yml
     title: Pull request validation workflow
+  - resource: ../../tools/checks/validate.mjs
+    title: Shared local and CI validation sequence
+  - resource: ../../.husky/pre-commit
+    title: Staged formatting hook
+  - resource: ../../.husky/pre-push
+    title: Read-only push checks
   - id: package-scripts
     resource: ../../package.json
     title: Repository scripts
@@ -25,7 +31,7 @@ sources:
   - id: sqlite-vm-gate
     resource: ../../packages/persistence/scripts/utm-vm-crash-gate.sh
     title: Local UTM guest OS hard-stop gate
-generated: { by: codex/okf, at: 2026-11-17T09:47:12Z }
+generated: { by: codex/okf, at: "2026-11-17T10:54:56+00:00" }
 ---
 
 # Evidence and validation
@@ -34,25 +40,64 @@ Claims should be no broader than the check that supports them. A passing type co
 
 For a behavior change, identify the requirement or accepted decision, add a focused regression when appropriate, prove that the regression fails for the intended defect, repair narrowly, then run the relevant package and repository checks. Preserve structured errors and rejected-state invariants; do not validate behavior by parsing incidental error prose.
 
-The main pull-request job uses Bun 1.4.4. It runs a frozen install, checks formatting, and builds the workspace. The docs build regenerates the committed API reference, so CI checks it for changes immediately afterward. The build also emits the workspace declarations that type-aware lint needs. If a consumer reports missing `dist/*.d.ts`, reproduce this build order before changing its source. CI then runs the anti-slop policy check and Oxlint, Effect-aware lint, type checking, tests, and the core and NFS [benchmark correctness checks](package-benchmarks.md "uses"). Tests and type checks also depend on upstream package builds through Turbo.
+## Choose the validation level
 
-The [repository validation policy](../decisions/repository-validation.md "constrains") makes workspace and export coverage
-explicit. `bun run lint:repository` checks that inventory, package direction and runtime import cycles. `bun run lint`
-includes those checks and isolated fixtures for every enabled custom lint rule. `bun run lint:effects` derives applicable
-projects from the inventory and accepts workspace directories or names for focused runs. `bun run type-check` also checks
-the lint implementation. `bun run test:tooling` exercises the inventory, import graph, packed output checks and public
-documentation checker. `bun run check:consumers` checks packed exports with TypeScript 5.9.3 and 7.0.2 after building.
-These compiler versions are qualified separately; this does not establish a continuous compiler support range.
+The [repository validation policy](../decisions/repository-validation.md "constrains") owns the rules and exclusions.
+Keep orchestration in one place and tests with the behavior they protect.
 
-Public documentation checks run in the docs prebuild hook and require explicit API-page coverage, declaration metadata,
-valid supplied stability tags and supported public links. The example checker discovers published source modules from
-the export inventory, compiles their examples and executes supported output assertions under the selected runtime.
-Preview regeneration checks preserve snapshot ownership and verify generated-file drift and input integrity.
+| Lifecycle             | Entry point                             | Responsibility                                                                                                       |
+| --------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Install               | `prepare` and `postprepare`             | Patch the pinned Effect compiler integrations and install Husky hooks.                                               |
+| Before commit         | `lint-staged`                           | Format staged source files. Do not build, execute suites or run type-aware lint against possibly stale declarations. |
+| Before push           | `bun run check`                         | Check formatting, workspace/export inventory, dependency direction and runtime cycles without modifying files.       |
+| Local full validation | `bun run validate`                      | Run the same ordered sequence as the main CI job.                                                                    |
+| Pull request CI       | Frozen install, then `bun run validate` | Validate the published commit tree with the pinned toolchain. Hooks provide feedback; CI is authoritative.           |
+| Runtime qualification | Dedicated CI jobs                       | Exercise native Node, host filesystem, protocol and persistence contracts under their required environments.         |
+| Release               | Changesets workflow                     | Version and publish built packages after review and validation.                                                      |
 
-Library builds require unused-local and unused-parameter checks. They retain runtime namespaces rather than enabling
-`erasableSyntaxOnly`, which would reject existing model declarations and require a separate compatibility decision.
-Use `bun run validate` for the integrated local sequence. The generated API status check expects intended documentation
-changes to be committed; while editing, verify regeneration is repeatable before reviewing the generated diff.
+```mermaid
+flowchart TD
+  Install["Install: compiler patch and hooks"] --> Commit["Commit: staged formatting"]
+  Commit --> Push["Push: read-only repository checks"]
+  Push --> CI["PR: shared full validation"]
+  CI --> Runtime["Pinned runtime and host qualification"]
+```
+
+## Run the checks once at their owning layer
+
+`bun run validate --list` shows the shared sequence without executing it. Full validation runs fast repository checks,
+build, lint, Effect diagnostics, type checking, tests, documentation, packed consumers and generated-reference verification.
+Build before type-aware lint and consumer checks because packages export declarations from `dist`.
+
+- `bun run check` is the fast read-only repository gate. `bun run lint` runs Oxlint only.
+- `bun run lint:effects` discovers applicable workspaces and accepts a workspace directory or package name for a focused run.
+- `bun run type-check` checks the lint implementation and workspace type contracts. Preview qualification retains its scoped
+  type, regeneration and standalone schema-consumer checks.
+- `bun run test` runs the tooling contracts and the shared runtime suites. `bun run test:tooling` is the focused policy suite:
+  isolated lint fixtures, package/export checks, architecture checks and the docs workspace's documentation tests.
+- `bun run docs:check` validates metadata, regenerates the API reference, checks page ownership and compiles examples.
+  Supported output assertions are executed. Docs build and dev commands do not implicitly run this validation suite.
+- The packed-consumer phase imports published exports with TypeScript 5.9.3 and 7.0.2. Core's inference assertions live in
+  its existing NodeNext consumer fixture. Those compiler versions are qualified separately, not as a continuous range.
+- The final generated-reference check requires intended API page changes to be committed. While editing, review the
+  generated diff and verify regeneration is repeatable before committing it.
+
+Repository check implementations and their tests live under `tools/checks`. Lint implementations, accepted/rejected fixtures
+and their runner live under `tools/oxlint`. Documentation checks and tests belong to the docs workspace. `scripts` retains
+operator tooling, not another validation entrypoint. Do not retain inline self-tests inside a check runner or create a new
+fixture directory when an existing consumer or contract suite owns that behavior.
+
+Applications whose build script only invoked `tsc --noEmit` use their type-check task instead. A build task produces actual
+artifacts. Scratchpad experiments remain type-checked, but an empty test registration does not count as a suite.
+
+Library builds and lint tooling require unused-local and unused-parameter checks. Runtime namespaces remain supported;
+`erasableSyntaxOnly` requires a separate compatibility decision. Retain regression tests, protocol baselines, package probes
+and runtime fixtures when they protect a distinct contract. Similar filenames or small test files are not evidence that
+coverage is disposable.
+
+The main PR job uses Bun 1.4.4 and keeps benchmark correctness smoke checks after full validation. Privileged, credentialed
+and live-service checks remain explicit operator commands or dedicated CI jobs; do not add them to Git hooks or generic
+validation.
 
 Separate jobs target Ubuntu 24.04. The host filesystem contract runs on Node 24.21.0. The direct Node provider, mounted filesystem, and TypeScript workbench jobs run on Node 26.11.1. Record the runtime each check exercised when citing its results.
 
