@@ -87,6 +87,28 @@ test("a failed build leaves a successfully flushed edit clean and saved in the v
     expect(workspace.state()).toMatchObject({ busy: false, dirty: false, source: "new source", error: "Build failed" })
   })))
 
+test("refresh recovers the selection after a recursive deletion partially fails", () =>
+  Effect.runPromise(Effect.gen(function*() {
+    const workspace = fixture()
+    yield* workspace.execute("open")
+    yield* workspace.execute({ role: "admin" })
+    expect(yield* workspace.execute({ operation: "New folder", name: "src/zlocked" })).toBe(true)
+    expect(yield* workspace.execute({ operation: "New file", name: "src/zlocked/a.js" })).toBe(true)
+    yield* workspace.execute({ role: "editor" })
+    yield* workspace.execute({ select: workspace.state().entries.find((entry) => entry.path === "/src/value.js")! })
+    yield* workspace.execute({ select: workspace.state().entries.find((entry) => entry.path === "/src")! })
+
+    expect(yield* workspace.execute("deleteEntry")).toBe(false)
+    expect(workspace.state().error).toContain("AccessDenied")
+    expect(workspace.state().pendingView).toBeDefined()
+    expect(yield* workspace.execute("refresh")).toBe(true)
+    expect(workspace.state()).toMatchObject({ path: "/main.js", folder: "", pendingView: undefined })
+
+    const paths = workspace.state().entries.map((entry) => entry.path)
+    expect(paths).not.toContain("/src/value.js")
+    expect(paths).toContain("/src/zlocked/a.js")
+  })))
+
 test("reopening a checkpoint replaces later editor text and namespace changes", () =>
   Effect.runPromise(Effect.gen(function*() {
     const workspace = fixture()

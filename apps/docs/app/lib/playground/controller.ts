@@ -196,10 +196,23 @@ export function makeWorkspaceController({
       }
 
       case "deleteEntry": {
-        return yield* mutate(folder ? caller.removeFolder(folder) : caller.unlink(path), {
+        const keepEditor = Boolean(folder && path && !path.startsWith(folder + "/"))
+
+        const remove = folder
+          ? caller.removeFolder(folder).pipe(Effect.tapError(() =>
+            Effect.sync(() =>
+              record({
+                pendingView: { path, folder: "", keepEditor, status: "Refreshed the workspace after deletion failed." },
+                output: null
+              })
+            )
+          ))
+          : caller.unlink(path)
+
+        return yield* mutate(remove, {
           path: "",
           folder: "",
-          keepEditor: Boolean(folder && path && !path.startsWith(folder + "/")),
+          keepEditor,
           status: "Deleted " + selected + (folder ? " and its contents." : "")
         })
       }
@@ -307,7 +320,7 @@ export function makeWorkspaceController({
           ...current,
           busy: false,
           error: error instanceof Error ? error.message : String(error),
-          status: current.pendingView ? "Change applied. Refresh the workspace to continue." : "Action failed."
+          status: current.pendingView ? "Refresh the workspace to continue." : "Action failed."
         })
 
         return false
