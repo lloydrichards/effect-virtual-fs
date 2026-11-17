@@ -39,23 +39,36 @@ export const requirePublicInternalAliasTypeRule = defineRule({
               ))
           ) context.report({ node: statement, messageId: "internalReexport" })
         }
-        const { declarations, exports } = publicVariables(program, context.sourceCode)
-        for (const { declaration, node } of exports) {
-          let current: ESTree.VariableDeclarator | undefined = declaration
+        const { declarations, defaults, exports } = publicVariables(program, context.sourceCode)
+        const checkAlias = (initial: ESTree.Expression, node: ESTree.Node) => {
+          let value = unwrapPublicExpression(initial)
           const seen = new Set<ESTree.VariableDeclarator>()
-          while (current !== undefined && !seen.has(current)) {
-            seen.add(current)
-            if (current.id.type !== "Identifier" || current.id.typeAnnotation || current.init === null) break
-            let value = unwrapPublicExpression(current.init)
+          while (true) {
             while (value.type === "MemberExpression") value = unwrapPublicExpression(value.object)
-            if (value.type !== "Identifier") break
+            if (value.type !== "Identifier") return
             if (internalImports.has(value.name)) {
               context.report({ node, messageId: "internalAlias" })
-              break
+              return
             }
-            current = declarations.get(value.name)
+            const declaration = declarations.get(value.name)
+            if (
+              declaration === undefined || seen.has(declaration) || declaration.id.type !== "Identifier" ||
+              declaration.id.typeAnnotation || declaration.init === null
+            ) return
+
+            seen.add(declaration)
+            value = unwrapPublicExpression(declaration.init)
           }
         }
+
+        for (const { declaration, node } of exports) {
+          if (declaration.id.type === "Identifier" && !declaration.id.typeAnnotation && declaration.init !== null) {
+            checkAlias(declaration.init, node)
+          }
+        }
+
+        for (const { value, node } of defaults) checkAlias(value, node)
+
         for (const statement of program.body) {
           if (
             statement.type !== "ExportNamedDeclaration" || statement.source !== null || statement.exportKind === "type"

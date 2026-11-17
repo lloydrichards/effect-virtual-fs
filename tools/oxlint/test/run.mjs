@@ -7,6 +7,7 @@ import policy from "../../../oxlint.config.ts"
 import boundaryAudit from "../boundary-audit.config.ts"
 
 import { ruleCases } from "./cases.mjs"
+import { checkCustomLintIntegration } from "./integration.mjs"
 
 const root = path.resolve(import.meta.dirname, "../../..")
 
@@ -156,5 +157,7 @@ Stream.withSpan("scope")
 } finally {
   await rm(directory, { recursive: true, force: true })
 }
+
+await checkCustomLintIntegration()
 
 console.log(`Custom lint policy passed: ${enabledRules.length} rules, ${fixtures} isolated fixtures.`)
