@@ -96,6 +96,57 @@ describe("preview ownership", () => {
         assert.deepStrictEqual(yield* caller.readFile("/file"), Uint8Array.of(7, 2, 8))
       }))
 
+    for (const execution of ["cooperative", "sync"] as const) {
+      it.effect(`preserves the snapshot cache across stat, access, and sync in ${execution} mode`, () =>
+        Effect.gen(function*() {
+          const volume = yield* Vfs.make({ execution })
+          const runtime = runtimeOf(volume)
+
+          if (runtime === undefined) return assert.fail("Core did not construct preview state")
+          const caller = yield* volume.caller()
+          yield* caller.writeFile("/file", bytes, create)
+          const file = yield* caller.open("/file", { access: "readWrite" })
+          const native = execution === "sync" ? yield* SynchronousAdapter.bind(volume) : undefined
+          const handle = native?.open("/file", { access: "readWrite" }, false, false)
+
+          const before = yield* volume.snapshot
+          const epoch = runtime.snapshotEpoch
+
+          assert.strictEqual((yield* caller.stat("/file")).size, 3n)
+          assert.strictEqual(yield* caller.access("/file", 4), 4)
+          assert.strictEqual((yield* file.stat).size, 3n)
+          yield* file.sync
+          assert.strictEqual(runtime.snapshotEpoch, epoch)
+
+          if (native !== undefined && handle !== undefined) {
+            assert.strictEqual(native.stat("/file").size, 3n)
+            assert.strictEqual(native.access("/file", 4), 4)
+            assert.strictEqual(handle.stat().size, 3n)
+            handle.sync()
+            assert.strictEqual(runtime.snapshotEpoch, epoch)
+          }
+
+          assert.strictEqual(yield* volume.snapshot, before)
+          assert.deepStrictEqual(yield* caller.readFile("/file"), bytes)
+          assert.isAbove(runtime.snapshotEpoch, epoch)
+
+          if (handle === undefined) yield* file.pwrite(Uint8Array.of(9), 0n)
+          else handle.write(Uint8Array.of(9), 0n, false)
+          yield* caller.stat("/file")
+          const after = yield* volume.snapshot
+          const restored = yield* (yield* Vfs.fromSnapshot(after)).caller()
+          assert.deepStrictEqual(yield* restored.readFile("/file"), Uint8Array.of(9, 2, 3))
+
+          yield* caller.unlink("/file")
+          const unlinked = yield* volume.snapshot
+          const beforeClose = runtime.snapshotEpoch
+          yield* file.close
+          handle?.close()
+          assert.isAbove(runtime.snapshotEpoch, beforeClose)
+          assert.strictEqual(yield* volume.snapshot, unlinked)
+        }))
+    }
+
     it.effect("shares native writes with the same public preview owner", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.make({ execution: "sync" })

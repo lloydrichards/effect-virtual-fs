@@ -272,6 +272,10 @@ const captureObservations = new Set(["access", "lookup", "parent", "realPath", "
 
 const captureReads = new Set(["pread", "readDirectory", "readFile", "readLink"])
 
+export const invalidateSnapshot = (runtime: Runtime, operation: string): void => {
+  if (operation !== "stat" && operation !== "access" && operation !== "sync") runtime.snapshotEpoch++
+}
+
 // The core boundary serializes its compatibility observations. Native calls share its busy guard.
 const execute = <A, R>(
   runtime: Runtime,
@@ -289,7 +293,7 @@ const execute = <A, R>(
           runtime.busy = true
           runtime.time.active = true
           runtime.time.value = undefined
-          runtime.snapshotEpoch++
+          invalidateSnapshot(runtime, operation)
         })
       ),
       () =>
