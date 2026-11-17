@@ -61,9 +61,9 @@ Do NOT propose interfaces yet. After the file is written, ask the user: "Which o
 
 ### 3. Grilling loop
 
-Once the user picks a candidate, call the Skill tool with "grilling" to walk the decision tree with them: constraints, dependencies, the shape of the deepened module, what sits behind the seam, what tests survive.
+Once the user picks a candidate, review one decision at a time. Start with the constraint that determines the other choices. Check the code for facts you can verify, then propose a choice and explain its tradeoff. Work through dependencies, what the module owns, the interface callers need, and which tests protect it. Use the `grilling` skill if it is available.
 
-Side effects happen inline as decisions crystallize; call the Skill tool with "domain-modeling" to keep the domain model current as you go:
+Use the project's glossary and decision records to track naming and durable decisions. Use the `domain-modeling` skill if it is available. Otherwise, apply these steps and follow the repository's documentation conventions:
 
 - **Naming a deepened module after a concept not in `GLOSSARY.md`?** Add the term to `GLOSSARY.md`. Create the file lazily if it doesn't exist.
 - **Sharpening a fuzzy term during the conversation?** Update `GLOSSARY.md` right there.
