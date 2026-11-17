@@ -2,6 +2,8 @@
 
 ## 2026-11-17
 
+- Install core and memory tarballs together in the pinned Node consumer gate and verify candidate resolution and a filesystem rebuild with no redundant writes.
+
 - Require each workspace to declare its test qualification. Derive shared Vitest projects from the validation registry and
   check workspace script and project references.
 
