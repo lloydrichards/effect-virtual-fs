@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
     "type-check": "tsc --noEmit",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project demo-alchemy",
     "plan": "alchemy plan",

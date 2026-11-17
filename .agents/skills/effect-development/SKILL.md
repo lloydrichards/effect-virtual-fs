@@ -92,7 +92,7 @@ commands.
   relevant test file or test name.
 - Public type/API change: run the owning package's `type-check`, including its
   contract project where configured.
-- Effect style diagnostics: `bun run lint:effects`. Check `scripts/lint-effects.sh`
+- Effect style diagnostics: `bun run lint:effects`. Check `tools/checks/effects.mjs`
   before assuming it covers the changed workspace.
 - Repository checks, when warranted: `bun run format:check`, `bun run build`,
   `bun run lint`, `bun run lint:effects`, `bun run type-check`, and

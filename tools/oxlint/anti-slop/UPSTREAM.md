@@ -31,4 +31,6 @@ The local public-contract rules cover inline and separately exported values, loc
 
 An explicit `typeof Internal.operation` annotation remains allowed. These syntax checks require declared ownership; clean consumer checks determine whether emitted declarations resolve without unavailable private dependencies. Internal type names alone do not establish an invalid published declaration.
 
-Run `bun run lint:anti-slop-policy` to check accepted and rejected cases for every enabled custom rule. The runner isolates each rule, rejects unexpected diagnostics, and fails if the lint subprocess crashes or returns an inconsistent status. Run `bun run type-check:tools` to check the plugin implementation and vendored support code.
+Run `bun run test:tooling` to check accepted and rejected cases for every enabled custom rule. Fixtures and their runner live
+in `tools/oxlint/test`, beside the implementation. The runner rejects unexpected diagnostics and failed subprocesses.
+`bun run lint` only lints source; `bun run type-check` checks the plugin and vendored support code.

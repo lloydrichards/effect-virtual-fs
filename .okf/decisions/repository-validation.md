@@ -5,15 +5,15 @@ description: Defines Effect-aligned validation coverage, public contracts, tooli
 status: stable
 tags: [tooling, effect, validation, public-api]
 sources:
-  - resource: ../../scripts/repository-policy.mjs
+  - resource: ../../tools/checks/repository.mjs
     title: Workspace classification and export discovery
-  - resource: ../../scripts/lint-effects.mjs
+  - resource: ../../tools/checks/effects.mjs
     title: Workspace-derived Effect diagnostics
-  - resource: ../../scripts/check-boundaries.mjs
+  - resource: ../../tools/checks/boundaries.mjs
     title: Source import graph and package direction checks
-  - resource: ../../scripts/check-consumers.mjs
+  - resource: ../../tools/checks/consumers.mjs
     title: Packed consumer compiler checks
-  - resource: ../../scripts/check-anti-slop-policy.mjs
+  - resource: ../../tools/oxlint/test/run.mjs
     title: Isolated custom lint fixtures
   - resource: ../../apps/docs/scripts/check-public-docs.ts
     title: Public declaration documentation checks
@@ -23,7 +23,7 @@ sources:
     title: Custom rule provenance and local contract
   - resource: ../../packages/effect-preview/upstream/manifest.json
     title: Imported engine provenance
-generated: { by: codex/okf, at: "2026-11-17T09:47:12Z" }
+generated: { by: codex/okf, at: "2026-11-17T10:54:56+00:00" }
 ---
 
 # Repository validation policy
@@ -69,8 +69,7 @@ runtime dependencies in the engine. Core's private preview integration is intent
 
 Generated preview files remain owned by the pinned snapshot and generator. Regeneration, checksum, type, consumer and runtime
 checks qualify them separately from handwritten style rules. The tooling reference is open_effect revision
-`da0c792bb2b636fd5ee2b7eeeeb780ba6c321e04`; it is distinct from the imported engine revision in the preview manifest and
-the older bootstrap-reference pin. Reuse upstream tooling only with compatible dependencies and recorded provenance.
+`da0c792bb2b636fd5ee2b7eeeeb780ba6c321e04`; it is distinct from the imported engine revision in the preview manifest. Reuse upstream tooling only with compatible dependencies and recorded provenance.
 The local documentation checker uses the existing ts-morph parser rather than importing private upstream tooling whose
 declared TypeScript peer range excludes the repository compiler.
 

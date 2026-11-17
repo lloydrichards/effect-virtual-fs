@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
     "start": "bun --env-file=.env src/main.ts",
     "dev:container": "wrangler dev --config wrangler.jsonc",
     "deploy:container": "wrangler deploy --config wrangler.jsonc",

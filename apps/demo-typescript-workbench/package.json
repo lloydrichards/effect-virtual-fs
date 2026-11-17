@@ -7,7 +7,6 @@
     "dev": "node --experimental-vfs src/workbench/server.ts",
     "build": "tsc --noEmit && vite build",
     "type-check": "tsc --noEmit",
-    "lint:effects": "bun ../../scripts/lint-effects.mjs apps/demo-typescript-workbench",
     "test": "node --experimental-vfs --test --test-concurrency=1 test/*.test.ts",
     "start": "node --experimental-vfs src/workbench/server.ts --production"
   },

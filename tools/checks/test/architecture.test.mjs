@@ -3,11 +3,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { checkBoundaries, cycles, forbiddenImport, imports } from "./check-boundaries.mjs"
+import { checkBoundaries, cycles, forbiddenImport, imports } from "../boundaries.mjs"
 
 const workspace = (name, allowedDependencies = []) => ({ manifest: { name }, policy: { allowedDependencies } })
 
-await test("type-only imports and re-exports do not add runtime dependencies", () => {
+await test("should omit runtime edges when imports and reexports are type-only", () => {
   assert.deepEqual(
     imports(`
     import type * as A from "./a.js"
@@ -20,7 +20,7 @@ await test("type-only imports and re-exports do not add runtime dependencies", (
   )
 })
 
-await test("mixed, side-effect, dynamic and require imports add runtime dependencies", () => {
+await test("should retain runtime edges when modules are loaded for execution", () => {
   const actual = imports(`
     import "./side.js"
     import Default, { type A } from "./default.js"
@@ -34,14 +34,14 @@ await test("mixed, side-effect, dynamic and require imports add runtime dependen
   assert(actual.every((entry) => entry.runtime))
 })
 
-await test("runtime cycles fail while shared dependencies are allowed", () => {
+await test("should report cycles when a dependency returns to an active module", () => {
   const graph = new Map([["a", ["shared", "b"]], ["b", ["shared"]], ["shared", []]])
   assert.deepEqual(cycles(graph), [])
   graph.set("b", ["a"])
   assert.deepEqual(cycles(graph), [["a", "b", "a"]])
 })
 
-await test("adapters use core exports without depending on one another", () => {
+await test("should reject adapter coupling when imports bypass the package direction", () => {
   const memory = workspace("@effect-vfs/memory", ["@effect-vfs/core"])
   const core = workspace("@effect-vfs/core", ["@effect-vfs/effect-preview"])
   assert.equal(forbiddenImport(memory, core, "@effect-vfs/core/Caller"), undefined)
@@ -50,7 +50,7 @@ await test("adapters use core exports without depending on one another", () => {
   assert.match(forbiddenImport(memory, core, "../../core/src/Caller.js"), /relative imports/)
 })
 
-await test("the private preview integration is allowed only from core", () => {
+await test("should allow private preview integration when the importer is core", () => {
   const preview = workspace("@effect-vfs/effect-preview")
   assert.equal(
     forbiddenImport(
@@ -70,7 +70,7 @@ await test("the private preview integration is allowed only from core", () => {
   )
 })
 
-await test("engine imports reject host services and private external imports", () => {
+await test("should reject engine imports when they require host services or private exports", () => {
   const core = workspace("@effect-vfs/core")
 
   for (const specifier of ["node:fs", "bun:sqlite", "@effect/platform-node/NodeFileSystem"]) {
@@ -81,7 +81,7 @@ await test("engine imports reject host services and private external imports", (
   assert.equal(forbiddenImport(core, undefined, "effect/Effect"), undefined)
 })
 
-await test("the source graph allows type cycles and rejects runtime cycles and cross-package relative imports", async () => {
+await test("should enforce package boundaries when the complete source graph is checked", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "vfs-boundary-test-"))
 
   const entries = ["a", "b"].map((name) => ({
@@ -110,7 +110,7 @@ await test("the source graph allows type cycles and rejects runtime cycles and c
   }
 })
 
-await test("application app directories and TypeScript path aliases participate in the runtime graph", async () => {
+await test("should detect application cycles when imports use TypeScript aliases", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "vfs-app-boundaries-"))
   const application = { ...workspace("@test/docs"), directory: "apps/docs" }
 

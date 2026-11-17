@@ -4,9 +4,9 @@ import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { discoverWorkspaces, publicEntries } from "./repository-policy.mjs"
+import { discoverWorkspaces, publicEntries } from "./repository.mjs"
 
-const root = fileURLToPath(new URL("../", import.meta.url))
+const root = fileURLToPath(new URL("../../", import.meta.url))
 
 /** Both halves of a published entrypoint must be present in the actual archive. */
 export async function validatePackedExports(directory, manifest) {
@@ -75,7 +75,7 @@ export async function checkConsumers() {
       archives.set(workspace.manifest.name, archive)
     }
 
-    const classic = createRequire(new URL("../packages/effect-preview/package.json", import.meta.url))
+    const classic = createRequire(new URL("../../packages/effect-preview/package.json", import.meta.url))
 
     const compilers = [
       {
@@ -145,7 +145,6 @@ export async function checkConsumers() {
 
       for (
         const relative of [
-          "compatibility/compiler/contracts.ts",
           "compatibility/node-next/index.ts",
           "compatibility/index.ts"
         ]
