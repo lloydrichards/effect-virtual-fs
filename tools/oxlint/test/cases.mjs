@@ -27,7 +27,13 @@ export const ruleCases = {
     invalid: ["const result = { ...(present ? { value: 1 } : {}) }"]
   },
   "anti-slop/no-known-value-widening": {
-    valid: ["const value = { id: 1 } satisfies Item"],
+    valid: [
+      "const value = { id: 1 } satisfies Item",
+      "const value: { readonly id: number } = { id: 1 }",
+      "type Item = { readonly id: number }; const value: Item = { id: 1 }",
+      "type Item = { readonly id: number }; type TargetInput = string | Item; const isItem = (value: unknown): value is Item => typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'number'; const target: { of: (input: TargetInput) => string | Item } = { of: (input) => isItem(input) ? input : input.trim() }",
+      "type Item = { readonly id: number }; type TargetInput = string | Item; const isItem = (value: unknown): value is Item => typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'number'; const target: { of: (input: TargetInput) => string | Item } = { of: (input: TargetInput) => isItem(input) ? input : input.trim() }"
+    ],
     invalid: ["const value: unknown = { id: 1 }"]
   },
   "anti-slop/no-module-mocking": {
@@ -83,6 +89,9 @@ export const ruleCases = {
       "export { type Item } from './internal/model.js'",
       "/** @internal */\nexport { read } from './internal/model.js'",
       "import { read } from './internal/model.js'; export { type read }",
+      "import * as Internal from './internal/model.js'; const read: typeof Internal.read = Internal.read; export default read",
+      "import * as Internal from './internal/model.js'; export default (Internal => Internal.read)(external)",
+      "import * as Internal from './internal/model.js';\n/** @internal */\nexport default Internal.read",
       "import * as Public from './public.js'; export const read = Public.read"
     ],
     invalid: [
@@ -90,6 +99,10 @@ export const ruleCases = {
       "import * as Internal from './internal/model.js'; const read = Internal.read; export { read }",
       "import { read } from './internal/model.js'; export { read }",
       "import * as Internal from './internal/model.js'; const original = Internal.read; export const read = original",
+      "import * as Internal from './internal/model.js'; export default Internal.read",
+      "import { read as internalRead } from './internal/model.js'; export default internalRead",
+      "import * as Internal from './internal/model.js'; const read = Internal.read; const alias = read; export default alias",
+      "import * as Internal from './internal/model.js'; export default Internal.read satisfies Read",
       "export { read } from './internal/model.js'",
       "export * from './internal/model.js'",
       "import * as Internal from './internal/model.js'; export const read = Internal.deep.read"
@@ -112,8 +125,18 @@ export const ruleCases = {
     invalid: ["interface ResponseShape { readonly id: number }"]
   },
   "anti-slop/no-unknown-parameters": {
-    valid: ["const read = (value: Item) => value.id", "const isItem = (value: unknown): value is Item => true"],
-    invalid: ["const read = (value: unknown) => value"]
+    valid: [
+      "const read = (value: Item) => value.id",
+      "type Item = { readonly id: number }; const isItem = (value: unknown): value is Item => typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'number'",
+      "import { Schema } from 'effect'; const Document = Schema.Struct({ title: Schema.String }); const decode = (input: unknown) => Schema.decodeUnknownEffect(Document)(input)",
+      "const captureCause = (cause: unknown) => ({ cause })",
+      "const read = (value: unknown): string | undefined => { if (typeof value === 'string') return value; }"
+    ],
+    invalid: [
+      "const read = (value: unknown) => value",
+      "const read = (cause: unknown) => cause",
+      "function read(value: any) { return value }"
+    ]
   },
   "anti-slop/no-unknown-returns": {
     valid: ["const read = (): Item => item"],
@@ -139,16 +162,32 @@ export const ruleCases = {
     invalid: ["const item = value as Item", "// SAFETY:\nconst item = value as Item"]
   },
   "anti-slop-effect/no-manual-effect-error-tag": {
-    valid: ["Effect.catchTag(effect, 'Missing', () => recovered)"],
-    invalid: ["Effect.catch(effect, error => error._tag === 'Missing' ? recovered : failed)"]
+    valid: [
+      "import { Effect } from 'effect'; Effect.catch(task, error => state.reason._tag === 'Closed' ? stop : fail(error))",
+      "import { Effect } from 'effect'; function run(Effect) { return Effect.catch(task, error => error.reason._tag === 'Missing') }",
+      "local.catch(task, error => error.reason._tag === 'Missing')",
+      "import { Effect } from 'effect'; Effect.catch(task, error => { { const error = state; return error.reason._tag === 'Missing' } })",
+      "import { Effect } from 'effect'; Effect.catch(task, error => error._tag === 'Missing' ? recovered : Effect.fail(error))"
+    ],
+    invalid: [
+      "import { Effect as E } from 'effect'; E.catch(task, error => error.reason._tag === 'Missing' ? recovered : failed)",
+      "import * as E from 'effect/Effect'; task.pipe(E.catch(error => error['reason']['_tag'] === 'Missing'))",
+      "import { catch as catchError } from 'effect/Effect'; catchError(task, error => { switch (error.reason._tag) { case 'Missing': return recovered } })",
+      "import * as Root from 'effect'; Root.Effect.catch(task, error => error.reason._tag === 'A' ? a : error.reason._tag === 'B' ? b : failed)"
+    ]
   },
   "anti-slop-effect/no-manual-tag-comparison": {
-    valid: ["Predicate.isTagged(value, 'Missing')"],
-    invalid: ["const missing = value._tag === 'Missing'"]
-  },
-  "anti-slop-effect/no-manual-tagged-construction": {
-    valid: ["const value = new Missing({ id: 1 })", "const value = systemError({ _tag: 'BadResource' })"],
-    invalid: ["const value = { _tag: 'Missing', id: 1 }"]
+    valid: [
+      "Predicate.isTagged(value, 'Missing')",
+      "import { Effect } from 'effect'; Effect.catch(task, error => state._tag === 'Closed' ? stop : Effect.fail(error))",
+      "import { Effect as E } from 'effect'; E.catch(task, error => error._tag === 'Missing' ? recovered : E.fail(error))",
+      "import * as E from 'effect/Effect'; E.catch(task, error => error.reason._tag === 'Missing' ? recovered : E.fail(error))"
+    ],
+    invalid: [
+      "const missing = value._tag === 'Missing'",
+      "const result = value._tag === 'First' ? 'one' : value._tag === 'Second' ? 'two' : 'other'",
+      "import { Effect } from 'effect'; function run(Effect) { return Effect.catch(task, error => error._tag === 'Missing') }"
+    ]
   },
   "anti-slop-effect/no-package-spans": {
     valid: [
@@ -178,11 +217,22 @@ export const ruleCases = {
       "import { withSpan as trace } from 'effect/Stream'; trace('library.stream')"
     ]
   },
-  "anti-slop-effect/prefer-effect-match": {
+  "anti-slop-effect/no-manual-tagged-construction": {
     valid: [
-      "const result = value._tag === 'First' ? 'one' : 'other'",
-      "const result = code === 1 ? 'one' : code === 2 ? 'two' : 'other'"
+      "const value = new Missing({ id: 1 })",
+      "import { systemError as makeError } from 'effect/PlatformError'; const value = makeError({ _tag: 'BadResource' })",
+      "import { PlatformError as P } from 'effect'; P.systemError({ _tag: 'BadResource' })",
+      "import { Match as M } from 'effect'; M.when({ _tag: 'Missing' }, handler)",
+      "import { when as matchWhen } from 'effect/Match'; matchWhen({ _tag: 'Missing' }, handler)",
+      "import * as M from 'effect/Match'; M.not({ _tag: 'Missing' }, handler)"
     ],
-    invalid: ["const result = value._tag === 'First' ? 'one' : value._tag === 'Second' ? 'two' : 'other'"]
+    invalid: [
+      "const value = { _tag: 'Missing', id: 1 }",
+      "const Match = customMatch; Match.when({ _tag: 'Missing' }, handler)",
+      "import { Match } from 'effect'; function run(Match) { Match.when({ _tag: 'Missing' }, handler) }",
+      "import * as M from 'other/Match'; M.when({ _tag: 'Missing' }, handler)",
+      "const systemError = makeObject; systemError({ _tag: 'BadResource' })",
+      "other.systemError({ _tag: 'BadResource' })"
+    ]
   }
 }

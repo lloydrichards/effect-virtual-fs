@@ -18,7 +18,7 @@ Installed plugin entry points:
 Intentional local policy deviations:
 
 - `no-service-constructor-imports` is removed because Effect routinely imports ordinary `make*` factories across module boundaries; the rule inferred service ownership from names alone.
-- `prefer-effect-match` only reports chained ternaries that compare `_tag`. Scalar mappings remain ordinary TypeScript conditionals.
+- Native typed rules own direct catch-tag dispatch. The custom rules recognize imported Effect handlers, report caught `reason` dispatch separately, and report one diagnostic for a same-subject chain of tag ternaries.
 - `no-manual-tagged-construction` accepts `_tag` inside `systemError(...)` options because the installed Effect API requires that field.
 
 The repository configuration exempts tests from manual tagged construction. Tests still require `SAFETY:` comments for non-const assertions, and deliberate chained assertions use targeted suppressions.

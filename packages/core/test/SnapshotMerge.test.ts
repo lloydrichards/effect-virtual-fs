@@ -858,7 +858,6 @@ it.layer(BunCrypto.layer)("snapshot delta merge", (it) => {
 
       // Options arrive from a boundary as untyped data here, so the operation's own decoding has to reject them.
       // SAFETY: the parsed value is deliberately outside the option type; the test asserts the rejection.
-      // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- see the invariant above.
       const malformed = (yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(
         "{\"resolutions\":{}}"
       )) as Vfs.MergeOptions

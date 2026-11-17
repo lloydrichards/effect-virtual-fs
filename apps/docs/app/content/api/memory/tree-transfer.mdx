@@ -932,13 +932,13 @@ Streams the tree at `root` through an application-provided Effect `FileSystem`.
 
 **Details**
 
-Effect's `FileSystem` decodes names as UTF-8 strings, reports times in
-milliseconds, has no change time, and follows symbolic links in `stat`. A name
-is treated as a link when its resolved path differs from its expected path,
-and link entries carry no metadata. Hard links are detected when the host
-reports inode numbers and link counts. Files are read in bounded chunks, so an
-oversized file fails `maxFileBytes` without being read whole. A FIFO swapped in
-after its type is checked can block the read.
+The source classifies entries using `lstat` and emits symbolic links without
+metadata. Failures from `lstat` or `readLink` propagate as filesystem errors,
+including in skip mode. File metadata uses millisecond times and omits change
+time. Hard links to regular files use the reported device, inode and link
+count. Files are read in bounded chunks, so an oversized file fails
+`maxFileBytes` without being read whole. A FIFO swapped in after its type is
+checked can block the read.
 
 **Example**
 

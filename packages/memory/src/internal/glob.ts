@@ -1,4 +1,4 @@
-// oxlint-disable anti-slop-effect/no-manual-tagged-construction, anti-slop-effect/no-manual-tag-comparison, anti-slop/no-known-value-widening, anti-slop/no-runtime-typeof -- Preserve the pinned upstream state machine so its eventual replacement stays reviewable.
+// oxlint-disable anti-slop-effect/no-manual-tagged-construction, anti-slop-effect/no-manual-tag-comparison, anti-slop/no-runtime-typeof -- Preserve the pinned upstream state machine so its eventual replacement stays reviewable.
 /*!
 MIT License
 

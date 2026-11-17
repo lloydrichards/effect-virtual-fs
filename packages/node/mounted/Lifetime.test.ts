@@ -1,5 +1,5 @@
 // Exercise native resources during Effect scope unwinding and synchronous reentry.
-/* eslint-disable effecttsgo/async-function, effecttsgo/node-builtin-import, effecttsgo/run-effect-inside-effect */
+/* eslint-disable effecttsgo/async-function, effecttsgo/node-builtin-import */
 import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as Cause from "effect/Cause"

@@ -2,10 +2,8 @@
  * Adapts an application-provided Effect `FileSystem` as a tree transfer source
  * and sink.
  *
- * Effect's `FileSystem` has string paths, millisecond times, no change time, and
- * a `stat` that follows symbolic links. Links are detected by comparing a
- * resolved path with its expected canonical path. Host paths use `/`
- * separators.
+ * The source classifies entries with `lstat`. Effect's `FileSystem` has string
+ * paths, millisecond times, and no change time. Host paths use `/` separators.
  *
  * @internal
  * @since 0.6.0
@@ -119,7 +117,6 @@ const readCapped = (fs: FileSystem.FileSystem, path: string, limit: ByteSize.Byt
 
 interface SourceLocation {
   readonly host: string
-  readonly canonical: string | undefined
   readonly name: string
 }
 
@@ -141,47 +138,26 @@ export const fromFileSystem = (
         ? onSkip({ path, reason }).pipe(Effect.as(undefined))
         : Effect.fail(new TransferError({ code: reason, path }))
 
-    const readLinkTarget = Effect.fnUntraced(function*(next: SourceLocation) {
-      if (next.canonical === undefined) {
-        const target = yield* Effect.result(fs.readLink(next.host))
-
-        return Result.isSuccess(target) ? target.success : undefined
-      }
-
-      const resolved = yield* Effect.result(fs.realPath(next.host))
-
-      if (Result.isSuccess(resolved) && resolved.success === next.canonical) return undefined
-      const target = yield* Effect.result(fs.readLink(next.host))
-
-      if (Result.isSuccess(target)) return target.success
-
-      return Result.isFailure(resolved) ? null : yield* target.failure
-    })
-
-    const listChildren = Effect.fnUntraced(function*(location: SourceLocation, canonical: string) {
+    const listChildren = Effect.fnUntraced(function*(location: SourceLocation) {
       return (yield* fs.readDirectory(location.host)).map((name) => ({
         name,
-        location: {
-          host: childPath(location.host, name),
-          canonical: childPath(canonical, name),
-          name
-        }
+        location: { host: childPath(location.host, name), name }
       }))
     })
 
     const readNode = Effect.fnUntraced(function*(
       next: WalkLocation<SourceLocation>,
       budget: ReturnType<typeof makeBudget>
-    ): Effect.fn.Return<WalkNode<string, TransferError | PlatformError> | undefined, TransferError | PlatformError> {
+    ): Effect.fn.Return<WalkNode<void, TransferError | PlatformError> | undefined, TransferError | PlatformError> {
       const path = yield* stringWalkPath(next.path)
       const location = next.location
 
       if (location.name.includes(REPLACEMENT_CHARACTER)) return yield* refuse(path, "UnrepresentableName")
-      const target = yield* readLinkTarget(location)
+      const info = yield* fs.lstat(location.host)
 
-      if (target === null) return yield* refuse(path, "UnsupportedEntryType")
+      if (info.type === "SymbolicLink") {
+        const target = yield* fs.readLink(location.host)
 
-      if (target !== undefined) {
         return {
           kind: "content",
           read: budget.stored(path, encoder.encode(target).length).pipe(
@@ -190,12 +166,8 @@ export const fromFileSystem = (
         }
       }
 
-      const info = yield* fs.stat(location.host)
-
       if (info.type === "Directory") {
-        const canonical = location.canonical ?? (yield* fs.realPath(location.host))
-
-        return { kind: "directory", entry: { kind: "directory", path, metadata: hostMetadata(info) }, node: canonical }
+        return { kind: "directory", entry: { kind: "directory", path, metadata: hostMetadata(info) }, node: undefined }
       }
 
       if (info.type !== "File") return yield* refuse(path, "UnsupportedEntryType")
@@ -216,7 +188,7 @@ export const fromFileSystem = (
       }
     })
 
-    return walk({ host: root, canonical: undefined, name: "" }, limits, listChildren, readNode, stringWalkPath)
+    return walk({ host: root, name: "" }, limits, listChildren, readNode, stringWalkPath)
   }))
 
 // Hosts may fold case and Unicode form, so link lookups during escape checks use a folded key. Folding can only

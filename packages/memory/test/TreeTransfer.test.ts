@@ -5,6 +5,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, FileSystem, Layer, Predicate, Result, Schema, Stream } from "effect"
 import type * as Digest from "effect/crypto/Digest"
 import type * as SecureRandom from "effect/crypto/SecureRandom"
+import * as PlatformError from "effect/PlatformError"
 import * as TestClock from "effect/testing/TestClock"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import * as TreeTransfer from "../src/TreeTransfer.js"
@@ -1137,8 +1138,8 @@ const fileSystemSuite = (
           // Reports one regular file as a FIFO, so the adapter must classify it by type and never read it.
           const withFifo = FileSystem.make({
             ...observeContentReads(fs, `${directory}/tree/pipe`, reads),
-            stat: (path) =>
-              fs.stat(path).pipe(
+            lstat: (path) =>
+              fs.lstat(path).pipe(
                 Effect.map((info) => path.endsWith("/pipe") ? { ...info, type: "FIFO" as const } : info)
               )
           })
@@ -1150,20 +1151,21 @@ const fileSystemSuite = (
         })
       ))
 
-    it.effect("should report and omit a FIFO without reading it when unsupported entries are skipped", () =>
+    it.effect("should report and omit a FIFO and a name containing the replacement character", () =>
       withTemp((fs, directory) =>
         Effect.gen(function*() {
           yield* fs.makeDirectory(`${directory}/tree`)
           yield* fs.writeFileString(`${directory}/tree/file`, "x")
           yield* fs.writeFileString(`${directory}/tree/pipe`, "never read")
+          yield* fs.writeFileString(`${directory}/tree/\uFFFD`, "never read")
           const skipped: Array<TreeTransfer.SkippedEntry> = []
           const reads: Array<string> = []
 
           // Reports one regular file as a FIFO, so the adapter must classify it by type and never read it.
           const withFifo = FileSystem.make({
             ...observeContentReads(fs, `${directory}/tree/pipe`, reads),
-            stat: (path) =>
-              fs.stat(path).pipe(
+            lstat: (path) =>
+              fs.lstat(path).pipe(
                 Effect.map((info) => path.endsWith("/pipe") ? { ...info, type: "FIFO" as const } : info)
               )
           })
@@ -1176,7 +1178,10 @@ const fileSystemSuite = (
           )
 
           assert.deepStrictEqual(entries.map((entry) => entry.path), ["/", "/file"])
-          assert.deepStrictEqual(skipped, [{ path: "/pipe", reason: "UnsupportedEntryType" }])
+          assert.deepStrictEqual(skipped, [
+            { path: "/pipe", reason: "UnsupportedEntryType" },
+            { path: "/\uFFFD", reason: "UnrepresentableName" }
+          ])
           assert.deepStrictEqual(reads, [])
         })
       ))
@@ -1338,6 +1343,74 @@ const fileSystemSuite = (
           const entries = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${directory}/tree`))
 
           assert.deepStrictEqual(entries[1], { kind: "symlink", path: "/self", target: "self" })
+        })
+      ))
+
+    it.effect("should emit symlink roots and aliases without traversing their targets", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const tree = `${directory}/tree`
+          yield* fs.makeDirectory(tree)
+          yield* fs.makeDirectory(`${tree}/target`)
+          yield* fs.writeFileString(`${tree}/target/file`, "x")
+          yield* fs.symlink("target", `${tree}/link`)
+          yield* fs.link(`${tree}/link`, `${tree}/alias`)
+
+          const entries = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, tree))
+          assert.deepStrictEqual(entries.map((entry) => entry.path), [
+            "/",
+            "/alias",
+            "/link",
+            "/target",
+            "/target/file"
+          ])
+          assert.deepStrictEqual(entries[1], { kind: "symlink", path: "/alias", target: "target" })
+          assert.deepStrictEqual(entries[2], { kind: "symlink", path: "/link", target: "target" })
+
+          const root = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${tree}/link`))
+          assert.deepStrictEqual(root, [{ kind: "symlink", path: "/", target: "target" }])
+        })
+      ))
+
+    it.effect("should keep unreadable entries as filesystem failures even when unsupported entries are skipped", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const file = `${directory}/file`
+          const link = `${directory}/link`
+          yield* fs.writeFileString(file, "x")
+          yield* fs.symlink("file", link)
+
+          const statFailure = PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "lstat"
+          })
+
+          const linkFailure = PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "readLink"
+          })
+
+          const unreadable = FileSystem.make({
+            ...fs,
+            lstat: (path) => path === file ? Effect.fail(statFailure) : fs.lstat(path),
+            readLink: (path) => path === link ? Effect.fail(linkFailure) : fs.readLink(path)
+          })
+
+          const skipped: Array<TreeTransfer.SkippedEntry> = []
+
+          const options: TreeTransfer.FileSystemReadOptions = {
+            unsupported: "skip",
+            onSkip: (entry) => Effect.sync(() => skipped.push(entry))
+          }
+
+          for (const [root, expected] of [[directory, statFailure], [link, linkFailure]] as const) {
+            const actual = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromFileSystem(unreadable, root, options)))
+            assert.strictEqual(actual, expected)
+          }
+
+          assert.deepStrictEqual(skipped, [])
         })
       ))
 

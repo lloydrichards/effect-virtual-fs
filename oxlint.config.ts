@@ -24,7 +24,8 @@ export default defineConfig({
     effectNative
   ],
   "options": {
-    "denyWarnings": true
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error"
   },
   "jsPlugins": [
     {
@@ -104,7 +105,6 @@ export default defineConfig({
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
-    "anti-slop/no-known-value-widening": "error",
     "anti-slop/no-module-mocking": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-reflect-apply": "error",
@@ -112,7 +112,6 @@ export default defineConfig({
     "anti-slop/require-public-effect-fn-signature": "error",
     "anti-slop/require-public-internal-alias-type": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
-    "anti-slop/no-unknown-parameters": "error",
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
@@ -122,7 +121,6 @@ export default defineConfig({
     "anti-slop-effect/no-manual-effect-error-tag": "error",
     "anti-slop-effect/no-manual-tag-comparison": "error",
     "anti-slop-effect/no-manual-tagged-construction": "error",
-    "anti-slop-effect/prefer-effect-match": "error",
     "typescript/no-unsafe-type-assertion": "off",
     "typescript/consistent-return": "off",
     "import/no-unassigned-import": [
