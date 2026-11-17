@@ -9,6 +9,7 @@
 
 - [Node VFS interoperability](node-vfs-interoperability.md) compares verified Node 26.12 provider composition with snapshot overlays.
 - [Effect VFS lessons from the Node comparison](node-vfs-snapshot-bridge.md) separates comparative evidence from Effect-native follow-up work.
+- [Trusted program execution with virtual workspaces](virtual-workspace-execution.md) compares the browser playground, mounted Node workbench, and Code Mode evidence.
 
 - [Snapshot search and glob research](search-and-glob.md) records fixture recipe limitations, current search tests, and native-regex execution boundaries.
 
@@ -17,11 +18,14 @@
 - [Snapshot delta representation research](overlay-changes.md) retains the open delta questions: alternative encodings, checkpoint storage, profiling, and rebasing onto a different base. The [snapshot delta merge decision](../decisions/overlay/snapshot-delta-merge.md) covers merging two deltas from the same base.
 - [Rename-aware overlay merge proposal](overlay-rename-merge.md) describes trusted capture inputs, file move conflicts, and group resolutions for issue #271.
 - [Live durable volume proposal](live-durable-volume.md) records the staged core mutation boundary and proposes a bounded storage provider, with crash recovery and NFS replay prerequisites.
+- [Live-volume registry retention qualification](live-volume-registry-qualification.md) records the consumer prerequisite and backend measurement plan.
 - [Cloudflare Durable Object live image store](cloudflare-durable-object-live-image.md) examines the storage adapter, native NFS gateway, and durability evidence needed for a Cloudflare-backed volume.
 - [Cloudflare remote volume storage options](cloudflare-remote-volume-storage-options.md) compares DO SQLite, D1, and R2 for a remotely accessible volume with replaceable storage.
 - [Cloudflare live image adapter integration](cloudflare-live-image-adapter-effect-ecosystem.md) retains the earlier Effect/Alchemy integration survey and links current R2/D1 adapter behavior and remaining hosted qualification.
 - [Remote agent filesystem access through Cloudflare](cloudflare-remote-agent-filesystem.md) separates a TypeScript remote client from a native NFS mount and compares feasible connection paths.
 - [Agent filesystem landscape](agent-filesystem-landscape.md) surveys agent-oriented filesystems (Alchemy Sandbox and FUSE, AgentFS, Mesa, Archil, ArtifactFS, just-bash, Mirage) and maps their ideas to gaps and directions here.
+
+- [Conditional whole-file writes](conditional-mutations.md) compares revision, digest, and entry guards for atomic read-edit-write consumers.
 
 ## NFS export
 
