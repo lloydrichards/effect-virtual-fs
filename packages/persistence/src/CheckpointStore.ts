@@ -90,6 +90,10 @@ const makeStore = Effect.fnUntraced(function*(limits: Vfs.DecodeLimits) {
   const sql = (yield* SqlClient).withoutTransforms()
   const maxEncodedBytes = ByteSize.toBigInt(ownedLimits.maxEncodedBytes)
 
+  // Bun's SQLite binding strips a leading BOM from text parameters. Prefix the name before binding and remove
+  // the prefix in SQLite so both queries use the literal name and existing TEXT keys remain readable.
+  const nameKey = (name: string) => sql`substr(${`_${name}`}, 2)`
+
   // Encoding under the store's limits fails wherever decoding under them would, so a saved image is known to load
   // without being decoded here.
   const save = Effect.fnUntraced(function*(name: string, snapshot: Vfs.Snapshot) {
@@ -100,7 +104,7 @@ const makeStore = Effect.fnUntraced(function*(limits: Vfs.DecodeLimits) {
     )
 
     const inserted = yield* sql`
-      INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${name}, ${image})
+      INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${nameKey(name)}, ${image})
       ON CONFLICT(name) DO NOTHING RETURNING name
     `.pipe(Effect.mapError(
       (cause) => new CheckpointError({ code: "Storage", operation: "CheckpointStore.save", name, cause })
@@ -119,7 +123,7 @@ const makeStore = Effect.fnUntraced(function*(limits: Vfs.DecodeLimits) {
         CASE WHEN typeof(image) = 'blob' THEN length(image) ELSE NULL END AS size,
         CASE WHEN typeof(image) = 'blob' AND length(image) <= ${maxEncodedBytes}
           THEN image ELSE NULL END AS image
-      FROM effect_vfs_checkpoints WHERE name = ${name}
+      FROM effect_vfs_checkpoints WHERE name = ${nameKey(name)}
     `.pipe(Effect.mapError(
       (cause) => new CheckpointError({ code: "Storage", operation: "CheckpointStore.load", name, cause })
     ))
