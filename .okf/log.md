@@ -29,6 +29,10 @@
 - Record Effect-aligned repository validation: complete workspace and export classification, public documentation and
   type contracts, checked lint tooling, dependency direction, generated ownership, and selected packed-consumer compilers.
 
+- Record [static analysis policy research](research/static-analysis-policy.md): effective diagnostic disagreement,
+  boundary-safe rule design, semantic limits, proposed rollout criteria and nine implementation issues. Keep proposals
+  separate from accepted validation policy.
+
 ## 2026-11-16
 
 - Align system and adapter profiles with the preview engine, Node bindings, and qualified NFS exports. Restore missing evidence references and add omitted contracts and decisions to their indexes.
