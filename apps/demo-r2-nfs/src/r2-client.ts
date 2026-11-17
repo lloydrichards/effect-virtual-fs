@@ -78,6 +78,7 @@ export const makeR2Client = Effect.fn("R2Demo.makeClient")(function*(config: R2D
   const client: R2LiveImageStore.R2Client = config.loseR2ReplyOnce
     ? {
       read: remote.read,
+      readBounded: remote.readBounded,
       write: (key, image, generation, digest, condition) =>
         Effect.flatMap(remote.write(key, image, generation, digest, condition), (result) => {
           if (!lostReply && "ifMatch" in condition && result !== null) {

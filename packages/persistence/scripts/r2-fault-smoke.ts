@@ -50,7 +50,7 @@ const withObject = async (
   console.log(`${name}: ${key}`)
   const scope = await Effect.runPromise(Scope.make())
 
-  const makeStore = async (client = remote) => {
+  const makeStore = async (client: R2LiveImageStore.R2Client = remote) => {
     const { owner, store } = await Effect.runPromise(Effect.gen(function*() {
       const owner = yield* Scope.fork(scope)
 
@@ -83,6 +83,7 @@ try {
 
     const client: R2LiveImageStore.R2Client = {
       read: remote.read,
+      readBounded: remote.readBounded,
       write: (objectKey, image, generation, digest, condition) =>
         Effect.flatMap(remote.write(objectKey, image, generation, digest, condition), (result) => {
           if (generation === "1" && result !== null && !dropped) {
