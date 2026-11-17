@@ -7,7 +7,7 @@ trap 'rm -rf -- "$consumer"' EXIT
 bun pm pack --filename "$consumer/core.tgz" --quiet
 (cd ../memory && bun pm pack --filename "$consumer/memory.tgz" --quiet)
 tar -xOf "$consumer/core.tgz" package/dist/LICENSE.effect-preview | cmp ../effect-preview/LICENSE -
-cp compatibility/packed/consumer.mts "$consumer/"
+cp compatibility/packed/{consumer,manifest-workload}.mts "$consumer/"
 
 effect_version=$(node -p 'require("./package.json").devDependencies.effect')
 platform_version=$(node -p 'require("./package.json").devDependencies["@effect/platform-node-shared"]')

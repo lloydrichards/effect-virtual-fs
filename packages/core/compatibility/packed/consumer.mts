@@ -5,21 +5,9 @@ import * as MemoryFileSystem from "@effect-vfs/memory/MemoryFileSystem"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, FileSystem, Ref } from "effect"
 import assert from "node:assert/strict"
+import { manifestPath, rebuildManifest } from "./manifest-workload.mjs"
 
 assert.strictEqual(VirtualFileSystem.make, Vfs.make)
-
-const build = Effect.gen(function*() {
-  const fs = yield* FileSystem.FileSystem
-  const output = "/dist/manifest.json"
-  const stale = "/dist/stale.json"
-  const manifest = yield* fs.readFileString("/src/manifest.json")
-
-  if (!(yield* fs.exists(output)) || (yield* fs.readFileString(output)) !== manifest) {
-    yield* fs.writeFileString(output, manifest)
-  }
-
-  if (yield* fs.exists(stale)) yield* fs.remove(stale)
-})
 
 await Effect.runPromise(
   Effect.scoped(Effect.gen(function*() {
@@ -50,14 +38,14 @@ await Effect.runPromise(
         }
       }))
 
-    const runBuild = build.pipe(Effect.provideService(FileSystem.FileSystem, fileSystem))
+    const runBuild = rebuildManifest.pipe(Effect.provideService(FileSystem.FileSystem, fileSystem))
     yield* runBuild
-    assert.equal(yield* base.readFileString("/dist/manifest.json"), "{\"name\":\"packed-workload\"}")
+    assert.equal(yield* base.readFileString(manifestPath), "{\"name\":\"packed-workload\"}")
     assert.equal(yield* base.exists("/dist/stale.json"), false)
-    assert.deepEqual(yield* Ref.get(writes), ["/dist/manifest.json"])
+    assert.deepEqual(yield* Ref.get(writes), [manifestPath])
 
     yield* runBuild
-    assert.deepEqual(yield* Ref.get(writes), ["/dist/manifest.json"])
+    assert.deepEqual(yield* Ref.get(writes), [manifestPath])
 
     const temporary = yield* Effect.scoped(Effect.gen(function*() {
       const path = yield* base.makeTempFileScoped({ directory: "/dist" })
