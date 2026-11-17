@@ -2,7 +2,7 @@
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3"
 import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { ByteSize, Effect, Layer } from "effect"
+import { ByteSize, Context, Effect, Exit, Layer, Scope } from "effect"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
 
 const required = (name: string) => {
@@ -36,28 +36,49 @@ const text = (value: Uint8Array) => new TextDecoder().decode(value)
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 1200))
 
-const makeStore = (key: string, client: R2LiveImageStore.R2Client = remote) =>
-  Effect.runPromise(LiveVolume.LiveImageStore.pipe(Effect.provide(
-    R2LiveImageStore.layer({ key, maxImageBytes: ByteSize.kilobytes(64) }).pipe(
-      Layer.provide(Layer.succeed(R2LiveImageStore.Client, client)),
-      Layer.provide(NodeCrypto.layer)
-    )
-  )))
-
-const withObject = async (name: string, run: (key: string) => Promise<void>) => {
+const withObject = async (
+  name: string,
+  run: (
+    makeStore: (client?: R2LiveImageStore.R2Client) => Promise<{
+      store: LiveVolume.LiveImageStore["Service"]
+      close: () => Promise<void>
+    }>,
+    key: string
+  ) => Promise<void>
+) => {
   const key = `effect-vfs-smoke/${name}-${crypto.randomUUID()}`
   console.log(`${name}: ${key}`)
+  const scope = await Effect.runPromise(Scope.make())
+
+  const makeStore = async (client = remote) => {
+    const { owner, store } = await Effect.runPromise(Effect.gen(function*() {
+      const owner = yield* Scope.fork(scope)
+
+      const context = yield* Layer.buildWithScope(
+        R2LiveImageStore.layer({ key, maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+          Layer.provide(Layer.succeed(R2LiveImageStore.Client, client)),
+          Layer.provide(NodeCrypto.layer)
+        ),
+        owner
+      )
+
+      return { owner, store: Context.get(context, LiveVolume.LiveImageStore) }
+    }))
+
+    return { store, close: () => Effect.runPromise(Scope.close(owner, Exit.void)) }
+  }
 
   try {
-    await run(key)
+    await run(makeStore, key)
   } finally {
+    await Effect.runPromise(Scope.close(scope, Exit.void))
     await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
     console.log(`${name}: removed test object`)
   }
 }
 
 try {
-  await withObject("lost-reply", async (key) => {
+  await withObject("lost-reply", async (makeStore) => {
     let dropped = false
 
     const client: R2LiveImageStore.R2Client = {
@@ -80,7 +101,7 @@ try {
         })
     }
 
-    const first = await makeStore(key, client)
+    const { store: first, close } = await makeStore(client)
     await Effect.runPromise(first.loadOrCreate(bytes("old")))
     await pause()
 
@@ -92,7 +113,8 @@ try {
       throw new Error("store accepted a retry after an uncertain result")
     }
 
-    const reopened = await makeStore(key)
+    await close()
+    const { store: reopened } = await makeStore()
 
     if (text(await Effect.runPromise(reopened.loadOrCreate(bytes("ignored")))) !== "new") {
       throw new Error("reopen did not recover the acknowledged R2 image")
@@ -101,7 +123,7 @@ try {
     console.log("lost-reply: uncertain response froze the owner; reopen recovered the new image")
   })
 
-  await withObject("lost-http-response", async (key) => {
+  await withObject("lost-http-response", async (makeStore) => {
     let dropped = false
 
     const faultS3 = new S3Client({
@@ -139,7 +161,7 @@ try {
     })
 
     try {
-      const first = await makeStore(key, inBucket(faultS3))
+      const { store: first, close } = await makeStore(inBucket(faultS3))
       await Effect.runPromise(first.loadOrCreate(bytes("old")))
       await pause()
 
@@ -151,7 +173,8 @@ try {
         throw new Error("store accepted a retry after a lost HTTP response")
       }
 
-      const reopened = await makeStore(key)
+      await close()
+      const { store: reopened } = await makeStore()
 
       if (text(await Effect.runPromise(reopened.loadOrCreate(bytes("ignored")))) !== "new") {
         throw new Error("reopen did not recover the write after a lost HTTP response")
@@ -163,10 +186,10 @@ try {
     }
   })
 
-  await withObject("two-owners", async (key) => {
-    const first = await makeStore(key)
+  await withObject("two-owners", async (makeStore) => {
+    const { store: first, close: closeFirst } = await makeStore()
     await Effect.runPromise(first.loadOrCreate(bytes("original")))
-    const second = await makeStore(key)
+    const { store: second, close: closeSecond } = await makeStore()
     await Effect.runPromise(second.loadOrCreate(bytes("ignored")))
     await pause()
 
@@ -182,7 +205,9 @@ try {
       throw new Error("stale owner accepted a retry")
     }
 
-    const reopened = await makeStore(key)
+    await closeFirst()
+    await closeSecond()
+    const { store: reopened } = await makeStore()
 
     if (text(await Effect.runPromise(reopened.loadOrCreate(bytes("ignored")))) !== "winner") {
       throw new Error("stale owner replaced the winning image")
@@ -191,10 +216,10 @@ try {
     console.log("two-owners: stale writer was fenced; reopen recovered the winner")
   })
 
-  await withObject("concurrent-writers", async (key) => {
-    const first = await makeStore(key)
+  await withObject("concurrent-writers", async (makeStore) => {
+    const { store: first, close: closeFirst } = await makeStore()
     await Effect.runPromise(first.loadOrCreate(bytes("original")))
-    const second = await makeStore(key)
+    const { store: second, close: closeSecond } = await makeStore()
     await Effect.runPromise(second.loadOrCreate(bytes("ignored")))
     await pause()
 
@@ -207,7 +232,9 @@ try {
       throw new Error(`expected exactly one acknowledged concurrent write; got ${JSON.stringify(outcomes)}`)
     }
 
-    const reopened = await makeStore(key)
+    await closeFirst()
+    await closeSecond()
+    const { store: reopened } = await makeStore()
     const recovered = text(await Effect.runPromise(reopened.loadOrCreate(bytes("ignored"))))
     const winner = outcomes[0] === "committed" ? "first" : "second"
 
@@ -215,8 +242,8 @@ try {
     console.log(`concurrent-writers: outcomes=${JSON.stringify(outcomes)}, recovered=${recovered}`)
   })
 
-  await withObject("rapid-write", async (key) => {
-    const store = await makeStore(key)
+  await withObject("rapid-write", async (makeStore, key) => {
+    const { store, close } = await makeStore()
     await Effect.runPromise(store.loadOrCreate(bytes("original")))
     let lastCommitted = "original"
     let attempted = "original"
@@ -238,8 +265,13 @@ try {
       lastCommitted = attempted
     }
 
-    const reopened = await makeStore(key)
-    const recovered = text(await Effect.runPromise(reopened.loadOrCreate(bytes("ignored"))))
+    await close()
+    // Inspect the object without starting a replacement owner after an uncertain write.
+    const stored = await Effect.runPromise(remote.read(key))
+
+    if (stored === null) throw new Error("rapid write removed the image")
+
+    const recovered = text(stored.bytes)
 
     if (recovered !== lastCommitted && (!unknown || recovered !== attempted)) {
       throw new Error("rapid write left an incomplete image")

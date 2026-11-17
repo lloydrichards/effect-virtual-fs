@@ -32,6 +32,9 @@ sources:
   - id: sql-image-key
     resource: ../../packages/persistence/src/internal/sqlLiveImageKey.ts
     title: Well-formed SQL image keys preserve UTF-8 identity
+  - id: r2-contract
+    resource: ../../packages/persistence/test/R2LiveImageStore.test.ts
+    title: R2 SDK Promise and scoped owner handoff
   - id: pg-store
     resource: ../../packages/persistence/src/PgLiveImageStore.ts
     title: Private PostgreSQL session and conservative conditional writes
@@ -59,7 +62,7 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/182
     title: Persistence store helpers
-generated: { by: codex/okf, at: "2026-11-17T17:50:32+01:00" }
+generated: { by: codex/okf, at: "2026-11-17T20:54:51+01:00" }
 ---
 
 # Persistence store helpers
@@ -88,7 +91,9 @@ Follows the [public API decision](core/public-api-targets-services-and-errors.md
 10. **D1 ownership handoff drains pending statements.** Applications control one owner per database and key. Independent Worker isolates must not cache the same live volume. The adapter supplies no Durable Object hosting, routing or automatic takeover. D1 Promises may complete after caller interruption. Run queries uninterruptibly in fibers attached to the store scope, while callers wait interruptibly. The shared protocol freezes interrupted writes. Closing the entire old owner waits for its pending statements to settle before replacement. It can wait for an unresponsive binding. Do not destroy the borrowed database binding. Shared contracts account explicitly for writes that finish while a cancelled owner closes.
 11. **D1 release qualification remains separate from local emulation.** The guarantee is memory-only, with no override and no writable NFS. Node-driven Miniflare/workerd contracts cover binary views, the 1 MiB cap, malformed data and receipts, lost replies, stale CAS, cancellation and drained handoff. The bundled qualification Worker checks primary metadata and images across fresh owners inside workerd. CI runs this through an explicit job, and ordinary Bun tests skip it. Hosted Cloudflare qualification is still required before release. The provided hosted harness uses disposable keys and cleans its rows. Worker CPU, memory, query budgets and the deployment's ownership lifecycle need workload qualification. Local tests do not establish hosted behavior or power-loss durability.
 
-12. **Live-image layers require supplied clients and retain owner-local resources.** SQLite continues to require its dedicated SQL client, verified filename and platform services. R2 requires a service over its existing explicit `R2Client` capability; `Options.client` is removed and callers provide the service through native Layer composition. `fromS3` continues to borrow a supplied SDK client and closing the store does not destroy it. Supply each driver locally to its store before composing application layers, because PostgreSQL and D1 also publish the generic SQL service SQLite consumes. A store-layer instance is one memoized owner; separate owners need separate layer instances and scopes. Shared transport does not share protocol state or D1 pending-query scopes. Closing a PostgreSQL or SQLite store releases its reservation before the supplied client finalizes; it does not independently destroy a client whose scope remains open. Existing byte layouts, schema checks and commit outcomes remain unchanged.
+12. **Live-image layers require supplied clients and retain owner-local resources.** SQLite continues to require its dedicated SQL client, verified filename and platform services. R2 requires a service over its existing explicit `R2Client` capability; `Options.client` is removed and callers provide the service through native Layer composition. `fromS3` continues to borrow a supplied SDK client and closing the store does not destroy it. Supply each driver locally to its store before composing application layers, because PostgreSQL and D1 also publish the generic SQL service SQLite consumes. A store-layer instance is one memoized owner; separate owners need separate layer instances and scopes. Shared transport does not share protocol state or pending work scopes. Closing a PostgreSQL or SQLite store releases its reservation before the supplied client finalizes; it does not independently destroy a client whose scope remains open. Existing byte layouts, schema checks and commit outcomes remain unchanged.
+
+13. **R2 ownership handoff drains local requests.** Run reads and conditional writes in the store scope. The caller may stop waiting while the transport continues, and the request owns its write bytes until it settles. Keep the store scope open for direct store use and for the lifetime of any volume using it. Closing the old owner waits for pending transport operations, including S3 response-body consumption, and does not close the borrowed SDK client. Scope closure establishes local drainage only. If a settled transport failure leaves remote completion uncertain, keep the key offline until provider or transport evidence rules out a later remote write and the authoritative image has been verified. A GET while that uncertainty remains cannot establish a safe replacement.
 
 ## Consequences
 

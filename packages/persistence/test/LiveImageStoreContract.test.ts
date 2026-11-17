@@ -148,5 +148,10 @@ const fixture = Effect.fnUntraced(function*(backend: "SQLite" | "R2") {
 })
 
 for (const backend of ["SQLite", "R2"] as const) {
-  liveImageStoreContract({ name: backend, fixture: fixture(backend), rollback: backend === "SQLite" })
+  liveImageStoreContract({
+    name: backend,
+    fixture: fixture(backend),
+    pendingWritesCompleteOnClose: backend === "R2",
+    rollback: backend === "SQLite"
+  })
 }

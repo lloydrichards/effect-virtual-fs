@@ -113,6 +113,15 @@ const Store = R2LiveImageStore.layer({
 ```
 
 The AWS SDK creates `s3`; `fromS3` adapts its R2-compatible operations into the supplied Effect service.
+Keep the store Layer open for the full owner lifetime. For example, provide it around the program that uses the volume,
+or build it with `Layer.build` in the enclosing owner scope. Close the complete owner before opening a replacement for the
+same key. Closing waits for outstanding requests, even if their callers stopped waiting. The store borrows the SDK client,
+so a separate owner for another key can continue using it.
+
+If the SDK reports a write failure with an uncertain outcome, keep the key offline. Use transport or provider evidence to
+establish that the request can no longer change the object, then verify the authoritative image before reopening. A
+successful GET alone can still precede a late remote write. The adapter freezes the uncertain owner and provides no
+automatic retry or takeover.
 The application owns the SDK client and closes it after all stores using it have closed. Closing a store does not
 destroy that client. SQLite continues to require a dedicated `SqlClient` for its verified filename, plus
 `FileSystem`, `Path` and `Digest`.

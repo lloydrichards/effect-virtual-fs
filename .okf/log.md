@@ -6,6 +6,8 @@
 
 - Require supplied clients across live-image store layers. Record PostgreSQL dedicated-client and receive-budget obligations, native client startup errors, borrowed-client lifetimes, per-store D1 drainage and local provider composition. Remove the R2 client option in favor of an injected capability service.
 
+- Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
+
 - Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
 
 - Add the bounded D1 adapter and explicit STRICT migration. Record primary-only bindings, externally controlled ownership and pending-statement drainage before handoff. Add workerd contracts and a hosted qualification harness, with hosted release qualification still pending.

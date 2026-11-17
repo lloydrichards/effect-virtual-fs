@@ -30,7 +30,7 @@ export const gateway = Effect.fn("R2Demo.gateway")(function*(config: R2DemoConfi
     durability: "survives-power-loss"
   }).pipe(Layer.provide(Layer.succeed(R2LiveImageStore.Client, client)))
 
-  const volume = yield* LiveVolume.open(config.volumeOptions).pipe(Effect.provide(store))
+  const volume = yield* LiveVolume.open(config.volumeOptions).pipe(Effect.provide(yield* Layer.build(store)))
 
   yield* NfsServer.make({
     volume,
