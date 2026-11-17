@@ -1,5 +1,8 @@
 # Decisions
 
+- [Repository validation policy](repository-validation.md) defines Effect-aligned coverage, public documentation and type
+  contracts, package checks, generated ownership, and scoped enforcement.
+
 Architectural and behavioral decisions, grouped by domain. Accepted decisions are stable; a draft entry is a proposal awaiting acceptance. Deprecated decisions are retained for their rationale; the linked contracts own their rules.
 
 ## Core filesystem

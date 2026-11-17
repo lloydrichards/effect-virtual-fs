@@ -1,5 +1,10 @@
 # Bundle update log
 
+## 2026-11-17
+
+- Record Effect-aligned repository validation: complete workspace and export classification, public documentation and
+  type contracts, checked lint tooling, dependency direction, generated ownership, and selected packed-consumer compilers.
+
 ## 2026-11-16
 
 - Align system and adapter profiles with the preview engine, Node bindings, and qualified NFS exports. Restore missing evidence references and add omitted contracts and decisions to their indexes.

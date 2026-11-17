@@ -139,6 +139,14 @@ export const apiPages = [
     contentPath: "content/api/core/testing.mdx"
   },
   {
+    packageDir: "packages/core",
+    moduleName: "SynchronousAdapter",
+    label: "Core · SynchronousAdapter",
+    href: "/api/core/synchronous-adapter",
+    routePath: "core/synchronous-adapter",
+    contentPath: "content/api/core/synchronous-adapter.mdx"
+  },
+  {
     packageDir: "packages/memory",
     moduleName: "MemoryFileSystem",
     label: "Memory · MemoryFileSystem",
@@ -200,5 +208,13 @@ export const apiPages = [
     href: "/api/nfs/nfs-server",
     routePath: "nfs/nfs-server",
     contentPath: "content/api/nfs/nfs-server.mdx"
+  },
+  {
+    packageDir: "packages/node",
+    moduleName: "NodeVirtualProvider",
+    label: "Node · NodeVirtualProvider",
+    href: "/api/node/node-virtual-provider",
+    routePath: "node/node-virtual-provider",
+    contentPath: "content/api/node/node-virtual-provider.mdx"
   }
 ] as const

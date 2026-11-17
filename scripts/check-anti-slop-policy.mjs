@@ -1,41 +1,100 @@
 import { strict as assert } from "node:assert"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 
-const lint = (file) => {
-  const result = Bun.spawnSync([
-    "./node_modules/.bin/oxlint",
-    "--config",
-    "scripts/anti-slop-policy.config.json",
-    "--disable-nested-config",
-    "--format",
-    "json",
-    file
-  ])
+import { ruleCases } from "./anti-slop-policy-fixtures/cases.mjs"
 
-  const output = result.stdout.toString()
-  let report
+const root = path.resolve(import.meta.dirname, "..")
 
-  try {
-    report = JSON.parse(output)
-  } catch {
-    throw new Error(`Oxlint did not return JSON for ${file}:\n${output}\n${result.stderr.toString()}`)
+const policy = JSON.parse(await readFile(path.join(root, ".oxlintrc.json"), "utf8"))
+
+const enabledRules = Object.keys(policy.rules).filter((rule) =>
+  rule.startsWith("anti-slop") && policy.rules[rule] !== "off"
+)
+
+assert.deepEqual(
+  Object.keys(ruleCases).sort(),
+  enabledRules.sort(),
+  "Every enabled custom rule needs accepted and rejected fixtures"
+)
+
+const parseReport = (result, file) => {
+  assert(result.exitCode === 0 || result.exitCode === 1, `Oxlint crashed for ${file}: ${result.stderr.toString()}`)
+  const report = JSON.parse(result.stdout.toString())
+  assert(Array.isArray(report.diagnostics), `Oxlint did not return diagnostics for ${file}`)
+  assert.equal(
+    result.exitCode,
+    report.diagnostics.length === 0 ? 0 : 1,
+    `Oxlint exit code disagrees with diagnostics for ${file}`
+  )
+
+  return report.diagnostics
+}
+
+// A broken lint subprocess must fail the check even if it writes parseable output.
+assert.throws(() =>
+  parseReport(
+    { exitCode: 2, stdout: Buffer.from("{\"diagnostics\":[]}"), stderr: Buffer.from("failure") },
+    "crash fixture"
+  )
+)
+
+assert.throws(() =>
+  parseReport({ exitCode: 1, stdout: Buffer.from("{\"diagnostics\":[]}"), stderr: Buffer.from("") }, "status fixture")
+)
+
+assert.throws(() =>
+  parseReport({ exitCode: 0, stdout: Buffer.from("not JSON"), stderr: Buffer.from("") }, "output fixture")
+)
+
+const directory = await mkdtemp(path.join(tmpdir(), "vfs-lint-policy-"))
+
+let fixtures = 0
+
+try {
+  const configPath = path.join(directory, "oxlint.json")
+  const filePath = path.join(directory, "case.ts")
+
+  for (const [rule, cases] of Object.entries(ruleCases)) {
+    const config = {
+      jsPlugins: policy.jsPlugins.map((plugin) => ({ ...plugin, specifier: path.resolve(root, plugin.specifier) })),
+      categories: { correctness: "off" },
+      rules: { [rule]: "error" }
+    }
+
+    await writeFile(configPath, JSON.stringify(config))
+    const code = rule.replace("/", "(") + ")"
+
+    for (const [kind, sources] of Object.entries(cases)) {
+      assert(sources.length > 0, `${rule} needs ${kind} fixtures`)
+
+      for (const [index, source] of sources.entries()) {
+        await writeFile(filePath, source + "\n")
+
+        const result = Bun.spawnSync([
+          path.join(root, "node_modules/.bin/oxlint"),
+          "--config",
+          configPath,
+          "--disable-nested-config",
+          "--format",
+          "json",
+          filePath
+        ], { cwd: root })
+
+        const diagnostics = parseReport(result, `${rule} ${kind} ${index + 1}`)
+        const expected = kind === "valid" ? [] : [code]
+        assert.deepEqual(
+          diagnostics.map((diagnostic) => diagnostic.code),
+          expected,
+          `${rule} ${kind} ${index + 1}: ${source}\n${JSON.stringify(diagnostics)}`
+        )
+        fixtures++
+      }
+    }
   }
-
-  return new Set(report.diagnostics.map((diagnostic) => diagnostic.code))
+} finally {
+  await rm(directory, { recursive: true, force: true })
 }
 
-const valid = lint("scripts/anti-slop-policy-fixtures/valid.ts")
-
-const invalid = lint("scripts/anti-slop-policy-fixtures/invalid.ts")
-
-const policyRules = [
-  "anti-slop(require-public-effect-fn-signature)",
-  "anti-slop(require-public-internal-alias-type)",
-  "anti-slop(no-shape-in-symbol-names)",
-  "anti-slop-effect(no-manual-tagged-construction)",
-  "anti-slop-effect(prefer-effect-match)"
-]
-
-for (const rule of policyRules) {
-  assert(!valid.has(rule), `valid policy fixture triggered ${rule}`)
-  assert(invalid.has(rule), `invalid policy fixture did not trigger ${rule}`)
-}
+console.log(`Custom lint policy passed: ${enabledRules.length} rules, ${fixtures} isolated fixtures.`)

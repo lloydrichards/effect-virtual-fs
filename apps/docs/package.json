@@ -6,11 +6,12 @@
     "build": "react-router build",
     "clean": "git clean -xdf .cache .turbo build docs node_modules .react-router tsconfig.tsbuildinfo",
     "dev": "react-router dev",
-    "docs:check": "bun run docs:generate && bun run scripts/check-docs.ts && bun run scripts/check-examples.ts",
+    "docs:check": "bun run scripts/check-public-docs.ts && bun run docs:generate && bun run scripts/check-docs.ts && bun run scripts/check-examples.ts",
     "docs:generate": "bun run scripts/generate-api-docs.ts",
     "prebuild": "bun run docs:check",
     "predev": "bun run docs:check",
-    "type-check": "react-router typegen && tsc --noEmit"
+    "type-check": "react-router typegen && tsc --noEmit",
+    "test:docs": "bun test scripts/test/public-docs.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

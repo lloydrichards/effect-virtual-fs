@@ -1,0 +1,9 @@
+{
+  "extends": "../packages/config-typescript/base.json",
+  "compilerOptions": {
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["oxlint/**/*.ts"]
+}
