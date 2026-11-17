@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url"
 import { defineConfig } from "vitest/config"
+import { sharedTestProjects } from "./tools/checks/repository.mjs"
 
 const project = (name: string, directory: string) => ({
   test: {
@@ -15,16 +16,6 @@ export default defineConfig({
   test: {
     exclude: ["**/node_modules/**", "**/dist/**", "**/.reference/**"],
     // All projects run under Bun so the root test script can use one Vitest process.
-    projects: [
-      project("effect-preview", "./packages/effect-preview/"),
-      project("core", "./packages/core/"),
-      project("memory", "./packages/memory/"),
-      project("nfs", "./packages/nfs/"),
-      project("persistence", "./packages/persistence/"),
-      project("demo-overlay", "./apps/demo-overlay/"),
-      project("demo-agent-tools", "./apps/demo-agent-tools/"),
-      project("demo-alchemy", "./apps/demo-alchemy/"),
-      project("virtual-build", "./apps/virtual-build/")
-    ]
+    projects: sharedTestProjects.map(({ directory, name }) => project(name, `./${directory}/`))
   }
 })
