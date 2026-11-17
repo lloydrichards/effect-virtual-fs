@@ -24,6 +24,8 @@
 - [Remote agent filesystem access through Cloudflare](cloudflare-remote-agent-filesystem.md) separates a TypeScript remote client from a native NFS mount and compares feasible connection paths.
 - [Agent filesystem landscape](agent-filesystem-landscape.md) surveys agent-oriented filesystems (Alchemy Sandbox and FUSE, AgentFS, Mesa, Archil, ArtifactFS, just-bash, Mirage) and maps their ideas to gaps and directions here.
 
+- [Conditional whole-file writes](conditional-mutations.md) compares revision, digest, and entry guards for atomic read-edit-write consumers.
+
 ## NFS export
 
 - [NFSv4.1 server direction](nfs/nfs-server.md) retains the accepted read-only direction and the macOS interoperability result.
