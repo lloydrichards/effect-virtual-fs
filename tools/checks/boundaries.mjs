@@ -153,7 +153,7 @@ export async function checkBoundaries({ directory = root, workspaces, quiet = fa
 
   for (const workspace of workspaces) {
     const configPath = path.join(directory, workspace.directory, "tsconfig.json")
-    const config = ts.readConfigFile(configPath, ts.sys.readFile)
+    const config = ts.readConfigFile(configPath, (file) => ts.sys.readFile(file))
     compilerOptions.set(
       workspace.directory,
       config.error ?
