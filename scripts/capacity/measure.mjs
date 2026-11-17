@@ -1,6 +1,6 @@
 /* eslint-disable effecttsgo/global-date -- Native process APIs keep measurement and JSON output outside the measured Effect workload. */
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { ByteSize, Deferred, Effect, Fiber, Result, Stream } from "effect"
+import { ByteSize, Deferred, Effect, Fiber, Result, Schema, Stream } from "effect"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -13,11 +13,14 @@ import { VirtualFileSystem as Vfs } from "../../packages/core/dist/index.js"
 import { withVolumeTestSeams } from "../../packages/core/dist/internal/model.js"
 import * as Memory from "../../packages/memory/dist/MemoryFileSystem.js"
 
+const deltaScenarios = ["delta-default:10000", "delta-bounded:10000", "delta-boundaries:10000"]
+
 const scenarios = [
   ...[1, 16, 64].flatMap((size) => ["partial", "growth"].map((kind) => `${kind}:${size}`)),
   ...[100, 1000, 10000].map((size) => `workspace:${size}`),
   ...[32, 128, 256].map((size) => `deep:${size}`),
   "bounded:1000",
+  ...deltaScenarios,
   "admission:1000",
   "contention:8",
   "contention:128",
@@ -70,10 +73,197 @@ const quotas = {
 
 const writeOptions = { access: "write", create: "ifMissing", truncate: true }
 
+const largeFileCount = 10_000
+
+const baseFileBytes = 4_096
+
+const changedFileBytes = 8_192
+
+const editsPerSide = 512
+
+const changedFiles = editsPerSide * 2
+
+const mergedBytes = largeFileCount * baseFileBytes + changedFiles * (changedFileBytes - baseFileBytes)
+
+const maxDecodedDeltaBytes = 64 + changedFiles * changedFileBytes +
+  Array.from({ length: changedFiles }, (_, i) => ("/f" + i).length).reduce((a, b) => a + b, 0)
+
+const largeQuotas = {
+  ...boundedQuotas,
+  maxBytes: ByteSize.bytes(mergedBytes),
+  maxFileBytes: ByteSize.bytes(changedFileBytes),
+  maxEntries: largeFileCount
+}
+
+const largeDeltaLimits = {
+  maxEncodedBytes: ByteSize.mebibytes(12),
+  maxIdentityBytes: ByteSize.mebibytes(48),
+  maxDeltaRecords: changedFiles,
+  maxDecodedDeltaBytes: ByteSize.bytes(maxDecodedDeltaBytes),
+  maxBaseRecords: largeFileCount + 1,
+  maxTargetRecords: largeFileCount + 1,
+  maxEntries: largeFileCount,
+  maxOutputRecords: largeFileCount + 1,
+  maxOutputBytes: ByteSize.bytes(mergedBytes),
+  maxInheritedRecords: largeFileCount + 1 - editsPerSide
+}
+
+const policyNumbers = (policy) => Object.fromEntries(Object.entries(policy).map(([key, value]) => [key, Number(value)]))
+
+const expectLimit = Effect.fnUntraced(
+  /**
+   * @template A, R
+   * @param {string} field
+   * @param {Effect.Effect<A, { readonly code?: string, readonly field?: string }, R>} work
+   */ function*(field, work) {
+    const failure = yield* Effect.flip(work)
+    assert.equal(failure.code, "LimitExceeded")
+    assert.equal(failure.field, field)
+
+    return field
+  }
+)
+
+const largeDeltas = Effect.fnUntraced(
+  /**
+   * @param {string} kind
+   * @param {Vfs.Volume} volume
+   * @param {Vfs.Caller} caller
+   */ function*(kind, volume, caller) {
+    const base = yield* phase("snapshot", volume.snapshot)
+    const overlay = yield* Vfs.makeOverlay(base)
+    const overlayCaller = yield* overlay.caller()
+    assert.equal((yield* volume.usage).usedBytes, BigInt(largeFileCount * baseFileBytes))
+
+    yield* phase(
+      "edit",
+      Effect.gen(function*() {
+        const ours = new Uint8Array(changedFileBytes).fill(1)
+        const theirs = new Uint8Array(changedFileBytes).fill(2)
+
+        for (let index = 0; index < editsPerSide; index++) {
+          yield* caller.writeFile("/f" + index, ours, writeOptions)
+          yield* overlayCaller.writeFile("/f" + (editsPerSide + index), theirs, writeOptions)
+        }
+      })
+    )
+
+    const ours = yield* volume.snapshot
+    const theirs = (yield* overlay.capture()).snapshot
+
+    if (kind === "delta-default") {
+      const firstFailingBudget = yield* phase("diff-ours", expectLimit("identityBytes", Vfs.diffSnapshots(base, ours)))
+
+      return { firstFailingBudget }
+    }
+
+    if (kind === "delta-boundaries") {
+      const defaultWithIdentity = {
+        ...Vfs.SnapshotDeltaLimits.default,
+        maxIdentityBytes: largeDeltaLimits.maxIdentityBytes
+      }
+
+      yield* expectLimit("outputBytes", Vfs.diffSnapshots(base, ours, defaultWithIdentity))
+      yield* expectLimit(
+        "baseRecords",
+        Vfs.diffSnapshots(base, ours, {
+          ...largeDeltaLimits,
+          maxBaseRecords: largeFileCount
+        })
+      )
+      yield* expectLimit(
+        "entries",
+        Vfs.diffSnapshots(base, ours, {
+          ...largeDeltaLimits,
+          maxEntries: largeFileCount - 1
+        })
+      )
+    }
+
+    const a = yield* phase("diff-ours", Vfs.diffSnapshots(base, ours, largeDeltaLimits))
+    const b = yield* phase("diff-theirs", Vfs.diffSnapshots(base, theirs, largeDeltaLimits))
+    const merged = yield* phase("merge", Vfs.mergeSnapshotDeltas(base, a, b, { limits: largeDeltaLimits }))
+    assert.deepEqual(merged.conflicts, [])
+
+    if (kind === "delta-boundaries") {
+      yield* expectLimit(
+        "inheritedRecords",
+        Vfs.applySnapshotDelta(base, a, {
+          ...largeDeltaLimits,
+          maxInheritedRecords: largeDeltaLimits.maxInheritedRecords - 1
+        })
+      )
+      yield* expectLimit(
+        "deltaRecords",
+        Vfs.mergeSnapshotDeltas(base, a, b, {
+          limits: { ...largeDeltaLimits, maxDeltaRecords: changedFiles - 1 }
+        })
+      )
+      yield* expectLimit(
+        "decodedDeltaBytes",
+        Vfs.applySnapshotDelta(base, merged.delta, {
+          ...largeDeltaLimits,
+          maxDecodedDeltaBytes: ByteSize.bytes(maxDecodedDeltaBytes - 1)
+        })
+      )
+      yield* expectLimit(
+        "outputRecords",
+        Vfs.applySnapshotDelta(base, merged.delta, {
+          ...largeDeltaLimits,
+          maxOutputRecords: largeFileCount
+        })
+      )
+      yield* expectLimit(
+        "outputBytes",
+        Vfs.applySnapshotDelta(base, merged.delta, {
+          ...largeDeltaLimits,
+          maxOutputBytes: ByteSize.bytes(mergedBytes - 1)
+        })
+      )
+
+      return { boundariesVerified: true }
+    }
+
+    const codec = Vfs.SnapshotDeltaFromBytes(largeDeltaLimits)
+    const encoded = yield* phase("encode", Schema.encodeEffect(codec)(merged.delta))
+    const decoded = yield* phase("decode", Schema.decodeEffect(codec)(encoded))
+    const changes = yield* phase("inspect", Vfs.inspectSnapshotDelta(base, decoded, undefined, largeDeltaLimits))
+    assert.equal(changes.length, changedFiles)
+    const applied = yield* phase("apply", Vfs.applySnapshotDelta(base, decoded, largeDeltaLimits))
+    const restored = yield* phase("restore", Vfs.fromSnapshot(applied, largeQuotas))
+    const reader = yield* restored.caller()
+    assert.equal((yield* restored.usage).usedBytes, BigInt(mergedBytes))
+
+    yield* phase(
+      "verify-restored",
+      Effect.gen(function*() {
+        const expected = [
+          new Uint8Array(changedFileBytes).fill(1),
+          new Uint8Array(changedFileBytes).fill(2),
+          new Uint8Array(baseFileBytes)
+        ]
+
+        for (let index = 0; index < largeFileCount; index++) {
+          const content = yield* reader.readFile("/f" + index)
+          assert.deepEqual(content, expected[Math.min(Math.floor(index / editsPerSide), 2)])
+        }
+      })
+    )
+
+    return {
+      changedFiles,
+      changedPayloadBytes: changedFiles * changedFileBytes,
+      encodedDeltaBytes: encoded.length,
+      outputBytes: mergedBytes
+    }
+  }
+)
+
 const workload = Effect.fnUntraced(/** @param {string} scenario */ function*(scenario) {
   const [kind, input] = scenario.split(":")
-  const size = Number(input)
-  const volume = yield* Vfs.make(kind === "bounded" ? boundedQuotas : quotas)
+  const delta = deltaScenarios.includes(scenario)
+  const size = delta ? largeFileCount : Number(input)
+  const volume = yield* Vfs.make(delta ? largeQuotas : kind === "bounded" ? boundedQuotas : quotas)
   const caller = yield* volume.caller()
 
   if (kind === "partial" || kind === "growth") {
@@ -109,7 +299,7 @@ const workload = Effect.fnUntraced(/** @param {string} scenario */ function*(sce
     }
   }
 
-  if (kind === "bounded" || kind === "workspace" || kind === "deep" || kind === "adapter") {
+  if (delta || kind === "bounded" || kind === "workspace" || kind === "deep" || kind === "adapter") {
     yield* phase(
       "populate",
       Effect.gen(function*() {
@@ -128,6 +318,8 @@ const workload = Effect.fnUntraced(/** @param {string} scenario */ function*(sce
     const populatedMemory = memory()
     const count = yield* phase("walk", Stream.runCount(caller.walk("/")))
     assert.equal(count, size)
+
+    if (delta) return { entries: count, populatedMemory, ...yield* largeDeltas(kind, volume, caller) }
 
     if (kind === "workspace" || kind === "bounded") {
       const base = yield* phase("snapshot", volume.snapshot)
@@ -323,14 +515,18 @@ if (process.argv[2] === "--worker") {
   )
 } else {
   const output = process.argv[2]
-  assert.ok(output, "Usage: node --expose-gc scripts/capacity/measure.mjs output.json")
+  const requested = process.argv.slice(3)
+  assert.ok(output, "Usage: node --expose-gc scripts/capacity/measure.mjs output.json [scenario ...]")
+  const selected = requested.length === 0 ? scenarios : requested
+
+  for (const scenario of selected) assert.ok(scenarios.includes(scenario), "Unknown scenario: " + scenario)
   const results = []
 
-  for (const scenario of scenarios) {
+  for (const scenario of selected) {
     for (let repeat = 0; repeat < 3; repeat++) {
       const child = spawnSync(process.execPath, ["--expose-gc", fileURLToPath(import.meta.url), "--worker", scenario], {
         encoding: "utf8",
-        timeout: 120000
+        timeout: 300_000
       })
 
       assert.equal(child.status, 0, `${scenario}: ${child.stderr || child.error}`)
@@ -365,6 +561,7 @@ if (process.argv[2] === "--worker") {
           )
         ),
         node: process.version,
+        bun: process.versions.bun,
         effect:
           JSON.parse(readFileSync(new URL("../../node_modules/effect/package.json", import.meta.url), "utf8")).version,
         platform: process.platform,
@@ -382,6 +579,16 @@ if (process.argv[2] === "--worker") {
           maxPendingOperations: 64,
           maxWatchEvents: 256
         },
+        largeWorkspace: selected.some((scenario) => deltaScenarios.includes(scenario))
+          ? {
+            files: largeFileCount,
+            baseFileBytes,
+            changedFileBytes,
+            editsPerSide,
+            volume: policyNumbers(largeQuotas),
+            delta: policyNumbers(largeDeltaLimits)
+          }
+          : undefined,
         results
       },
       null,
