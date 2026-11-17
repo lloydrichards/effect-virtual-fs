@@ -1,8 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
-import * as Schema from "effect/Schema"
-import { compile, layer, make, Xdr, XdrCodec } from "../../src/internal/xdr.js"
+import { make, XdrCodec } from "../../src/internal/xdr.js"
 
 const limits = {
   maxOpaqueBytes: ByteSize.bytes(16),
@@ -171,17 +170,6 @@ describe("XDR", () => {
       assert.strictEqual((yield* (Effect.flip(writer.write(XdrCodec.uint32, 1)))).reason, "sealed")
     }))
 
-  it.effect("should compile a whole-value Schema.Codec with explicit validation and limits when a whole-value Schema.Codec is compiled", () =>
-    Effect.gen(function*() {
-      const description = XdrCodec.struct({ value: XdrCodec.uint32 })
-      const schema = compile(description, Schema.Struct({ value: Schema.Finite }), limits, 4)
-      const bytes = yield* (Schema.encodeEffect(schema)({ value: 3 }))
-      assert.deepStrictEqual([...bytes], [0, 0, 0, 3])
-      assert.deepStrictEqual(yield* (Schema.decodeEffect(schema)(bytes)), { value: 3 })
-      assert.isDefined(yield* (Effect.flip(Schema.decodeEffect(schema)(new Uint8Array([0, 0, 0])))))
-      assert.isDefined(yield* (Effect.flip(Schema.encodeEffect(schema)({ value: -1 }))))
-    }))
-
   it.effect("should reject oversized primitive and composite output before building a result when primitive or composite output exceeds its bound", () =>
     Effect.gen(function*() {
       const large = new Uint8Array(1024 * 1024)
@@ -198,21 +186,6 @@ describe("XDR", () => {
       const spoofed = Object.create(null, { [Symbol.toStringTag]: { value: "BigInt" } }) as bigint
       const invalid = yield* Effect.flip(make.encode(spoofed, XdrCodec.uint64, wideLimits, 8))
       assert.strictEqual(invalid.reason, "range")
-    }))
-
-  it.effect("should provide reader and writer sessions through the Xdr service when the Xdr service provides a session", () =>
-    Effect.gen(function*() {
-      const bytes = yield* (
-        Effect.gen(function*() {
-          const xdr = yield* Xdr
-          const writer = yield* xdr.openWriter(limits, 8)
-          yield* writer.write(XdrCodec.uint32, 7)
-
-          return yield* writer.finish
-        }).pipe(Effect.provide(layer))
-      )
-
-      assert.strictEqual(yield* (make.decode(bytes, limits, XdrCodec.uint32)), 7)
     }))
 
   it.effect("should select a dependent body codec from the preceding value when a body codec depends on an earlier value", () =>

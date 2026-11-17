@@ -1,4 +1,6 @@
 import { Search, VirtualFileSystem } from "@effect-vfs/core"
+import type * as CallerModule from "@effect-vfs/core/Caller"
+import { Entry, Target } from "@effect-vfs/core/Target"
 import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 
 export { Vfs as VirtualFileSystemModule, VirtualFileSystem }
@@ -76,3 +78,38 @@ const _invalidAccess = caller.open("/file", { access: "execute" })
 
 // @ts-expect-error A query requires an explicit root and include list.
 const _invalidQuery = Search.glob(contractSnapshot, {})
+
+declare const reference: Vfs.ObjectReference
+
+declare const file: Vfs.FileHandle
+
+const byReference = Target.Reference({ reference })
+
+const byHandle = Target.Handle({ handle: file })
+
+const openedEntry = caller.open(Entry("file")("/"), {
+  access: "readWrite",
+  expectedChild: { reference, revision: 0n, atimeNs: 0n, mtimeNs: 0n }
+})
+
+export type ReferenceTag = Assert<Equal<typeof byReference._tag, "Reference">>
+
+export type HandleTag = Assert<Equal<typeof byHandle._tag, "Handle">>
+
+export type ReferenceBrand = Assert<Equal<Vfs.ObjectReference[CallerModule.ObjectReferenceId], true>>
+
+export type EntryOpenSuccess = Assert<Equal<Effect.Success<typeof openedEntry>, Vfs.OpenEntryResult>>
+
+export type EntryOpenFailure = Assert<Equal<Effect.Error<typeof openedEntry>, Vfs.FsFailure>>
+
+export type EntryOpenScope = Assert<Equal<Effect.Services<typeof openedEntry>, Scope.Scope>>
+
+export type OpenAccessField = Assert<
+  Equal<typeof CallerModule.OpenOptions.fields.access.Type, "read" | "write" | "readWrite">
+>
+
+export type WriteAccessField = Assert<
+  Equal<typeof CallerModule.WriteFileOptions.fields.access, typeof CallerModule.OpenOptions.fields.access>
+>
+
+export type UmaskField = Assert<Equal<typeof CallerModule.RootCallerOptions.fields.umask.Type, number>>

@@ -19,7 +19,7 @@ A directory's revision before and after a change.
 export type DirectoryChange = { readonly before: bigint; readonly after: bigint }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L157)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L147)
 
 Since v0.6.0
 
@@ -38,7 +38,7 @@ export type Identity = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L63)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L64)
 
 Since v0.6.0
 
@@ -66,7 +66,7 @@ export type MkdirOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L246)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L194)
 
 Since v0.6.0
 
@@ -107,7 +107,7 @@ export type OpenEntryOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L496)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L331)
 
 Since v0.6.0
 
@@ -127,7 +127,7 @@ export type OpenOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L112)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L106)
 
 Since v0.6.0
 
@@ -145,7 +145,7 @@ export type RemoveOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L294)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L242)
 
 Since v0.6.0
 
@@ -158,17 +158,17 @@ The result of `rename`.
 ```ts
 export type RenameReferenceResult =
   | {
+      readonly _tag: "SameDirectory"
+      readonly directory: { readonly before: bigint; readonly after: bigint }
+    }
+  | {
       readonly _tag: "DifferentDirectories"
       readonly sourceDirectory: { readonly before: bigint; readonly after: bigint }
       readonly destinationDirectory: { readonly before: bigint; readonly after: bigint }
     }
-  | {
-      readonly _tag: "SameDirectory"
-      readonly directory: { readonly before: bigint; readonly after: bigint }
-    }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L190)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L169)
 
 Since v0.6.0
 
@@ -190,7 +190,7 @@ export type RootCallerOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L89)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L83)
 
 Since v0.6.0
 
@@ -219,7 +219,7 @@ export type SetattrOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L410)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L287)
 
 Since v0.6.0
 
@@ -244,7 +244,7 @@ export type SymlinkOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L343)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L260)
 
 Since v0.6.0
 
@@ -263,7 +263,7 @@ export type WalkOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L272)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L220)
 
 Since v0.6.0
 
@@ -286,7 +286,7 @@ export type WriteFileOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L138)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L128)
 
 Since v0.6.0
 
@@ -302,7 +302,7 @@ Schema for a directory's revision before and after a change.
 declare const DirectoryChange: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L146)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L136)
 
 Since v0.6.0
 
@@ -322,7 +322,7 @@ declare const Identity: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L50)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L51)
 
 Since v0.6.0
 
@@ -362,7 +362,7 @@ declare const MkdirOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L202)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L181)
 
 Since v0.6.0
 
@@ -378,11 +378,6 @@ appeared; `expectedChild` pins its revision and times as well and fails as
 
 ```ts
 declare const OpenEntryOptions: Schema.Struct<{
-  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
-  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
-  readonly mode: Schema.optionalKey<Schema.Natural>
-  readonly append: Schema.optionalKey<Schema.Boolean>
-  readonly truncate: Schema.optionalKey<Schema.Boolean>
   readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly times: Schema.optionalKey<
     Schema.Struct<{
@@ -421,10 +416,15 @@ declare const OpenEntryOptions: Schema.Struct<{
       }>
     >
   >
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L430)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L309)
 
 Since v0.6.0
 
@@ -445,7 +445,7 @@ declare const OpenOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L98)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L92)
 
 Since v0.6.0
 
@@ -465,7 +465,7 @@ declare const RemoveOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L282)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L230)
 
 Since v0.6.0
 
@@ -477,6 +477,10 @@ Schema for the result of `rename`.
 
 ```ts
 declare const RenameReferenceResult: Schema.TaggedUnion<{
+  readonly SameDirectory: Schema.TaggedStruct<
+    "SameDirectory",
+    { readonly directory: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }> }
+  >
   readonly DifferentDirectories: Schema.TaggedStruct<
     "DifferentDirectories",
     {
@@ -484,14 +488,10 @@ declare const RenameReferenceResult: Schema.TaggedUnion<{
       readonly destinationDirectory: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }>
     }
   >
-  readonly SameDirectory: Schema.TaggedStruct<
-    "SameDirectory",
-    { readonly directory: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }> }
-  >
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L165)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L155)
 
 Since v0.6.0
 
@@ -515,7 +515,7 @@ declare const RootCallerOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L71)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L72)
 
 Since v0.6.0
 
@@ -562,7 +562,7 @@ declare const SetattrOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L356)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L273)
 
 Since v0.6.0
 
@@ -595,7 +595,7 @@ declare const SymlinkOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L302)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L250)
 
 Since v0.6.0
 
@@ -619,7 +619,7 @@ declare const WalkOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L259)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L207)
 
 Since v0.6.0
 
@@ -632,18 +632,18 @@ final symbolic link is replaced or followed and the mode the file ends with.
 
 ```ts
 declare const WriteFileOptions: Schema.Struct<{
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
+  readonly replaceFinalSymlink: Schema.optionalKey<Schema.Boolean>
+  readonly finalMode: Schema.optionalKey<Schema.Natural>
   readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
   readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly append: Schema.optionalKey<Schema.Boolean>
   readonly truncate: Schema.optionalKey<Schema.Boolean>
-  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
-  readonly replaceFinalSymlink: Schema.optionalKey<Schema.Boolean>
-  readonly finalMode: Schema.optionalKey<Schema.Natural>
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L121)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L115)
 
 Since v0.6.0
 
@@ -659,7 +659,7 @@ Brand key that marks a caller.
 declare const CallerId: unique symbol
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L17)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L18)
 
 Since v0.6.0
 
@@ -673,7 +673,7 @@ Brand key that marks a caller.
 export type CallerId = typeof CallerId
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L25)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L26)
 
 Since v0.6.0
 
@@ -687,7 +687,7 @@ Brand key that marks an object reference.
 declare const ObjectReferenceId: unique symbol
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L33)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L34)
 
 Since v0.6.0
 
@@ -701,6 +701,6 @@ Brand key that marks an object reference.
 export type ObjectReferenceId = typeof ObjectReferenceId
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L41)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L42)
 
 Since v0.6.0
