@@ -26,6 +26,7 @@
 - [NFS attributes ledger](nfs/nfs-attributes-ledger.md) does the same for REQUIRED and RECOMMENDED attributes.
 - [NFS protocol rules ledger](nfs/nfs-protocol-rules-ledger.md) covers cross-cutting requirements, errata, and the client matrix.
 - [NFS WRITE and COMMIT design](nfs/write-and-commit.md) records protocol facts, staged behavior, accepted decisions, and storage qualification requirements.
+- [NFS cross-client scheduling measurement](nfs/client-scheduling.md) separates compound admission, direct core reads, and controlled storage waits.
 - [NFS OPEN creation](nfs/open-creation.md) records all four internal create modes, atomic verifier storage, and the public writable export requirements.
 - [NFS namespace and metadata mutations](nfs/namespace-and-metadata.md) records internal CREATE, LINK, REMOVE, RENAME, and SETATTR behavior and its wire evidence.
 
