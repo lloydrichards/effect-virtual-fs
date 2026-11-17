@@ -61,7 +61,7 @@ const execute = async (command: string, args: Array<string>, options: { readonly
 const publicUrl = new URL("../../dist/virtual-file-system/VirtualFileSystem.js", import.meta.url).href
 const effectUrl = import.meta.resolve("effect/Effect")
 const sourceUrl = new URL("../../dist/", import.meta.url).href
-const nodeModulesUrl = new URL("../../node_modules/", import.meta.url).href
+const effectPackageUrl = new URL("./", import.meta.resolve("effect/package.json")).href
 const imports = `
 const VFS = await import(${JSON.stringify(publicUrl)})
 const Effect = await import(${JSON.stringify(effectUrl)})
@@ -886,7 +886,7 @@ describe("VirtualFileSystem", () => {
   it.effect("should allocate distinct positive identities when compatible library copies and reloads share a runtime", () =>
     Effect.gen(function*() {
       const output = yield* probe(`
-import { cpSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -895,7 +895,8 @@ ${readInstance}
 const directory = mkdtempSync(join(tmpdir(), "effect-vfs-identity-"))
 try {
 writeFileSync(join(directory, "package.json"), JSON.stringify({ type: "module" }))
-symlinkSync(fileURLToPath(${JSON.stringify(nodeModulesUrl)}), join(directory, "node_modules"), "dir")
+mkdirSync(join(directory, "node_modules"))
+symlinkSync(fileURLToPath(${JSON.stringify(effectPackageUrl)}), join(directory, "node_modules/effect"), "dir")
 cpSync(fileURLToPath(${JSON.stringify(sourceUrl)}), join(directory, "src"), { recursive: true })
 const CopyVfs = await import(pathToFileURL(join(directory, "src/virtual-file-system/VirtualFileSystem.js")).href)
 const CopyEffect = Effect
