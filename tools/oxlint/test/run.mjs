@@ -158,7 +158,9 @@ console.log(`Custom lint policy passed: ${enabledRules.length} rules, ${fixtures
 
 // Type-aware fixtures live under the workspace so their Effect imports resolve.
 const cache = path.join(root, ".cache")
+
 await mkdir(cache, { recursive: true })
+
 const typedDirectory = await mkdtemp(path.join(cache, "vfs-tag-policy-"))
 
 try {
@@ -193,6 +195,7 @@ export const external = ${identifier}.catch(task, error => state._tag === "Close
 export const externalChain = state._tag === "Closed" ? 1 : state._tag === "Open" ? 2 : 3
 `
     )
+
     const result = Bun.spawnSync([
       path.join(root, "node_modules/.bin/oxlint"),
       "--type-aware",
