@@ -3769,18 +3769,20 @@ describe("Filehandles", () => {
   })
 
   // One server over `volume`: its export, handler and a confirmed session. Serving the volume again is a restart.
-  const serve = Effect.fnUntraced(function*(volume: Vfs.Volume, owner: string) {
+  const serve = Effect.fnUntraced(function*(volume: Vfs.Volume, owner: string, serverGeneration = generation) {
     const export_ = yield* exportFor(yield* volume.caller()).pipe(Effect.provideService(Vfs.Volume, volume))
-    const handler = yield* handlerFor(export_)
+    const handler = yield* handlerFor(export_, { generation: serverGeneration })
     const { session } = yield* startSession(handler, owner)
     // Each compound takes the slot's next sequence id; repeating one would replay the cached reply.
     let sequenceId = 0
 
+    const compound = Effect.fnUntraced(function*(operations: ReadonlyArray<WriteOperation>) {
+      return yield* handler.compound(yield* call([sequence(session, ++sequenceId), ...operations]))
+    })
+
     // The status PUTFH answers for `filehandle`, followed by GETFH so a resolved handle is re-encoded.
     const put = Effect.fnUntraced(function*(filehandle: Uint8Array) {
-      const reply = yield* statuses(
-        yield* handler.compound(yield* call([sequence(session, ++sequenceId), putfh(filehandle), getfh]))
-      )
+      const reply = yield* statuses(yield* compound([putfh(filehandle), getfh]))
 
       return reply.operations[1]![1]
     })
@@ -3823,31 +3825,50 @@ describe("Filehandles", () => {
       return expire
     })
 
-    return { export_, put, expireType }
+    return { export_, handler, session, compound, put, expireType }
   })
 
   it.layer(NodeCrypto.layer)("NFS filehandles", (it) => {
-    it.effect("should survive a server restart and report it in fh_expire_type when the volume is durable", () =>
+    it.effect("should require a fresh session to read through a persistent filehandle after restart", () =>
       Effect.gen(function*() {
-        const handle = yield* Effect.scoped(Effect.gen(function*() {
+        const content = new Uint8Array([1, 2, 3])
+
+        const { handle, session } = yield* Effect.scoped(Effect.gen(function*() {
           const volume = yield* LiveVolume.open(liveOptions)
           const caller = yield* volume.caller()
           yield* caller.mkdir("/d")
-          yield* caller.writeFile("/d/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
+          yield* caller.writeFile("/d/f", content, { access: "write", create: "exclusive" })
           const served = yield* serve(volume, "before-restart")
 
           assert.strictEqual(yield* served.expireType, 0, "FH4_PERSISTENT")
 
-          return yield* served.export_.handleFor(yield* caller.lookup("/d/f"))
+          return { handle: yield* served.export_.handleFor(yield* caller.lookup("/d/f")), session: served.session }
         }))
 
         yield* Effect.scoped(Effect.gen(function*() {
           const volume = yield* LiveVolume.open(liveOptions)
-          const served = yield* serve(volume, "after-restart")
+          const served = yield* serve(volume, "after-restart", new Uint8Array(16).fill(8))
+
+          const oldSession = yield* statuses(
+            yield* served.handler.compound(yield* call([sequence(session, 2), putfh(handle), read]))
+          )
+
+          assert.strictEqual(oldSession.status, Status.BADSESSION)
+          assert.deepStrictEqual(oldSession.operations, [[Operation.SEQUENCE, Status.BADSESSION]])
 
           assert.strictEqual(yield* served.put(handle), Status.OK)
           assert.strictEqual(yield* served.export_.resolve(handle), yield* (yield* volume.caller()).lookup("/d/f"))
           assert.deepStrictEqual(yield* served.export_.handleFor(yield* served.export_.resolve(handle)), handle)
+
+          const reply = yield* decode(yield* served.compound([putfh(handle), read]))
+          assert.deepStrictEqual(reply, {
+            status: Status.OK,
+            operations: [
+              { code: Operation.SEQUENCE, status: Status.OK, value: undefined },
+              { code: Operation.PUTFH, status: Status.OK, value: undefined },
+              { code: Operation.READ, status: Status.OK, value: { eof: true, data: content } }
+            ]
+          })
         }))
       }).pipe(Effect.provide(durableStore())))
 
