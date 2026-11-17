@@ -27,7 +27,13 @@ export const ruleCases = {
     invalid: ["const result = { ...(present ? { value: 1 } : {}) }"]
   },
   "anti-slop/no-known-value-widening": {
-    valid: ["const value = { id: 1 } satisfies Item"],
+    valid: [
+      "const value = { id: 1 } satisfies Item",
+      "const value: { readonly id: number } = { id: 1 }",
+      "type Item = { readonly id: number }; const value: Item = { id: 1 }",
+      "type Item = { readonly id: number }; type TargetInput = string | Item; const isItem = (value: unknown): value is Item => typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'number'; const target: { of: (input: TargetInput) => string | Item } = { of: (input) => isItem(input) ? input : input.trim() }",
+      "type Item = { readonly id: number }; type TargetInput = string | Item; const isItem = (value: unknown): value is Item => typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'number'; const target: { of: (input: TargetInput) => string | Item } = { of: (input: TargetInput) => isItem(input) ? input : input.trim() }"
+    ],
     invalid: ["const value: unknown = { id: 1 }"]
   },
   "anti-slop/no-module-mocking": {
@@ -112,8 +118,18 @@ export const ruleCases = {
     invalid: ["interface ResponseShape { readonly id: number }"]
   },
   "anti-slop/no-unknown-parameters": {
-    valid: ["const read = (value: Item) => value.id", "const isItem = (value: unknown): value is Item => true"],
-    invalid: ["const read = (value: unknown) => value"]
+    valid: [
+      "const read = (value: Item) => value.id",
+      "type Item = { readonly id: number }; const isItem = (value: unknown): value is Item => typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'number'",
+      "import { Schema } from 'effect'; const Document = Schema.Struct({ title: Schema.String }); const decode = (input: unknown) => Schema.decodeUnknownEffect(Document)(input)",
+      "const captureCause = (cause: unknown) => ({ cause })",
+      "const read = (value: unknown): string | undefined => { if (typeof value === 'string') return value; }"
+    ],
+    invalid: [
+      "const read = (value: unknown) => value",
+      "const read = (cause: unknown) => cause",
+      "function read(value: any) { return value }"
+    ]
   },
   "anti-slop/no-unknown-returns": {
     valid: ["const read = (): Item => item"],

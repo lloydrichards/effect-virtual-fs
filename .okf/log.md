@@ -17,6 +17,8 @@
 
 - Expose the scoped NFS listener's termination to serving programs and distinguish typed socket failures from normal shutdown.
 
+- Move broad type and raw-input lint advice to an opt-in audit. Keep the focused widen-then-assert check blocking.
+
 - Add the bounded D1 adapter and explicit STRICT migration. Record primary-only bindings, externally controlled ownership and pending-statement drainage before handoff. Add workerd contracts and a hosted qualification harness, with hosted release qualification still pending.
 
 - Measure NFS cross-client admission and direct core reads during a controlled live-image store delay. Keep the current compound scheduler.

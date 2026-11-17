@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 import policy from "../../../oxlint.config.ts"
+import boundaryAudit from "../boundary-audit.config.ts"
 
 import { ruleCases } from "./cases.mjs"
 
@@ -18,6 +19,8 @@ const enabledRules = [
     )
   )
 ]
+
+enabledRules.push(...Object.keys(boundaryAudit.rules))
 
 assert.deepEqual(
   Object.keys(ruleCases).sort(),

@@ -32,7 +32,6 @@ export type UnsafeDictionary = {
 }
 
 export type WideningTargetKind =
-  | "anonymous object"
   | "generic container"
   | "object"
   | "open dictionary"
@@ -328,8 +327,6 @@ export function classifyWideningTarget(
   if (unwrapped.type === "TSTypeLiteral") {
     return unwrapped.members.some((member) => member.type === "TSIndexSignature")
       ? { kind: "open dictionary" }
-      : unwrapped.members.length > 0
-      ? { kind: "anonymous object" }
       : null
   }
   if (unwrapped.type === "TSMappedType") return { kind: "open dictionary" }
