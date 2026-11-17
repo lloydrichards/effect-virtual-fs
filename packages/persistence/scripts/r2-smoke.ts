@@ -37,7 +37,8 @@ const s3 = new S3Client({
 
 const client = R2LiveImageStore.fromS3(s3, bucket)
 
-const storeLayer = R2LiveImageStore.layer({ client, key, maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+const storeLayer = R2LiveImageStore.layer({ key, maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+  Layer.provide(Layer.succeed(R2LiveImageStore.Client, client)),
   Layer.provide(NodeCrypto.layer)
 )
 

@@ -77,11 +77,10 @@ const make = Effect.gen(function*() {
   ) => {
     // Each operation owns its volume scope; a later request reloads the image.
     const store = R2LiveImageStore.layer({
-      client: imageClient,
       key: keyFor(id),
       maxImageBytes: options.maxImageBytes,
       durability: "survives-power-loss"
-    })
+    }).pipe(Layer.provide(Layer.succeed(R2LiveImageStore.Client, imageClient)))
 
     return Effect.scoped(
       Effect.gen(function*() {

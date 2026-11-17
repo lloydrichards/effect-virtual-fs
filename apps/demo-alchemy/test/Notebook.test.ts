@@ -72,11 +72,10 @@ const testLayer = (r2: ReturnType<typeof remote>) =>
 
 const openPersistedVolume = (r2: ReturnType<typeof remote>, id: string) => {
   const store = R2LiveImageStore.layer({
-    client: r2.client,
     key: keyFor(id),
     maxImageBytes: ByteSize.kilobytes(64),
     durability: "survives-power-loss"
-  }).pipe(Layer.provide(BrowserCrypto.layer))
+  }).pipe(Layer.provide(Layer.succeed(R2LiveImageStore.Client, r2.client)), Layer.provide(BrowserCrypto.layer))
 
   return LiveVolume.open({
     maxImageBytes: ByteSize.kilobytes(64),

@@ -8,10 +8,12 @@
  */
 import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
 import { LiveVolume, type VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { ByteSize, Effect, Exit, Layer, Ref } from "effect"
+import { Context, Effect, Layer } from "effect"
+import type * as ByteSize from "effect/ByteSize"
 import type * as Digest from "effect/crypto/Digest"
 import { dual } from "effect/Function"
-import { makeDigest, storeFailures } from "./internal/storeSupport.js"
+import * as Protocol from "./internal/liveImageProtocol.js"
+import { storeFailures } from "./internal/storeSupport.js"
 
 /** A complete R2 image plus the metadata needed to validate and fence it.
  *
@@ -65,6 +67,33 @@ export interface R2Client {
     condition: { readonly ifMatch: string } | { readonly ifNoneMatch: "*" }
   ) => Effect.Effect<{ readonly etag: string } | null, Vfs.VfsError>
 }
+
+/**
+ * Supplies the borrowed R2 transport used by live-image stores. Share a client
+ * across distinct object keys while keeping each store owner separately scoped.
+ * The store does not close the supplied transport.
+ *
+ * @example
+ * ```ts
+ * import { S3Client } from "@aws-sdk/client-s3"
+ * import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+ * import { Layer } from "effect"
+ *
+ * const s3 = new S3Client({
+ *   region: "auto",
+ *   endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
+ *   credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
+ * })
+ * const R2ClientLayer = Layer.succeed(
+ *   R2LiveImageStore.Client,
+ *   R2LiveImageStore.fromS3(s3, "workspace-images")
+ * )
+ * ```
+ *
+ * @since 0.12.0
+ * @category services
+ */
+export class Client extends Context.Service<Client, R2Client>()("@effect-vfs/persistence/R2LiveImageStore/Client") {}
 
 const transport = storeFailures("R2LiveImageStore.fromS3")
 
@@ -148,14 +177,9 @@ export const fromS3: {
  * @example
  * ```ts
  * import type { Options } from "@effect-vfs/persistence/R2LiveImageStore"
- * import { Effect, ByteSize } from "effect"
+ * import { ByteSize } from "effect"
  *
- * const client = {
- *   read: (_key: string) => Effect.succeed(null),
- *   write: () => Effect.succeed(null)
- * }
  * const options: Options = {
- *   client,
  *   key: "effect-vfs-nfs-test/live-image",
  *   maxImageBytes: ByteSize.mebibytes(16)
  * }
@@ -165,18 +189,10 @@ export const fromS3: {
  * @category models
  */
 export interface Options {
-  readonly client: R2Client
   readonly key: string
   readonly maxImageBytes: ByteSize.ByteSize
   /** Assert R2's documented synchronous durable-write contract for a verified R2 endpoint and single owner. */
   readonly durability?: "survives-power-loss"
-}
-
-// The generation and ETag this owner last read or wrote, and whether a lost reply has frozen it.
-interface Ownership {
-  readonly generation: number | undefined
-  readonly etag: string | undefined
-  readonly available: boolean
 }
 
 /**
@@ -185,18 +201,23 @@ interface Ownership {
  *
  * @example
  * ```ts
+ * import { S3Client } from "@aws-sdk/client-s3"
  * import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
- * import { ByteSize, Effect } from "effect"
+ * import { ByteSize, Layer } from "effect"
  *
- * const client: R2LiveImageStore.R2Client = {
- *   read: () => Effect.succeed(null),
- *   write: () => Effect.succeed(null)
- * }
- * const store = R2LiveImageStore.layer({
- *   client,
- *   key: "effect-vfs-nfs-test/live-image",
- *   maxImageBytes: ByteSize.mebibytes(16)
+ * const s3 = new S3Client({
+ *   region: "auto",
+ *   endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
+ *   credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
  * })
+ * const R2ClientLayer = Layer.succeed(
+ *   R2LiveImageStore.Client,
+ *   R2LiveImageStore.fromS3(s3, "workspace-images")
+ * )
+ * const Store = R2LiveImageStore.layer({
+ *   key: "workspace-123",
+ *   maxImageBytes: ByteSize.mebibytes(4)
+ * }).pipe(Layer.provide(R2ClientLayer))
  * ```
  *
  * @since 0.5.0
@@ -204,107 +225,55 @@ interface Ownership {
  */
 export const layer = (
   options: Options
-): Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Digest.Digest> =>
+): Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Client | Digest.Digest> =>
   Layer.effect(
     LiveVolume.LiveImageStore,
     Effect.gen(function*() {
-      const digest = yield* makeDigest
-      const maxImage = ByteSize.toBigInt(options.maxImageBytes)
+      if (options.key.length === 0) return yield* opening.invalid("options")
+      const maxImage = yield* Protocol.imageLimit(options.maxImageBytes, opening, "options")
+      const client = yield* Client
 
-      if (options.key.length === 0 || maxImage <= 0n) return yield* opening.invalid("options")
-
-      const ownership = yield* Ref.make<Ownership>({ generation: undefined, etag: undefined, available: true })
-      const freeze = Ref.update(ownership, (state) => ({ ...state, available: false }))
-
-      const validate = Effect.fnUntraced(function*(record: ObjectRecord) {
-        if (
-          record.etag === "" || BigInt(record.bytes.length) > maxImage ||
-          record.generation === undefined || !/^(0|[1-9][0-9]*)$/.test(record.generation) ||
-          record.digest === undefined || !/^[0-9a-f]{64}$/.test(record.digest)
-        ) return yield* loading.fail("CorruptStore")
-
-        const parsed = Number(record.generation)
-
-        if (!Number.isSafeInteger(parsed)) return yield* loading.fail("CorruptStore")
-        const actual = yield* digest(record.bytes)
-
-        if (actual !== record.digest) return yield* loading.fail("CorruptStore")
-        yield* Ref.update(ownership, (state) => ({ ...state, generation: parsed, etag: record.etag }))
-
-        return new Uint8Array(record.bytes)
-      })
-
-      return LiveVolume.LiveImageStore.of({
+      const protocol = yield* Protocol.make({
+        maxImage,
+        loading,
         durability: options.durability ?? "memory-only",
-        loadOrCreate: Effect.fnUntraced(function*(initial: Uint8Array) {
-          const { available, generation } = yield* Ref.get(ownership)
+        storage: {
+          read: Effect.suspend(() => client.read(options.key)).pipe(
+            Effect.mapError((cause) => loading.fail("Storage", cause)),
+            Effect.flatMap((record) => {
+              if (record === null) return Effect.succeed(null)
 
-          if (!available) return yield* loading.fail("Storage")
+              if (record.etag === "") return Effect.fail(loading.fail("CorruptStore"))
 
-          if (generation !== undefined) return yield* loading.fail("Ownership")
+              return Effect.succeed({
+                image: record.bytes,
+                generation: record.generation,
+                digest: record.digest,
+                token: record.etag
+              })
+            })
+          ),
+          compareAndSwap: Effect.fnUntraced(function*(expected: string | undefined, next: Protocol.Image) {
+            return yield* client.write(
+              options.key,
+              next.image,
+              String(next.generation),
+              next.digest,
+              expected === undefined ? { ifNoneMatch: "*" } : { ifMatch: expected }
+            ).pipe(Effect.match({
+              onFailure: (cause) => Protocol.WriteResult.Unknown({ cause }),
+              onSuccess: (written) => {
+                if (written === null) return Protocol.WriteResult.Conflict()
 
-          const existing = yield* options.client.read(options.key).pipe(
-            Effect.mapError((cause) => loading.fail("Storage", cause))
-          )
+                if (written.etag === "") return Protocol.WriteResult.Unknown({})
 
-          if (existing !== null) return yield* validate(existing)
-
-          if (BigInt(initial.length) > maxImage) return yield* loading.invalid("maxImageBytes")
-
-          const hash = yield* digest(initial)
-
-          const created = yield* options.client.write(options.key, initial, "0", hash, { ifNoneMatch: "*" }).pipe(
-            Effect.mapError((cause) => loading.fail("Storage", cause))
-          )
-
-          if (created === null) {
-            const winner = yield* options.client.read(options.key).pipe(
-              Effect.mapError((cause) => loading.fail("Storage", cause))
-            )
-
-            if (winner === null) return yield* loading.fail("Storage")
-
-            return yield* validate(winner)
-          }
-
-          if (created.etag === "") return yield* loading.fail("Storage")
-          yield* Ref.update(ownership, (state) => ({ ...state, generation: 0, etag: created.etag }))
-
-          return new Uint8Array(initial)
-        }),
-        commit: Effect.fnUntraced(function*(image: Uint8Array) {
-          const { available, generation, etag } = yield* Ref.get(ownership)
-
-          if (!available || generation === undefined || etag === undefined) return "unknown" as const
-
-          if (BigInt(image.length) > maxImage || generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
-
-          const hashing = yield* Effect.exit(digest(image))
-
-          if (Exit.isFailure(hashing)) return { _tag: "Rejected" as const, cause: hashing.cause }
-          const hashed = hashing.value
-
-          const written = yield* Effect.exit(options.client.write(
-            options.key,
-            image,
-            String(generation + 1),
-            hashed,
-            { ifMatch: etag }
-          ))
-
-          if (Exit.isFailure(written) || written.value === null || written.value.etag === "") {
-            yield* freeze
-
-            return "unknown" as const
-          }
-
-          const next = written.value.etag
-
-          // Keep any freeze another commit set while this write was in flight.
-          yield* Ref.update(ownership, (state) => ({ ...state, generation: generation + 1, etag: next }))
-
-          return "committed" as const
-        })
+                return Protocol.WriteResult.Written({ token: written.etag })
+              }
+            }))
+          })
+        }
       })
+
+      return protocol.store
     })
   )

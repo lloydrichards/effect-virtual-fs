@@ -102,7 +102,8 @@ const clientFrom = (bucket: ReturnType<typeof fixture>["bucket"]) =>
   fromAlchemy(bucket).pipe(Effect.provideService(RuntimeContext, RuntimeContext.of({} as never)))
 
 const storeLayer = (client: R2LiveImageStore.R2Client) =>
-  R2LiveImageStore.layer({ client, key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+  R2LiveImageStore.layer({ key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+    Layer.provide(Layer.succeed(R2LiveImageStore.Client, client)),
     Layer.provide(NodeCrypto.layer)
   )
 
