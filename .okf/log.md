@@ -11,6 +11,9 @@
 
 - Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
 
+- Resolve Effect tag-handler and construction rules against imported bindings. Native rules own direct catch-tag
+  dispatch. Custom rules advise on caught reasons and report a single diagnostic for a chained tag dispatch.
+
 - Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
 
 - Add the bounded D1 adapter and explicit STRICT migration. Record primary-only bindings, externally controlled ownership and pending-statement drainage before handoff. Add workerd contracts and a hosted qualification harness, with hosted release qualification still pending.

@@ -136,22 +136,49 @@ export const ruleCases = {
     invalid: ["const item = value as Item", "// SAFETY:\nconst item = value as Item"]
   },
   "anti-slop-effect/no-manual-effect-error-tag": {
-    valid: ["Effect.catchTag(effect, 'Missing', () => recovered)"],
-    invalid: ["Effect.catch(effect, error => error._tag === 'Missing' ? recovered : failed)"]
+    valid: [
+      "import { Effect } from 'effect'; Effect.catch(task, error => state.reason._tag === 'Closed' ? stop : fail(error))",
+      "import { Effect } from 'effect'; function run(Effect) { return Effect.catch(task, error => error.reason._tag === 'Missing') }",
+      "local.catch(task, error => error.reason._tag === 'Missing')",
+      "import { Effect } from 'effect'; Effect.catch(task, error => { { const error = state; return error.reason._tag === 'Missing' } })",
+      "import { Effect } from 'effect'; Effect.catch(task, error => error._tag === 'Missing' ? recovered : Effect.fail(error))"
+    ],
+    invalid: [
+      "import { Effect as E } from 'effect'; E.catch(task, error => error.reason._tag === 'Missing' ? recovered : failed)",
+      "import * as E from 'effect/Effect'; task.pipe(E.catch(error => error['reason']['_tag'] === 'Missing'))",
+      "import { catch as catchError } from 'effect/Effect'; catchError(task, error => { switch (error.reason._tag) { case 'Missing': return recovered } })",
+      "import * as Root from 'effect'; Root.Effect.catch(task, error => error.reason._tag === 'A' ? a : error.reason._tag === 'B' ? b : failed)"
+    ]
   },
   "anti-slop-effect/no-manual-tag-comparison": {
-    valid: ["Predicate.isTagged(value, 'Missing')"],
-    invalid: ["const missing = value._tag === 'Missing'"]
+    valid: [
+      "Predicate.isTagged(value, 'Missing')",
+      "import { Effect } from 'effect'; Effect.catch(task, error => state._tag === 'Closed' ? stop : Effect.fail(error))",
+      "import { Effect as E } from 'effect'; E.catch(task, error => error._tag === 'Missing' ? recovered : E.fail(error))",
+      "import * as E from 'effect/Effect'; E.catch(task, error => error.reason._tag === 'Missing' ? recovered : E.fail(error))"
+    ],
+    invalid: [
+      "const missing = value._tag === 'Missing'",
+      "const result = value._tag === 'First' ? 'one' : value._tag === 'Second' ? 'two' : 'other'",
+      "import { Effect } from 'effect'; function run(Effect) { return Effect.catch(task, error => error._tag === 'Missing') }"
+    ]
   },
   "anti-slop-effect/no-manual-tagged-construction": {
-    valid: ["const value = new Missing({ id: 1 })", "const value = systemError({ _tag: 'BadResource' })"],
-    invalid: ["const value = { _tag: 'Missing', id: 1 }"]
-  },
-  "anti-slop-effect/prefer-effect-match": {
     valid: [
-      "const result = value._tag === 'First' ? 'one' : 'other'",
-      "const result = code === 1 ? 'one' : code === 2 ? 'two' : 'other'"
+      "const value = new Missing({ id: 1 })",
+      "import { systemError as makeError } from 'effect/PlatformError'; const value = makeError({ _tag: 'BadResource' })",
+      "import { PlatformError as P } from 'effect'; P.systemError({ _tag: 'BadResource' })",
+      "import { Match as M } from 'effect'; M.when({ _tag: 'Missing' }, handler)",
+      "import { when as matchWhen } from 'effect/Match'; matchWhen({ _tag: 'Missing' }, handler)",
+      "import * as M from 'effect/Match'; M.not({ _tag: 'Missing' }, handler)"
     ],
-    invalid: ["const result = value._tag === 'First' ? 'one' : value._tag === 'Second' ? 'two' : 'other'"]
+    invalid: [
+      "const value = { _tag: 'Missing', id: 1 }",
+      "const Match = customMatch; Match.when({ _tag: 'Missing' }, handler)",
+      "import { Match } from 'effect'; function run(Match) { Match.when({ _tag: 'Missing' }, handler) }",
+      "import * as M from 'other/Match'; M.when({ _tag: 'Missing' }, handler)",
+      "const systemError = makeObject; systemError({ _tag: 'BadResource' })",
+      "other.systemError({ _tag: 'BadResource' })"
+    ]
   }
 }
