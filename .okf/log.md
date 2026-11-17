@@ -4,8 +4,6 @@
 
 - Extend the feature map with PostgreSQL, D1, supplied clients, the shared image protocol and keyed live-volume ownership. Align architecture, capability profiles, registry composition and release guidance; mark the Cloudflare RC survey as historical and retain hosted qualification and remote-service work as open.
 
-- Qualify a 10,000-file snapshot-delta workload with explicit volume and delta limits. Record the default rejection, one-below-limit checks and process memory cost.
-
 - Require supplied clients across live-image store layers. Record PostgreSQL dedicated-client and receive-budget obligations, native client startup errors, borrowed-client lifetimes, per-store D1 drainage and local provider composition. Remove the R2 client option in favor of an injected capability service.
 
 - Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
@@ -18,6 +16,8 @@
 
 - Consolidate validation under one local/CI sequence, keep Git hooks fast and read-only beyond staged formatting, and place
   tests and fixtures with their owning tooling. Remove superseded launchers and reuse existing consumer contracts.
+
+- Qualify a 10,000-file snapshot-delta workload with explicit volume and delta limits. Record the default rejection, one-below-limit checks and process memory cost.
 
 - Record Effect-aligned repository validation: complete workspace and export classification, public documentation and
   type contracts, checked lint tooling, dependency direction, generated ownership, and selected packed-consumer compilers.
