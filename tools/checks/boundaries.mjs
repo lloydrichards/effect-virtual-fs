@@ -18,22 +18,10 @@ export function imports(source, filename = "source.ts") {
   const visit = (node) => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const clause = node.importClause
-      const bindings = clause?.namedBindings
-
-      const onlyNamedTypes = bindings && ts.isNamedImports(bindings) && bindings.elements.length > 0 &&
-        bindings.elements.every((element) => element.isTypeOnly)
-
-      result.push({
-        specifier: node.moduleSpecifier.text,
-        runtime: !clause?.isTypeOnly && !(onlyNamedTypes && !clause.name)
-      })
+      // verbatimModuleSyntax retains empty module loads for inline type specifiers.
+      result.push({ specifier: node.moduleSpecifier.text, runtime: !clause?.isTypeOnly })
     } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      const clause = node.exportClause
-
-      const onlyNamedTypes = clause && ts.isNamedExports(clause) && clause.elements.length > 0 &&
-        clause.elements.every((element) => element.isTypeOnly)
-
-      result.push({ specifier: node.moduleSpecifier.text, runtime: !node.isTypeOnly && !onlyNamedTypes })
+      result.push({ specifier: node.moduleSpecifier.text, runtime: !node.isTypeOnly })
     } else if (
       ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)
     ) {
