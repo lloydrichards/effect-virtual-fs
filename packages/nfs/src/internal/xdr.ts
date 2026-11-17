@@ -1,12 +1,7 @@
 import * as ByteSize from "effect/ByteSize"
-import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
-import * as Schema from "effect/Schema"
-import * as SchemaIssue from "effect/SchemaIssue"
-import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as SynchronizedRef from "effect/SynchronizedRef"
 
 /** @internal */
@@ -604,24 +599,6 @@ export interface EncoderSession {
   readonly finish: Effect.Effect<Uint8Array, XdrEncodeError>
 }
 
-export interface XdrApi {
-  readonly decode: <A>(
-    bytes: Uint8Array,
-    limits: DecodeLimits,
-    description: XdrCodec<A>
-  ) => Effect.Effect<A, XdrDecodeError>
-  readonly encode: <A>(
-    value: A,
-    description: XdrCodec<A>,
-    limits: DecodeLimits,
-    maxBytes: number
-  ) => Effect.Effect<Uint8Array, XdrEncodeError>
-  readonly openReader: (bytes: Uint8Array, limits: DecodeLimits) => Effect.Effect<DecoderSession, XdrDecodeError>
-  readonly openWriter: (limits: DecodeLimits, maxBytes: number) => Effect.Effect<EncoderSession, XdrEncodeError>
-}
-
-export const Xdr = Context.Service<XdrApi>("@effect-vfs/nfs/Xdr")
-
 const decode = <A>(bytes: Uint8Array, limits: DecodeLimits, description: XdrCodec<A>) =>
   lift(() =>
     Result.flatMap(
@@ -767,27 +744,4 @@ const openWriter = (limits: DecodeLimits, maxBytes: number): Effect.Effect<Encod
       )
   )
 
-export const make = { decode, encode, openReader, openWriter } satisfies XdrApi
-
-export const layer = Layer.succeed(Xdr, make)
-
-/** Compiles a self-contained whole-value Schema codec. @internal */
-export const compile = <A>(
-  description: XdrCodec<A>,
-  valueSchema: Schema.Codec<A>,
-  limits: DecodeLimits,
-  maxBytes: number
-): Schema.Codec<A, Uint8Array> =>
-  Schema.Uint8Array.pipe(Schema.decodeTo(
-    valueSchema,
-    SchemaTransformation.transformEffect({
-      decode: (bytes, options) =>
-        decode(bytes, limits, description).pipe(
-          Effect.mapError((error) => new SchemaIssue.InvalidValue({ message: error.detail }, bytes, options))
-        ),
-      encode: (value, options) =>
-        encode(value, description, limits, maxBytes).pipe(
-          Effect.mapError((error) => new SchemaIssue.InvalidValue({ message: error.detail }, value, options))
-        )
-    })
-  ))
+export const make = { decode, encode, openReader, openWriter }

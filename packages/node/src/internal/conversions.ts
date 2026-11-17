@@ -170,10 +170,15 @@ export const flagsOf = (flags: string | number, mode: number, path: string) => {
   }
 }
 
-export type EncodingOptions =
-  | BufferEncoding
-  | { readonly encoding?: BufferEncoding | "buffer" | null | undefined }
-  | null
+export type EncodingOption<Encoding = BufferEncoding | "buffer" | null | undefined> = {
+  readonly encoding?: Encoding
+}
+
+export type EncodingOptions = BufferEncoding | EncodingOption | null
+
+export type BufferEncodingOption = { readonly encoding: "buffer" }
+
+export type TextEncodingOption = { readonly encoding: BufferEncoding }
 
 export const encodingOf = (options?: EncodingOptions): BufferEncoding | undefined => {
   const value = Predicate.isString(options) ? options : options?.encoding
