@@ -234,6 +234,11 @@ and entry budgets use numbers.
 
 See the [`Snapshot delta API reference`](/api/core/snapshot-delta) for the preset values and complete policy schema.
 
+Volume limits and delta-work limits apply independently. The default delta budget rejects a measured 10,000-file
+workspace that fits its volume quotas. See the
+[qualified 10,000-file example](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/decisions/core/measured-workload-policy.md#larger-snapshot-delta-example)
+for the complete volume and delta settings, the measured memory cost, and the workload's limits.
+
 ## Which limits callers can configure
 
 | Area                                              | Caller-configurable                             |
