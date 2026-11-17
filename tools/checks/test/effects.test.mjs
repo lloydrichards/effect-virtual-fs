@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import compiler from "../../../packages/config-typescript/base.json" with { type: "json" }
@@ -11,7 +12,10 @@ test("should retain correctness errors and outside warnings when the preview bou
 
   try {
     await mkdir(path.join(workspace, "src/internal"), { recursive: true })
-    await symlink(path.join(root, "packages/core/node_modules"), path.join(workspace, "node_modules"), "dir")
+    const require = createRequire(path.join(root, "packages/core/package.json"))
+    const effect = path.dirname(require.resolve("effect/package.json"))
+    await mkdir(path.join(workspace, "node_modules"))
+    await symlink(effect, path.join(workspace, "node_modules/effect"), "dir")
     await writeFile(
       path.join(workspace, "package.json"),
       JSON.stringify({ name: "@test/effect-policy", type: "module" })
