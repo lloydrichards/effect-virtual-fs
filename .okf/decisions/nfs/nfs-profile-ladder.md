@@ -26,7 +26,19 @@ sources:
   - id: listener
     resource: ../../../packages/nfs/src/NfsServer.ts
     title: Scoped listener termination observation
-generated: { by: codex/okf, at: "2026-11-17T21:04:00+01:00" }
+  - id: restart-design
+    resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
+    title: Stateful restart and reclaim design
+  - id: linux-restart
+    resource: ../../../apps/nfs-preview/CONFORMANCE.md#restart-with-a-mounted-linux-client
+    title: Bounded mounted restart and remount result
+  - id: restart-implementation
+    resource: ../../../packages/nfs/src/internal/nfs4.ts
+    title: Session lifecycle, replay and reclaim handling
+  - id: restart-tests
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    title: Handle and write-verifier behavior across handler restart
+generated: { by: codex/okf, at: "2026-11-17T23:01:50+01:00" }
 ---
 
 # NFS profile ladder
@@ -62,6 +74,46 @@ RFC 8881 defines no read-only server profile; its read-only allowance in Section
 - Filehandles carry core's [reference key](../core/reference-keys.md "depends on"), so they are persistent on any profile whose volume survives at least a process crash, and volatile on memory volumes. Persistence rests on the key's epoch, which keeps [snapshot-local file identity](../core/snapshot-local-file-identity.md "constrained by") intact. The `stateful` profile still requires grace, reclaim, and restart recovery of sessions, opens, and locks.
 - `AUTH_SYS` is the security floor for every profile. Kerberos is a permanently unmet MUST. RPCSEC_GSS fails closed with `AUTH_TOOWEAK`, other unsupported flavors with `AUTH_BADCRED`, and `SP4_MACH_CRED` and `SP4_SSV` are rejected because they require RPCSEC_GSS integrity.
 
+## Restart and recovery
+
+The current read-only and writable profiles start with fresh NFS session, replay, open, share-reservation, and
+lock state after server replacement. A stale session can receive `NFS4ERR_BADSESSION`. An unrecognized client ID
+on `CREATE_SESSION` can receive `NFS4ERR_STALE_CLIENTID`. A rejected `SEQUENCE` stops the compound before it reaches later filehandle operations. The profiles have no reclaim grace. Otherwise valid reclaim
+`OPEN` claims and `LOCK` requests with reclaim set receive `NFS4ERR_NO_GRACE`. Global `RECLAIM_COMPLETE`
+records completion for the current client and does not restore state.[^restart-implementation]
+
+Filehandles and filesystem identity are separate from session state. In an export backed by a memory volume, the
+handle epoch changes across restart. On reopening the same durable volume, its identity and reference key can
+survive server replacement for an existing object. The export derives `fsid` from the volume identity. A new
+handler over a durable volume has a new write verifier while retaining qualifying filehandles. Handler tests
+exercise those boundaries. They do not qualify recovery of an old native mount or its open descriptors.[^restart-tests]
+
+Remount after restart when serving the current profiles. In the recorded Linux trial, the old read-only memory
+mount returned an input/output error after listener replacement and a fresh mount read the fixture. This is a
+client-level observation for the recorded kernel and mount options. It does not establish which wire status the
+old mount received, recovery of durable data, or lock reclaim.[^linux-restart]
+
+### Conditions for a stateful profile
+
+[#50](https://github.com/lloydrichards/effect-virtual-fs/issues/50) remains open. The next design review must
+specify which client and lock evidence survives restart, who may reclaim, and when to report loss. Choose a safe
+failure policy for missing or inconsistent recovery records. RFC 8881 Sections
+[8.4.2–8.4.3](https://www.rfc-editor.org/rfc/rfc8881.html#section-8.4.2) require protecting eligible reclaims
+from conflicting new locks. During an adopted grace period, return `NFS4ERR_GRACE` when a new operation would
+risk that protection. Before a client sends global `RECLAIM_COMPLETE`, reject its requests for new locks with
+`NFS4ERR_GRACE`. Return `NFS4ERR_NO_GRACE` where reclaim is unsupported or its correctness cannot be
+established. Define grace lifetime and global completion using the lease and eligible-client policy. The
+current volatile client and slot state is not sufficient recovery evidence.
+
+Treat persistent sessions and replies as a separate option under RFC 8881
+[Section 2.10.6.5](https://www.rfc-editor.org/rfc/rfc8881.html#section-2.10.6.5). An implementation that
+negotiates session persistence must retain the session ID, slot sequence IDs, and cached replies, with atomic
+execution and persistence of the results. Qualify crashes around durable commit and reply publication before
+claiming replay across restart. Persisting filehandles or restoring locks alone does not establish this guarantee.
+The [slot and state table work](https://github.com/lloydrichards/effect-virtual-fs/issues/239) is a prerequisite
+for reviewing the ownership boundary. Keep native durable-reopen evidence, grace/reclaim behavior, and persistent
+reply recovery distinct in qualification.
+
 ## Publication
 
 `read-only-local` is a publishable target. The package manifest permits public publication, and NFS joins the fixed Changesets group with core, memory, and persistence.[^nfs-package][^changesets] Maturity graduates in place without renaming the package or its exports. The public `writable: true` option is experimental and requires a `survives-power-loss` volume, an explicit identity policy, and one authorized identity. The default remains read-only.
@@ -87,3 +139,9 @@ Where each kind of evidence comes from, which checks run in CI, and which fault 
 [^pynfs]: pynfs speaks raw RPC, defaults to minor version 2 and `sec=sys`, and can run read-side test flags against a pre-populated tree without mounting.
 
 [^listener]: `NfsServer` exposes the scoped listener result as `awaitTermination`.
+
+[^linux-restart]: The conformance baseline records the mount options, failed old-mount read, and successful fresh mount.
+
+[^restart-implementation]: The handler's `CREATE_SESSION`, `SEQUENCE`, reclaim `OPEN` and `LOCK`, and `RECLAIM_COMPLETE` branches establish the current behavior.
+
+[^restart-tests]: The handler tests rebuild the handler over both a reopened durable volume and a new memory volume, and exercise the `COMMIT` verifier.
