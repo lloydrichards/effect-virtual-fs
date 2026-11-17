@@ -44,6 +44,9 @@ Core is the publication root. Memory, persistence, and nfs depend on core, so `@
 
 Before publishing, follow the [pull-request validation sequence](evidence-and-validation.md "depends on"). The release job uses Node 24 and invokes Changesets on pushes to `main`. When Changesets publishes, the release script builds the workspace first.
 
+The [core and memory v1 support proposal](../research/core-memory-v1-policy.md) records the candidate scope and
+qualification checklist. Adopt release-specific guarantees after the scope review and candidate checks.
+
 Package-specific build gates matter. Core and persistence check emitted NodeNext consumption. Memory additionally bundles a browser-target entry and runs a Node smoke against that artifact. These establish export, module-resolution, and bundling compatibility; they do not establish full browser or worker runtime filesystem behavior.
 
 The pinned Node host job installs the candidate core and memory tarballs together outside the workspace. It verifies that memory resolves the candidate core package, checks strict NodeNext declarations, and runs a seeded filesystem workload with observed writes. This gate qualifies the candidate packages. Repeat the installation against the published versions after release.

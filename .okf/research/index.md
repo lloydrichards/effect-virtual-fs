@@ -7,6 +7,8 @@
 
 - [Staged Effect filesystem implementation plan](minimal-effect-port.md) sequences engine-owned contracts, the Effect port, downstream packages and community-core retirement.
 
+- [Core and memory v1 support proposal](core-memory-v1-policy.md) records candidate exports, independent format compatibility, and release gates.
+
 - [Node VFS interoperability](node-vfs-interoperability.md) compares verified Node 26.12 provider composition with snapshot overlays.
 - [Effect VFS lessons from the Node comparison](node-vfs-snapshot-bridge.md) separates comparative evidence from Effect-native follow-up work.
 

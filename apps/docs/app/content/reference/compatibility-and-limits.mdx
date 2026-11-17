@@ -16,9 +16,10 @@ the API links for exact types and signatures.
 | `@effect-vfs/persistence` | ESM only      | Named SQLite checkpoints and live-image storage                    |
 | `@effect-vfs/nfs`         | ESM only      | NFSv4.1 export with guarded experimental writes                   |
 
-Use an ES module build. Each published package declares its exact supported Effect version in
-`peerDependencies.effect`. Read it with `npm view @effect-vfs/core peerDependencies.effect` and install matching
-versions of any `@effect/*` packages that your application uses.
+Use an ES module build. Each published package declares its supported Effect range in
+`peerDependencies.effect`. To check a specific release, run `npm view @effect-vfs/core@VERSION peerDependencies.effect` with its version.
+The current core and memory source manifests declare `~4.1.4`, and the qualification jobs use Effect `4.1.4`.
+Match any `@effect/*` providers to the installed Effect version.
 
 The published manifests do not declare a minimum consumer Node.js version. See the tested configurations below.
 The SQLite provider requires Bun. Core and memory can also run on Node.js.
