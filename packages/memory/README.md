@@ -46,8 +46,9 @@ console.log(manifest)
 // { "files": ["index.js", "index.css"] }
 ```
 
-`layer` creates a fresh volume containing `/tmp` and requires an Effect `Crypto` service; use `MemoryFileSystem.make` when you
-need the service directly.
+An independent build of `layer` creates a volume containing `/tmp` with a privileged default caller.
+Supply Effect's `Digest` and `SecureRandom` services. `BunCrypto.layer` provides both. Use `MemoryFileSystem.make`
+when you need the service directly.
 
 ## Seed a test filesystem
 
