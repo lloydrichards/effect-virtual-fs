@@ -131,8 +131,8 @@ describe("filesystem adapter compatibility", () => {
 
         const host = {
           ...fs,
-          stat: (path: string) =>
-            Effect.map(fs.stat(path), (value) =>
+          lstat: (path: string) =>
+            Effect.map(fs.lstat(path), (value) =>
               value.type !== "File" ? value : ({
                 ...value,
                 dev: 9007199254740993n,
