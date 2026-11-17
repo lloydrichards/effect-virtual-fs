@@ -19,6 +19,8 @@
 
 - Add the bounded D1 adapter and explicit STRICT migration. Record primary-only bindings, externally controlled ownership and pending-statement drainage before handoff. Add workerd contracts and a hosted qualification harness, with hosted release qualification still pending.
 
+- Measure NFS cross-client admission and direct core reads during a controlled live-image store delay. Keep the current compound scheduler.
+
 - Add PostgreSQL live-image persistence with explicit migrations, one application-controlled owner, private scoped sessions and a memory-only release guarantee. Reuse adapter contracts and add a real PostgreSQL CI job. Defer writable NFS and D1 implementation.
 
 - Retire core compatibility tokens, symlinks, directory order, and handle grants through committed namespace and handle-release events.
