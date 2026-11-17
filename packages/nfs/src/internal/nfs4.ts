@@ -2557,48 +2557,47 @@ export const makeNfs4Handler = (
           if (failed >= carriers.length) Deferred.doneUnsafe(exhausted, Effect.succeed(false))
         })
 
-        const attempt = (carrier: Connection) =>
-          Effect.gen(function*() {
-            // The xid is masked because it is both a map key and a uint32 on the wire; an
-            // unmasked counter would eventually throw instead of wrapping.
-            const xid = callbackXid
-            callbackXid = (callbackXid + 1) >>> 0
-            const reply = yield* Deferred.make<Uint8Array>()
-            pendingCallbacks.set(xid, { carrier, reply })
+        const attempt = Effect.fnUntraced(function*(carrier: Connection) {
+          // The xid is masked because it is both a map key and a uint32 on the wire; an
+          // unmasked counter would eventually throw instead of wrapping.
+          const xid = callbackXid
+          callbackXid = (callbackXid + 1) >>> 0
+          const reply = yield* Deferred.make<Uint8Array>()
+          pendingCallbacks.set(xid, { carrier, reply })
 
-            return yield* Effect.ensuring(
-              Effect.gen(function*() {
-                const encoded = yield* Effect.result(
-                  encodeCallbackCall(xid, back.program, procedure, security, body, options.limits)
-                )
+          return yield* Effect.ensuring(
+            Effect.gen(function*() {
+              const encoded = yield* Effect.result(
+                encodeCallbackCall(xid, back.program, procedure, security, body, options.limits)
+              )
 
-                if (Result.isFailure(encoded)) {
-                  yield* noteFailure
-
-                  return yield* Effect.never
-                }
-
-                const sent = yield* carrier.send(encoded.success)
-
-                // A carrier that cannot be written to, or whose client rejects the callback, loses
-                // the race instead of ending it. The outer deadline bounds the wait when every
-                // carrier does so.
-                if (!sent) {
-                  yield* noteFailure
-
-                  return yield* Effect.never
-                }
-
-                const answered = yield* Deferred.await(reply)
-
-                if (yield* accepted(answered)) return true
+              if (Result.isFailure(encoded)) {
                 yield* noteFailure
 
                 return yield* Effect.never
-              }),
-              Effect.sync(() => pendingCallbacks.delete(xid))
-            )
-          })
+              }
+
+              const sent = yield* carrier.send(encoded.success)
+
+              // A carrier that cannot be written to, or whose client rejects the callback, loses
+              // the race instead of ending it. The outer deadline bounds the wait when every
+              // carrier does so.
+              if (!sent) {
+                yield* noteFailure
+
+                return yield* Effect.never
+              }
+
+              const answered = yield* Deferred.await(reply)
+
+              if (yield* accepted(answered)) return true
+              yield* noteFailure
+
+              return yield* Effect.never
+            }),
+            Effect.sync(() => pendingCallbacks.delete(xid))
+          )
+        })
 
         return yield* Effect.raceAll([...carriers.map(attempt), Deferred.await(exhausted)]).pipe(
           Effect.timeoutOption(options.callbackTimeout),

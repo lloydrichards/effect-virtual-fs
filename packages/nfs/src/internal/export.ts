@@ -289,30 +289,28 @@ export const makeExport = (volume: ExportVolume, caller: Vfs.Caller, limits: Exp
       }),
     parent: (directory) => activeCaller.parent(directory),
     readLink: (reference) => activeCaller.readLink(reference),
-    mkdir: (directory, name, settings) =>
-      Effect.gen(function*() {
-        yield* Effect.try({
-          try: () => validateName(name, limits.maxNameBytes),
-          catch: (error) => {
-            if (error instanceof InvalidNameError) return error
-            throw error
-          }
-        })
+    mkdir: Effect.fnUntraced(function*(directory, name, settings) {
+      yield* Effect.try({
+        try: () => validateName(name, limits.maxNameBytes),
+        catch: (error) => {
+          if (error instanceof InvalidNameError) return error
+          throw error
+        }
+      })
 
-        return yield* activeCaller.mkdir(Vfs.Entry(directory, name), settings)
-      }),
-    symlink: (target, directory, name, settings) =>
-      Effect.gen(function*() {
-        yield* Effect.try({
-          try: () => validateName(name, limits.maxNameBytes),
-          catch: (error) => {
-            if (error instanceof InvalidNameError) return error
-            throw error
-          }
-        })
+      return yield* activeCaller.mkdir(Vfs.Entry(directory, name), settings)
+    }),
+    symlink: Effect.fnUntraced(function*(target, directory, name, settings) {
+      yield* Effect.try({
+        try: () => validateName(name, limits.maxNameBytes),
+        catch: (error) => {
+          if (error instanceof InvalidNameError) return error
+          throw error
+        }
+      })
 
-        return yield* activeCaller.symlink(target, Vfs.Entry(directory, name), settings)
-      }),
+      return yield* activeCaller.symlink(target, Vfs.Entry(directory, name), settings)
+    }),
     link: (source, directory, name) => activeCaller.link(source, Vfs.Entry(directory, name)),
     remove: (directory, name) => activeCaller.remove(Vfs.Entry(directory, name)),
     rename: (sourceDirectory, sourceName, destinationDirectory, destinationName) =>

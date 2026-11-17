@@ -1,22 +1,24 @@
 // Each loader case gets a fresh process because Node routing and module caches are global.
 /* eslint-disable effecttsgo/node-builtin-import */
-import assert from "node:assert/strict"
-import { createRequire } from "node:module"
-import { pathToFileURL } from "node:url"
-import { create, MemoryProvider } from "node:vfs"
-import * as fs from "node:fs"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { NodeVirtualProvider } from "@effect-vfs/node"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
+import assert from "node:assert/strict"
+import * as fs from "node:fs"
+import { createRequire } from "node:module"
+import { pathToFileURL } from "node:url"
+import { create, MemoryProvider } from "node:vfs"
 
 const scope = Scope.makeUnsafe()
 
 const volume = await Effect.runPromise(Vfs.make({ execution: "sync" }).pipe(Effect.provide(NodeCrypto.layer)))
 
-const provider = await Effect.runPromise(NodeVirtualProvider.bind(volume).pipe(Effect.provideService(Scope.Scope, scope)))
+const provider = await Effect.runPromise(
+  NodeVirtualProvider.bind(volume).pipe(Effect.provideService(Scope.Scope, scope))
+)
 
 const routing = create(provider)
 
@@ -45,7 +47,10 @@ try {
     provider.mkdirSync("/app")
     provider.mkdirSync("/app/node_modules")
     provider.mkdirSync("/app/node_modules/local-dep")
-    provider.writeFileSync("/app/node_modules/local-dep/package.json", JSON.stringify({ name: "local-dep", main: "index.cjs" }))
+    provider.writeFileSync(
+      "/app/node_modules/local-dep/package.json",
+      JSON.stringify({ name: "local-dep", main: "index.cjs" })
+    )
     provider.writeFileSync("/app/node_modules/local-dep/index.cjs", "module.exports = 40")
 
     if (kind === "cjs") {
@@ -83,4 +88,6 @@ try {
   routing.unmount()
 }
 
-process.stdout.write(JSON.stringify({ kind, node: process.version, os: process.platform, arch: process.arch, result: "passed" }) + "\n")
+process.stdout.write(
+  JSON.stringify({ kind, node: process.version, os: process.platform, arch: process.arch, result: "passed" }) + "\n"
+)

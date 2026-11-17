@@ -3,7 +3,7 @@
 A direct Node `VirtualProvider` over an existing `@effect-vfs/core` memory volume. Effect callers and provider calls share
 files, links, metadata and open-object lifetime.
 
-The initial tested runtime is **Node 26.11.1 with `--experimental-vfs`** and Effect 4.0.5. The package depends on core and
+The qualification runtime is **Node 26.11.1 with `--experimental-vfs`**. The package manifest specifies the supported Effect patch line. The package depends on core and
 Effect; it does not require the Effect Node platform at runtime. Node's VFS API is experimental.
 
 ## Bind a volume

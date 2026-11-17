@@ -1,0 +1,704 @@
+# NodeVirtualProvider.ts overview
+
+Direct Node 26.11.1 VirtualProvider binding. Construction never mounts a filesystem.
+
+Since v0.1.0
+
+---
+
+## constructors
+
+### bind
+
+Binds a qualified volume for this scope. Does not mount or install global hooks.
+
+**Example**
+
+```ts
+import * as NodeVirtualProvider from "@effect-vfs/node/NodeVirtualProvider"
+import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import * as Effect from "effect/Effect"
+
+const readThroughNode = Effect.scoped(
+  Effect.gen(function* () {
+    const volume = yield* Vfs.make({ execution: "sync" })
+    const provider = yield* NodeVirtualProvider.bind(volume, { readonly: true })
+    return provider.statSync("/").isDirectory()
+  })
+)
+```
+
+**Signature**
+
+```ts
+declare const bind: (
+  volume: Volume,
+  options?: {
+    readonly readonly?: boolean
+    readonly caller?: {
+      readonly identity?: {
+        readonly uid: number
+        readonly gid: number
+        readonly groups: ReadonlyArray<number>
+        readonly privileged: boolean
+      }
+      readonly umask?: number
+    }
+  }
+) => Effect.Effect<Provider, FsFailure, Scope.Scope>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L431)
+
+Since v0.1.0
+
+## models
+
+### Options (type alias)
+
+Provider policy decoded from the Options schema.
+
+**Signature**
+
+```ts
+export type Options = {
+  readonly readonly?: boolean
+  readonly caller?: {
+    readonly identity?: {
+      readonly uid: number
+      readonly gid: number
+      readonly groups: readonly number[]
+      readonly privileged: boolean
+    }
+    readonly umask?: number
+  }
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L50)
+
+Since v0.1.0
+
+### Provider (class)
+
+A provider over an existing synchronous volume. Node allocates numeric descriptors above this protocol.
+Instances are constructed with bind and remain valid for its enclosing Effect scope.
+
+**Signature**
+
+```ts
+declare class Provider { constructor(private readonly binding: Adapter.Binding, private readonly readOnly = false) }
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L73)
+
+Since v0.1.0
+
+#### mutate (method)
+
+**Signature**
+
+```ts
+declare const mutate: (syscall: string, path: string) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L88)
+
+#### openSync (method)
+
+**Signature**
+
+```ts
+declare const openSync: (input: string, flags?: string | number, mode?: number) => NodeFileHandle
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L92)
+
+#### open (method)
+
+**Signature**
+
+```ts
+declare const open: (path: string, flags?: string | number, mode?: number) => Promise<NodeFileHandle>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L121)
+
+#### statSync (method)
+
+**Signature**
+
+```ts
+declare const statSync: {
+  (input: string, options: { readonly bigint: true }): BigIntStats
+  (input: string, options?: { readonly bigint?: false | undefined }): Stats
+  (input: string, options?: StatOptions): Stats | BigIntStats
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L128)
+
+#### stat (method)
+
+**Signature**
+
+```ts
+declare const stat: {
+  (path: string, options: { readonly bigint: true }): Promise<BigIntStats>
+  (path: string, options?: { readonly bigint?: false | undefined }): Promise<Stats>
+  (path: string, options?: StatOptions): Promise<Stats | BigIntStats>
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L136)
+
+#### lstatSync (method)
+
+**Signature**
+
+```ts
+declare const lstatSync: {
+  (input: string, options: { readonly bigint: true }): BigIntStats
+  (input: string, options?: { readonly bigint?: false | undefined }): Stats
+  (input: string, options?: StatOptions): Stats | BigIntStats
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L142)
+
+#### lstat (method)
+
+**Signature**
+
+```ts
+declare const lstat: {
+  (path: string, options: { readonly bigint: true }): Promise<BigIntStats>
+  (path: string, options?: { readonly bigint?: false | undefined }): Promise<Stats>
+  (path: string, options?: StatOptions): Promise<Stats | BigIntStats>
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L150)
+
+#### readdirSync (method)
+
+**Signature**
+
+```ts
+declare const readdirSync: (
+  input: string,
+  options?: DirectoryOptions | BufferEncoding
+) => Array<string | Buffer<ArrayBufferLike> | Entry<string | Buffer<ArrayBufferLike>>>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L154)
+
+#### readdir (method)
+
+**Signature**
+
+```ts
+declare const readdir: (
+  path: string,
+  options?: DirectoryOptions | BufferEncoding
+) => Promise<Array<string | Buffer<ArrayBufferLike> | Entry<string | Buffer<ArrayBufferLike>>>>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L181)
+
+#### mkdirSync (method)
+
+**Signature**
+
+```ts
+declare const mkdirSync: (
+  input: string,
+  options?: { readonly mode?: number; readonly recursive?: boolean } | number
+) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L184)
+
+#### mkdir (method)
+
+**Signature**
+
+```ts
+declare const mkdir: (
+  path: string,
+  options?: { readonly mode?: number; readonly recursive?: boolean } | number
+) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L190)
+
+#### rmdirSync (method)
+
+**Signature**
+
+```ts
+declare const rmdirSync: (input: string) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L193)
+
+#### rmdir (method)
+
+**Signature**
+
+```ts
+declare const rmdir: (path: string) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L198)
+
+#### unlinkSync (method)
+
+**Signature**
+
+```ts
+declare const unlinkSync: (input: string) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L201)
+
+#### unlink (method)
+
+**Signature**
+
+```ts
+declare const unlink: (path: string) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L206)
+
+#### renameSync (method)
+
+**Signature**
+
+```ts
+declare const renameSync: (from: string, to: string) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L209)
+
+#### rename (method)
+
+**Signature**
+
+```ts
+declare const rename: (from: string, to: string) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L214)
+
+#### linkSync (method)
+
+**Signature**
+
+```ts
+declare const linkSync: (from: string, to: string) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L217)
+
+#### link (method)
+
+**Signature**
+
+```ts
+declare const link: (from: string, to: string) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L222)
+
+#### symlinkSync (method)
+
+**Signature**
+
+```ts
+declare const symlinkSync: (target: string, input: string, type?: string) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L225)
+
+#### symlink (method)
+
+**Signature**
+
+```ts
+declare const symlink: (target: string, path: string, type?: string) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L233)
+
+#### readlinkSync (method)
+
+**Signature**
+
+```ts
+declare const readlinkSync: (input: string, options?: EncodingOptions) => string | Buffer<ArrayBufferLike>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L236)
+
+#### readlink (method)
+
+**Signature**
+
+```ts
+declare const readlink: (path: string, options?: EncodingOptions) => Promise<string | Buffer<ArrayBufferLike>>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L243)
+
+#### realpathSync (method)
+
+**Signature**
+
+```ts
+declare const realpathSync: (input: string, options?: EncodingOptions) => string | Buffer<ArrayBufferLike>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L246)
+
+#### realpath (method)
+
+**Signature**
+
+```ts
+declare const realpath: (path: string, options?: EncodingOptions) => Promise<string | Buffer<ArrayBufferLike>>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L253)
+
+#### accessSync (method)
+
+**Signature**
+
+```ts
+declare const accessSync: (input: string, mode?: number) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L256)
+
+#### access (method)
+
+**Signature**
+
+```ts
+declare const access: (path: string, mode?: number) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L265)
+
+#### chmodSync (method)
+
+**Signature**
+
+```ts
+declare const chmodSync: (input: string, mode: number, follow?: boolean) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L269)
+
+#### chmod (method)
+
+**Signature**
+
+```ts
+declare const chmod: (path: string, mode: number) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L275)
+
+#### lchmodSync (method)
+
+**Signature**
+
+```ts
+declare const lchmodSync: (path: string, mode: number) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L278)
+
+#### lchmod (method)
+
+**Signature**
+
+```ts
+declare const lchmod: (path: string, mode: number) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L281)
+
+#### chownSync (method)
+
+**Signature**
+
+```ts
+declare const chownSync: (input: string, uid: number, gid: number, follow?: boolean) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L284)
+
+#### chown (method)
+
+**Signature**
+
+```ts
+declare const chown: (path: string, uid: number, gid: number) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L293)
+
+#### lchownSync (method)
+
+**Signature**
+
+```ts
+declare const lchownSync: (path: string, uid: number, gid: number) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L296)
+
+#### lchown (method)
+
+**Signature**
+
+```ts
+declare const lchown: (path: string, uid: number, gid: number) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L299)
+
+#### utimesSync (method)
+
+**Signature**
+
+```ts
+declare const utimesSync: (input: string, atime: Time, mtime: Time, follow?: boolean) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L302)
+
+#### utimes (method)
+
+**Signature**
+
+```ts
+declare const utimes: (path: string, atime: Time, mtime: Time) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L311)
+
+#### lutimesSync (method)
+
+**Signature**
+
+```ts
+declare const lutimesSync: (path: string, atime: Time, mtime: Time) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L314)
+
+#### lutimes (method)
+
+**Signature**
+
+```ts
+declare const lutimes: (path: string, atime: Time, mtime: Time) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L317)
+
+#### readFileSync (method)
+
+**Signature**
+
+```ts
+declare const readFileSync: (path: string, options?: WholeFileOptions) => string | Buffer<ArrayBufferLike>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L322)
+
+#### readFile (method)
+
+**Signature**
+
+```ts
+declare const readFile: (path: string, options?: WholeFileOptions) => Promise<string | Buffer<ArrayBufferLike>>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L332)
+
+#### writeFileSync (method)
+
+**Signature**
+
+```ts
+declare const writeFileSync: (path: string, data: string | Uint8Array, options?: WholeFileOptions) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L335)
+
+#### writeFile (method)
+
+**Signature**
+
+```ts
+declare const writeFile: (path: string, data: string | Uint8Array, options?: WholeFileOptions) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L350)
+
+#### appendFileSync (method)
+
+**Signature**
+
+```ts
+declare const appendFileSync: (path: string, data: string | Uint8Array, options?: WholeFileOptions) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L353)
+
+#### appendFile (method)
+
+**Signature**
+
+```ts
+declare const appendFile: (path: string, data: string | Uint8Array, options?: WholeFileOptions) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L359)
+
+#### existsSync (method)
+
+**Signature**
+
+```ts
+declare const existsSync: (path: string) => boolean
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L362)
+
+#### exists (method)
+
+**Signature**
+
+```ts
+declare const exists: (path: string) => Promise<boolean>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L372)
+
+#### copyFileSync (method)
+
+**Signature**
+
+```ts
+declare const copyFileSync: (src: string, dest: string, mode?: number) => void
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L375)
+
+#### copyFile (method)
+
+**Signature**
+
+```ts
+declare const copyFile: (src: string, dest: string, mode?: number) => Promise<void>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L389)
+
+#### watch (method)
+
+**Signature**
+
+```ts
+declare const watch: () => never
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L393)
+
+#### watchAsync (method)
+
+**Signature**
+
+```ts
+declare const watchAsync: () => never
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L396)
+
+#### watchFile (method)
+
+**Signature**
+
+```ts
+declare const watchFile: () => never
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L399)
+
+#### unwatchFile (method)
+
+**Signature**
+
+```ts
+declare const unwatchFile: () => never
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L402)
+
+#### statfsSync (method)
+
+**Signature**
+
+```ts
+declare const statfsSync: () => never
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L405)
+
+#### statfs (method)
+
+**Signature**
+
+```ts
+declare const statfs: () => Promise<never>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L408)
+
+## schemas
+
+### Options
+
+Provider policy, independent of the backing volume's other callers.
+
+**Signature**
+
+```ts
+declare const Options: Schema.Struct<{
+  readonly readonly: Schema.optionalKey<Schema.Boolean>
+  readonly caller: Schema.optionalKey<
+    Schema.Struct<{
+      readonly identity: Schema.optionalKey<
+        Schema.Struct<{
+          readonly uid: Schema.Natural
+          readonly gid: Schema.Natural
+          readonly groups: Schema.$Array<Schema.Natural>
+          readonly privileged: Schema.Boolean
+        }>
+      >
+      readonly umask: Schema.optionalKey<Schema.Natural>
+    }>
+  >
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L40)
+
+Since v0.1.0

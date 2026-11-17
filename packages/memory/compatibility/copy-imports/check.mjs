@@ -33,4 +33,6 @@ while (pending.length > 0) {
   }
 }
 
-process.stdout.write(`Copy runtime import audit passed: ${seen.size} workspace modules; no transfer, snapshot, image, fixture or codec modules.\n`)
+process.stdout.write(
+  `Copy runtime import audit passed: ${seen.size} workspace modules; no transfer, snapshot, image, fixture or codec modules.\n`
+)
