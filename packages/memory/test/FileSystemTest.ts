@@ -859,6 +859,39 @@ export const suite = <E>(
     })
 
     describe("open file state", () => {
+      if (adapter === "memory") {
+        it.effect("should keep positioned reads independent of the sequential cursor", () =>
+          Effect.gen(function*() {
+            const { fs, path } = yield* makeTestContext
+            const filePath = path("positioned-read.txt")
+            yield* fs.writeFileString(filePath, "abcdef")
+            const file = yield* fs.open(filePath)
+            const buffer = new Uint8Array(2)
+            yield* file.read(buffer)
+            assert.strictEqual(decoder.decode(buffer), "ab")
+            yield* file.read(buffer, { position: 3n })
+            assert.strictEqual(decoder.decode(buffer), "de")
+            const explicit = yield* file.readAlloc(1, { position: 0n })
+            assert.strictEqual(decoder.decode(Option.getOrThrow(explicit)), "a")
+            assert.strictEqual(yield* file.seek(0n, "current"), 2n)
+
+            for (const position of [9007199254740992n, 0x7fffffffffffffffn]) {
+              assert.strictEqual(yield* file.read(buffer, { position }), 0)
+              assert.isTrue(Option.isNone(yield* file.readAlloc(1, { position })))
+              assert.strictEqual(yield* file.seek(0n, "current"), 2n)
+            }
+
+            const tooLarge = yield* Effect.flip(file.read(buffer, { position: 0x8000000000000000n }))
+            assert.strictEqual(tooLarge.reason._tag, "BadArgument")
+            assert.strictEqual(yield* file.seek(0n, "current"), 2n)
+            yield* file.read(buffer)
+            assert.strictEqual(decoder.decode(buffer), "cd")
+            const invalid = yield* Effect.flip(file.read(buffer, { position: -1n }))
+            assert.strictEqual(invalid.reason._tag, "BadArgument")
+            assert.strictEqual(yield* file.seek(0n, "current"), 4n)
+          }))
+      }
+
       it.effect("should zero-fill gaps when sparse writes extend a file", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
@@ -1587,7 +1620,18 @@ export const suite = <E>(
         it.effect("should fail on consumption when watching is unsupported", () =>
           Effect.gen(function*() {
             const fs = yield* FileSystem.FileSystem
-            const error = yield* fs.watch("/tmp").pipe(Stream.runDrain, Effect.flip)
+            let ready = false
+
+            const watch = fs.watch("/tmp", {
+              onReady: () => {
+                ready = true
+              }
+            })
+
+            assert.isFalse(ready)
+
+            const error = yield* watch.pipe(Stream.runDrain, Effect.flip)
+            assert.isFalse(ready)
             assertSystemError(error, { tag: "Unknown", method: "watch", pathOrDescriptor: "/tmp" })
             assert.strictEqual(error.reason.description, "WatchUnsupported")
           }))
