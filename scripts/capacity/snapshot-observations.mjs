@@ -1,4 +1,3 @@
-/* eslint-disable effecttsgo/node-builtin-import -- The harness records the host and writes sample data outside the measured Effect. */
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect, Layer } from "effect"
 import assert from "node:assert/strict"
