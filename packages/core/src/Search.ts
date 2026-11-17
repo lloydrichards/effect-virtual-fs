@@ -13,7 +13,6 @@ import * as Effect from "effect/Effect"
 import { dual } from "effect/Function"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import { BytePath } from "./BytePath.js"
 import * as Glob from "./internal/glob.js"
 import * as Visitor from "./internal/search.js"
 import * as Content from "./internal/searchContent.js"
@@ -27,7 +26,7 @@ import type { FsFailure, ImageFailure } from "./VfsError.js"
  * @category schemas
  * @since 0.8.0
  */
-export const Kind = Schema.Literals(["file", "directory", "symlink"])
+export const Kind: typeof Internal.Kind = Internal.Kind
 
 /**
  * Entry kinds selected by filename queries.
@@ -37,31 +36,13 @@ export const Kind = Schema.Literals(["file", "directory", "symlink"])
  */
 export type Kind = typeof Kind.Type
 
-const limitFields = {
-  maxEntries: Schema.Natural,
-  maxDepth: Schema.Natural,
-  maxPathBytes: Schema.ByteSize,
-  maxResults: Schema.Natural,
-  maxResultBytes: Schema.ByteSize,
-  maxPatternBytes: Schema.ByteSize,
-  maxPatterns: Schema.Natural,
-  maxPatternListBytes: Schema.ByteSize,
-  maxExpansions: Schema.Natural,
-  maxTokens: Schema.Natural,
-  maxMatchingWork: Schema.Natural,
-  maxScannedBytes: Schema.ByteSize,
-  maxFileBytes: Schema.ByteSize,
-  maxLineEvaluations: Schema.Natural,
-  maxExcerptBytes: Schema.ByteSize
-}
-
 /**
  * Complete finite namespace, matching, content and output limits.
  *
  * @category schemas
  * @since 0.8.0
  */
-export const Limits = Schema.Struct(limitFields)
+export const Limits: typeof Internal.Limits = Internal.Limits
 
 /**
  * Complete finite search limits.
@@ -77,23 +58,7 @@ export type Limits = typeof Limits.Type
  * @category schemas
  * @since 0.8.0
  */
-export const LimitOverrides = Schema.Struct({
-  maxEntries: Schema.optionalKey(limitFields.maxEntries),
-  maxDepth: Schema.optionalKey(limitFields.maxDepth),
-  maxPathBytes: Schema.optionalKey(limitFields.maxPathBytes),
-  maxResults: Schema.optionalKey(limitFields.maxResults),
-  maxResultBytes: Schema.optionalKey(limitFields.maxResultBytes),
-  maxPatternBytes: Schema.optionalKey(limitFields.maxPatternBytes),
-  maxPatterns: Schema.optionalKey(limitFields.maxPatterns),
-  maxPatternListBytes: Schema.optionalKey(limitFields.maxPatternListBytes),
-  maxExpansions: Schema.optionalKey(limitFields.maxExpansions),
-  maxTokens: Schema.optionalKey(limitFields.maxTokens),
-  maxMatchingWork: Schema.optionalKey(limitFields.maxMatchingWork),
-  maxScannedBytes: Schema.optionalKey(limitFields.maxScannedBytes),
-  maxFileBytes: Schema.optionalKey(limitFields.maxFileBytes),
-  maxLineEvaluations: Schema.optionalKey(limitFields.maxLineEvaluations),
-  maxExcerptBytes: Schema.optionalKey(limitFields.maxExcerptBytes)
-})
+export const LimitOverrides: typeof Internal.LimitOverrides = Internal.LimitOverrides
 
 /**
  * Optional overrides applied to default limits.
@@ -109,23 +74,7 @@ export type LimitOverrides = typeof LimitOverrides.Type
  * @category schemas
  * @since 0.8.0
  */
-export const Limit = Schema.Literals([
-  "maxEntries",
-  "maxDepth",
-  "maxPathBytes",
-  "maxResults",
-  "maxResultBytes",
-  "maxPatternBytes",
-  "maxPatterns",
-  "maxPatternListBytes",
-  "maxExpansions",
-  "maxTokens",
-  "maxMatchingWork",
-  "maxScannedBytes",
-  "maxFileBytes",
-  "maxLineEvaluations",
-  "maxExcerptBytes"
-])
+export const Limit: typeof Internal.Limit = Internal.Limit
 
 /**
  * Names of compiler, traversal, output and content bounds.
@@ -148,23 +97,7 @@ export type Limit = typeof Limit.Type
  * @category defaults
  * @since 0.8.0
  */
-export const defaultLimits: Limits = Object.freeze({
-  maxEntries: 100_000,
-  maxDepth: 256,
-  maxPathBytes: ByteSize.bytes(4_096),
-  maxResults: 100,
-  maxResultBytes: ByteSize.bytes(65_536),
-  maxPatternBytes: ByteSize.bytes(4_096),
-  maxPatterns: 128,
-  maxPatternListBytes: ByteSize.bytes(65_536),
-  maxExpansions: 1_024,
-  maxTokens: 65_536,
-  maxMatchingWork: 10_000_000,
-  maxScannedBytes: ByteSize.bytes(67_108_864),
-  maxFileBytes: ByteSize.bytes(1_048_576),
-  maxLineEvaluations: 100_000,
-  maxExcerptBytes: ByteSize.bytes(1_024)
-})
+export const defaultLimits: Limits = Internal.defaultLimits
 
 /**
  * An explicit directory root, nonempty include list and optional exclusions,
@@ -178,13 +111,7 @@ export const defaultLimits: Limits = Object.freeze({
  * @category schemas
  * @since 0.8.0
  */
-export const GlobQuery = Schema.Struct({
-  root: Schema.Union([Schema.String, BytePath]),
-  include: Schema.NonEmptyArray(Schema.String),
-  exclude: Schema.optionalKey(Schema.Array(Schema.String)),
-  kinds: Schema.optionalKey(Schema.Array(Kind)),
-  limits: Schema.optionalKey(LimitOverrides)
-})
+export const GlobQuery: typeof Internal.GlobQuery = Internal.GlobQuery
 
 /**
  * Filename query decoded by `GlobQuery`.
@@ -288,12 +215,15 @@ export type GlobReport = typeof GlobReport.Type
  * @category errors
  * @since 0.8.0
  */
-export class QueryFailure extends Schema.TaggedError<QueryFailure>()("SearchQueryFailure", {
-  field: Schema.String,
-  message: Schema.String,
-  pattern: Schema.optionalKey(Schema.String),
-  limit: Schema.optionalKey(Limit)
-}) {}
+export const QueryFailure: typeof Internal.QueryFailure = Internal.QueryFailure
+
+/**
+ * Invalid query, pattern syntax or aggregate compilation limit.
+ *
+ * @category errors
+ * @since 0.8.0
+ */
+export type QueryFailure = Internal.QueryFailure
 
 /**
  * Typed runtime budget exhaustion.
@@ -301,10 +231,15 @@ export class QueryFailure extends Schema.TaggedError<QueryFailure>()("SearchQuer
  * @category errors
  * @since 0.8.0
  */
-export class BudgetExceeded extends Schema.TaggedError<BudgetExceeded>()("SearchBudgetExceeded", {
-  limit: Limit,
-  path: Schema.optionalKey(Schema.String)
-}) {}
+export const BudgetExceeded: typeof Internal.BudgetExceeded = Internal.BudgetExceeded
+
+/**
+ * Typed runtime budget exhaustion.
+ *
+ * @category errors
+ * @since 0.8.0
+ */
+export type BudgetExceeded = Internal.BudgetExceeded
 
 /**
  * Query and snapshot failures preserved by collectors.
@@ -328,22 +263,7 @@ export type ScanGlobFailure = GlobFailure | BudgetExceeded
  * @category schemas
  * @since 0.8.0
  */
-export const Pattern = Schema.TaggedUnion({
-  Literal: {
-    pattern: Schema.NonEmptyString.check(
-      Schema.makeFilter<string>(
-        (value) =>
-          !value.includes("\0") && !value.includes("\r") && !value.includes("\n") && !/[\ud800-\udfff]/u.test(value),
-        {
-          expected: "literal line text without NUL, CR, LF or lone surrogates"
-        }
-      )
-    )
-  },
-  Regex: {
-    pattern: Schema.String
-  }
-})
+export const Pattern: typeof Internal.Pattern = Internal.Pattern
 
 /**
  * Explicit literal or native regex content pattern.
@@ -360,14 +280,7 @@ export type Pattern = typeof Pattern.Type
  * @category schemas
  * @since 0.8.0
  */
-export const ContentQuery = Schema.Struct({
-  root: GlobQuery.fields.root,
-  include: GlobQuery.fields.include,
-  exclude: GlobQuery.fields.exclude,
-  pattern: Pattern,
-  ignoreCase: Schema.optionalKey(Schema.Boolean),
-  limits: GlobQuery.fields.limits
-})
+export const ContentQuery: typeof Internal.ContentQuery = Internal.ContentQuery
 
 /**
  * Validated snapshot content query.

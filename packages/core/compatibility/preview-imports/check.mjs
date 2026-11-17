@@ -14,7 +14,9 @@ const dependencies = (url) => {
   if (raw === undefined) throw new Error(`Missing core module: ${url}`)
   const text = raw.replace(/\/\*[\s\S]*?\*\//g, "")
 
-  return [...text.matchAll(/\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']/g)].map((match) => match[1] ?? match[2])
+  return [...text.matchAll(/\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']/g)].map((match) =>
+    match[1] ?? match[2]
+  )
 }
 
 for (const entry of ["VirtualFileSystem.ts", "LiveVolume.ts", "SynchronousAdapter.ts"]) {
@@ -31,7 +33,9 @@ for (const entry of ["VirtualFileSystem.ts", "LiveVolume.ts", "SynchronousAdapte
     for (const specifier of dependencies(url)) {
       if (specifier.startsWith("@effect-vfs/effect-preview")) preview = true
       else if (specifier.startsWith(".")) pending.push(new URL(specifier.replace(/\.js$/, ".ts"), url).href)
-      else if (specifier !== "effect" && !specifier.startsWith("effect/")) throw new Error(`Unexpected core runtime dependency: ${specifier}`)
+      else if (specifier !== "effect" && !specifier.startsWith("effect/")) {
+        throw new Error(`Unexpected core runtime dependency: ${specifier}`)
+      }
     }
   }
 

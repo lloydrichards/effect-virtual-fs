@@ -15,6 +15,7 @@ import type { Caller, FsFailure, TargetInput, Volume } from "./VirtualFileSystem
 /**
  * A private-scope handle. Explicit close checks reentry before touching its scope.
  * @since 0.10.0
+ * @category models
  */
 export interface Handle {
   readonly closed: boolean
@@ -33,6 +34,7 @@ export interface Handle {
 /**
  * Synchronous filesystem operations. Failures throw the core FsFailure value.
  * @since 0.10.0
+ * @category models
  */
 export interface Binding {
   readonly stat: (target: TargetInput) => Metadata
@@ -55,7 +57,21 @@ export interface Binding {
 /**
  * Binds only constructor-qualified synchronous memory volumes. The scope owns all opened handles.
  * No arbitrary Effect can be submitted to this binding.
+ *
+ * @example
+ * ```ts
+ * import * as Adapter from "@effect-vfs/core/SynchronousAdapter"
+ * import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+ * import * as Effect from "effect/Effect"
+ *
+ * const readSynchronously = Effect.scoped(Effect.gen(function*() {
+ *   const volume = yield* Vfs.make({ execution: "sync" })
+ *   const binding = yield* Adapter.bind(volume)
+ *   return binding.stat("/").kind
+ * }))
+ * ```
  * @since 0.10.0
+ * @category constructors
  */
 export const bind = Effect.fnUntraced(
   function*(volume: Volume, options?: RootCallerOptions): Effect.fn.Return<Binding, FsFailure, Scope.Scope> {

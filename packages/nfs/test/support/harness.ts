@@ -90,13 +90,13 @@ const defaultConnection = connection()
 
 export type WriteOperation = (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>
 
-export const call = (
-  operations: ReadonlyArray<WriteOperation>,
-  tag = "probe",
-  on: Connection = defaultConnection,
-  credentials: Credentials = { _tag: "None" }
-) =>
-  Effect.gen(function*() {
+export const call = Effect.fnUntraced(
+  function*(
+    operations: ReadonlyArray<WriteOperation>,
+    tag = "probe",
+    on: Connection = defaultConnection,
+    credentials: Credentials = { _tag: "None" }
+  ) {
     const writer = yield* make.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxCompoundBytes))
     yield* writer.write(XdrCodec.string(), tag)
     yield* writer.write(XdrCodec.uint32, 1)
@@ -105,32 +105,32 @@ export const call = (
     for (const operation of operations) yield* operation(writer)
 
     return { connection: on, credentials, arguments: yield* writer.finish }
-  })
+  }
+)
 
-export const statuses = (response: Uint8Array) =>
-  Effect.gen(function*() {
-    const reader = yield* make.openReader(response, limits)
-    const status = yield* reader.read(XdrCodec.uint32)
-    const tag = yield* reader.read(XdrCodec.string())
-    const count = yield* reader.read(XdrCodec.uint32)
-    const operations: Array<readonly [number, number]> = []
+export const statuses = Effect.fnUntraced(function*(response: Uint8Array) {
+  const reader = yield* make.openReader(response, limits)
+  const status = yield* reader.read(XdrCodec.uint32)
+  const tag = yield* reader.read(XdrCodec.string())
+  const count = yield* reader.read(XdrCodec.uint32)
+  const operations: Array<readonly [number, number]> = []
 
-    for (let index = 0; index < count; index++) {
-      const code = yield* reader.read(XdrCodec.uint32)
-      const operationStatus = yield* reader.read(XdrCodec.uint32)
-      operations.push([code, operationStatus])
+  for (let index = 0; index < count; index++) {
+    const code = yield* reader.read(XdrCodec.uint32)
+    const operationStatus = yield* reader.read(XdrCodec.uint32)
+    operations.push([code, operationStatus])
 
-      if (operationStatus === Status.OK && code === Operation.GETFH) yield* reader.read(XdrCodec.opaque())
+    if (operationStatus === Status.OK && code === Operation.GETFH) yield* reader.read(XdrCodec.opaque())
 
-      if (operationStatus === Status.OK && code === Operation.SEQUENCE) {
-        yield* reader.read(XdrCodec.fixedOpaque(16))
+    if (operationStatus === Status.OK && code === Operation.SEQUENCE) {
+      yield* reader.read(XdrCodec.fixedOpaque(16))
 
-        for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-      }
+      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
     }
+  }
 
-    return { status, tag, operations }
-  })
+  return { status, tag, operations }
+})
 
 export const exchangeId = (owner: string, verifier = new Uint8Array(8)): WriteOperation => (writer) =>
   Effect.gen(function*() {
@@ -142,49 +142,41 @@ export const exchangeId = (owner: string, verifier = new Uint8Array(8)): WriteOp
     yield* writer.write(XdrCodec.uint32, 0)
   })
 
-export const channel = (
-  writer: EncoderSession,
-  slots: number,
-  options: Partial<{
-    readonly maxRequest: number
-    readonly maxResponse: number
-    readonly maxCachedResponse: number
-    readonly maxOperations: number
-  }> = {}
-) =>
-  Effect.gen(function*() {
-    yield* writer.write(XdrCodec.uint32, 0)
-    yield* writer.write(XdrCodec.uint32, options.maxRequest ?? 65_536)
-    yield* writer.write(XdrCodec.uint32, options.maxResponse ?? 65_536)
-    yield* writer.write(XdrCodec.uint32, options.maxCachedResponse ?? 65_536)
-    yield* writer.write(XdrCodec.uint32, options.maxOperations ?? 32)
-    yield* writer.write(XdrCodec.uint32, slots)
-    yield* writer.write(XdrCodec.uint32, 0)
-  })
+export const channel = Effect.fnUntraced(function*(writer: EncoderSession, slots: number, options: Partial<{
+  readonly maxRequest: number
+  readonly maxResponse: number
+  readonly maxCachedResponse: number
+  readonly maxOperations: number
+}> = {}) {
+  yield* writer.write(XdrCodec.uint32, 0)
+  yield* writer.write(XdrCodec.uint32, options.maxRequest ?? 65_536)
+  yield* writer.write(XdrCodec.uint32, options.maxResponse ?? 65_536)
+  yield* writer.write(XdrCodec.uint32, options.maxCachedResponse ?? 65_536)
+  yield* writer.write(XdrCodec.uint32, options.maxOperations ?? 32)
+  yield* writer.write(XdrCodec.uint32, slots)
+  yield* writer.write(XdrCodec.uint32, 0)
+})
 
-export const authSysCallback = (writer: EncoderSession) =>
-  Effect.gen(function*() {
-    yield* writer.write(XdrCodec.uint32, 1)
-    yield* writer.write(XdrCodec.uint32, 0x6aa6_6b2d)
-    yield* writer.write(XdrCodec.string(), "Lloyds-Mech.local")
-    yield* writer.write(XdrCodec.uint32, 0)
-    yield* writer.write(XdrCodec.uint32, 0)
-    yield* writer.write(XdrCodec.array(XdrCodec.uint32), Array.from({ length: 16 }, (_, index) => index))
-  })
+export const authSysCallback = Effect.fnUntraced(function*(writer: EncoderSession) {
+  yield* writer.write(XdrCodec.uint32, 1)
+  yield* writer.write(XdrCodec.uint32, 0x6aa6_6b2d)
+  yield* writer.write(XdrCodec.string(), "Lloyds-Mech.local")
+  yield* writer.write(XdrCodec.uint32, 0)
+  yield* writer.write(XdrCodec.uint32, 0)
+  yield* writer.write(XdrCodec.array(XdrCodec.uint32), Array.from({ length: 16 }, (_, index) => index))
+})
 
-export const startSession = (
-  handler: Nfs4Handler,
-  owner: string,
-  fore: Parameters<typeof channel>[2] = {},
-  verifier = new Uint8Array(8),
-  on: Connection = defaultConnection,
-  /** Above zero, asks for CREATE_SESSION4_FLAG_CONN_BACK_CHAN and this many backchannel slots. */
-  backSlots = 0,
-  /** csa_sec_parms: the callback credentials the client authorizes. Defaults to AUTH_NONE. */
-  security: WriteOperation = (writer) => writer.write(XdrCodec.array(XdrCodec.uint32), [0]),
-  credentials: Credentials = { _tag: "None" }
-) =>
-  Effect.gen(function*() {
+export const startSession = Effect.fnUntraced(
+  function*(
+    handler: Nfs4Handler,
+    owner: string,
+    fore: Parameters<typeof channel>[2] = {},
+    verifier = new Uint8Array(8),
+    on: Connection = defaultConnection,
+    backSlots = 0,
+    security: WriteOperation = (writer) => writer.write(XdrCodec.array(XdrCodec.uint32), [0]),
+    credentials: Credentials = { _tag: "None" }
+  ) {
     const exchange = yield* make.openReader(
       yield* handler.compound(yield* call([exchangeId(owner, verifier)], "probe", on, credentials)),
       limits
@@ -224,7 +216,8 @@ export const startSession = (
     yield* response.read(XdrCodec.uint32)
 
     return { client, session: yield* response.read(XdrCodec.fixedOpaque(16)) }
-  })
+  }
+)
 
 export const sequence = (session: Uint8Array, sequence: number, cache = false, slot = 0): WriteOperation => (writer) =>
   Effect.gen(function*() {
@@ -251,33 +244,32 @@ export const openByName = (client: bigint, name: string, access = 1, deny = 0): 
 
 export const openReadOnly = (client: bigint, name: string) => openByName(client, name)
 
-export const parseOpen = (bytes: Uint8Array) =>
-  Effect.gen(function*() {
-    const reader = yield* make.openReader(bytes, limits)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-    yield* reader.read(XdrCodec.string())
-    yield* reader.read(XdrCodec.uint32)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-    yield* reader.read(XdrCodec.fixedOpaque(16))
+export const parseOpen = Effect.fnUntraced(function*(bytes: Uint8Array) {
+  const reader = yield* make.openReader(bytes, limits)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+  yield* reader.read(XdrCodec.string())
+  yield* reader.read(XdrCodec.uint32)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+  yield* reader.read(XdrCodec.fixedOpaque(16))
 
-    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.OPEN)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-    const stateid = yield* reader.read(XdrCodec.fixedOpaque(16))
-    const atomic = yield* reader.read(XdrCodec.boolean)
-    yield* reader.read(XdrCodec.uint64)
-    yield* reader.read(XdrCodec.uint64)
-    yield* reader.read(XdrCodec.uint32)
-    yield* reader.read(XdrCodec.array(XdrCodec.uint32))
-    yield* reader.read(XdrCodec.uint32)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.GETFH)
-    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+  for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.OPEN)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+  const stateid = yield* reader.read(XdrCodec.fixedOpaque(16))
+  const atomic = yield* reader.read(XdrCodec.boolean)
+  yield* reader.read(XdrCodec.uint64)
+  yield* reader.read(XdrCodec.uint64)
+  yield* reader.read(XdrCodec.uint32)
+  yield* reader.read(XdrCodec.array(XdrCodec.uint32))
+  yield* reader.read(XdrCodec.uint32)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.GETFH)
+  assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
 
-    return { stateid, atomic, filehandle: yield* reader.read(XdrCodec.opaque()) }
-  })
+  return { stateid, atomic, filehandle: yield* reader.read(XdrCodec.opaque()) }
+})
 
 export const stateidWithSequence = (stateid: Uint8Array, sequence: number) => {
   const copy = new Uint8Array(stateid)
@@ -287,11 +279,12 @@ export const stateidWithSequence = (stateid: Uint8Array, sequence: number) => {
 }
 
 /** The export over `caller`, the handler serving it, and a confirmed session for `owner`. */
-export const openSession = (caller: Vfs.Caller, owner: string, overrides: HandlerOverrides = {}) =>
-  Effect.gen(function*() {
+export const openSession = Effect.fnUntraced(
+  function*(caller: Vfs.Caller, owner: string, overrides: HandlerOverrides = {}) {
     const { export: exportOverrides, ...options } = overrides
     const export_ = yield* exportFor(caller, exportOverrides)
     const handler = yield* handlerFor(export_, options)
 
     return { export_, handler, ...(yield* startSession(handler, owner)) }
-  })
+  }
+)

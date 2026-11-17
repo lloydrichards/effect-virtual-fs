@@ -73,7 +73,7 @@ See the [detailed feature map](.okf/architecture/package-feature-map.md#detailed
 - Use [`@effect-vfs/nfs`](packages/nfs/README.md) to expose one live volume through the preview read-only NFSv4.1
   profile or the experimental writable profile with qualified storage. It is not a conformant or production NFS server.
 
-The package declares the exact Effect version it supports as a peer dependency. Check that requirement before
+The package declares the supported Effect patch line as a peer dependency. Check that requirement before
 upgrading an existing Effect installation.
 
 For architecture and behavioral contracts, start with the [project knowledge overview](.okf/profiles/project-overview.md).
