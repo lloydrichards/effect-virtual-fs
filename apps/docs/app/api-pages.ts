@@ -215,7 +215,27 @@ export const apiPages = [
     label: "Persistence · R2LiveImageStore",
     href: "/api/persistence/r2-live-image-store",
     routePath: "persistence/r2-live-image-store",
-    contentPath: "content/api/persistence/r2-live-image-store.mdx"
+    contentPath: "content/api/persistence/r2-live-image-store.mdx",
+    relatedLinks: [
+      { label: "Transport-independent R2 store", href: "/api/persistence/r2-store" },
+      { label: "AWS SDK transport", href: "/api/persistence/r2-s3-transport" }
+    ]
+  },
+  {
+    packageDir: "packages/persistence",
+    moduleName: "R2Store",
+    label: "Persistence · R2Store",
+    href: "/api/persistence/r2-store",
+    routePath: "persistence/r2-store",
+    contentPath: "content/api/persistence/r2-store.mdx"
+  },
+  {
+    packageDir: "packages/persistence",
+    moduleName: "R2S3Transport",
+    label: "Persistence · R2S3Transport",
+    href: "/api/persistence/r2-s3-transport",
+    routePath: "persistence/r2-s3-transport",
+    contentPath: "content/api/persistence/r2-s3-transport.mdx"
   },
   {
     packageDir: "packages/nfs",
