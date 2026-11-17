@@ -14,6 +14,15 @@ sources:
   - id: lineage
     resource: ../../packages/core/src/internal/overlayDiff.ts
     title: Identity-based pairing of removed and added names
+  - id: lineage-preparation
+    resource: ../../packages/core/src/internal/overlayMergeLineage.ts
+    title: Verified overlay lineage scans and group limits
+  - id: core-merge
+    resource: ../../packages/core/src/internal/snapshotMerge.ts
+    title: Internal capture merge and shared delta emission
+  - id: overlay-merge-tests
+    resource: ../../packages/core/test/internal/overlayMerge.test.ts
+    title: Core overlay merge behavior and limit checks
   - id: tests
     resource: ../../packages/core/test/SnapshotDelta.test.ts
     title: Current delta-only rename behavior and merge laws
@@ -23,15 +32,15 @@ sources:
 
 If one overlay moves `/r.txt` to `/moved.txt` and another edits `/r.txt`, the proposed merge puts the edited file at `/moved.txt`. The shipped [snapshot delta merge](../contracts/snapshot-deltas.md) compares paths. In the same case it reports `ChangedRemoved` at `/r.txt` and adds `/moved.txt`. Both behaviors have a purpose. Callers opt into lineage through a separate merge interface.
 
-This draft proposes a community-core extension. A named consumer and its required behavior must be agreed before implementation. Inclusion in the [minimal Effect port](minimal-effect-port.md) requires a separate scope decision. Issue [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271) remains outside the v1.0 requirements.
+The release handoff in the private Code Mode demo exercised the rename-and-edit case and the divergent-destination case in [#418](https://github.com/lloydrichards/effect-virtual-fs/pull/418). Core now implements the merge privately. A public core API and inclusion in the [minimal Effect port](minimal-effect-port.md) require separate scope decisions. Issue [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271) remains outside the v1.0 requirements.
 
 ## Capture and merge
 
-The proposed operations are `captureOverlayForMerge(overlay)` and `mergeOverlayCaptures(base, ours, theirs, options?)`. The first returns an opaque in-process value from a genuine core overlay. The second returns a standard `SnapshotDelta` and conflict records. The existing `OverlayVolume` and `OverlayCapture` shapes, delta-only operation, and version 1 delta encoding stay compatible.
+The internal operations are `captureOverlayForMerge(overlay)` and `mergeOverlayCaptures(base, ours, theirs, limits, options?)`. The first returns an opaque in-process value from a genuine core overlay. The second returns a standard `SnapshotDelta` and conflict records. The existing `OverlayVolume` and `OverlayCapture` shapes, delta-only operation, and version 1 delta encoding stay compatible.
 
 The capture retains the overlay's original base and an immutable view of the target and its private lineage from one committed state. Merge compares both retained bases with the supplied base by the existing canonical snapshot identity and rejects a mismatch with `BaseMismatch`. An independently restored base with the same identity is eligible. Lineage is derived inside each original overlay and matches across sides by the source path in that common base. Runtime inode numbers from two overlays are never matched against one another. A fabricated capture fails input validation. A plain capture or detached `Renamed` record cannot establish provenance.
 
-The base check and lineage preparation use the merge's finite limits. Count additional lineage and conflict work during implementation, including alias scans and the total number of paths held by conflict groups. Bytes and metadata come from the verified snapshots. The result applies through `applySnapshotDelta` to the same base. It carries the merged tree in the current encoding.
+The merge checks each snapshot using the shared identity, entry and record limits before scanning lineage. It caps rename groups by the delta record limit, distinct group paths by the entry limit, and their total raw byte length by the decoded delta byte limit. It checks the number of resolution entries against the delta record limit and the number of eligible conflicts. Bytes and metadata come from the verified snapshots. The result applies through `applySnapshotDelta` to the same base. It carries the merged tree in the current encoding.
 
 ## First supported moves
 
@@ -63,7 +72,7 @@ The caller submits one `{ source, take }` resolution for the whole rename group.
 
 ## Review and verification
 
-Confirm the consumer, the lifetime of the opaque capture, and the proposed conflict and resolution shapes before writing production code. The implementation must earn its added interface by keeping lineage validation and delta emission inside core. A portable rename format, destination choice outside the existing paths, and cross-process trust require separate designs.
+The core overlay merge tests exercise the merge through real overlays. The capture retains immutable snapshots and survives later writes. It has no dependency on an open overlay or external storage. A portable rename format, destination choice outside the existing paths, and cross-process trust require separate designs.
 
 - Exercise every outcome through real overlay operations. Include timestamp-only differences, field-wise metadata, and independent same-byte additions. Verify removal followed by recreation with equal bytes yields no move.
 - Reject fabricated captures, wrong bases, pre-existing destinations, replaced parents, and ambiguous or overlapping moves. Reject a destination directory containing a child before emitting a delta. Accept equivalent base snapshots and confirm later overlay writes leave captures unchanged.

@@ -23,9 +23,19 @@ import * as Image from "./image.js"
 import * as Merkle from "./merkle.js"
 import type { StoredMetadata } from "./metadata.js"
 import { Errors, State } from "./model.js"
+import {
+  collectGroups,
+  type LocalNodes,
+  localNodes,
+  OVERLAY_OPERATION,
+  prepareCapture,
+  type PreparedCapture,
+  type RenameGroup
+} from "./overlayMergeLineage.js"
 import * as Delta from "./snapshotDelta.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 import { UNCHECKED } from "./tree.js"
+import type { MergeCapture } from "./virtualFileSystem.js"
 import { storedMetadata } from "./volumeState.js"
 
 const argumentFailure = Errors.argumentFailure
@@ -226,9 +236,14 @@ const indexSide = (side: Side, document: Delta.Document, state: VolumeState, bas
   return { side, state, changes, paths, sorted, inoAt, classes, eliminated: Arr.sort(eliminated, Order.String) }
 }
 
-const indexBase = (value: VolumeState, identity: Merkle.Identity, inputs: ReadonlyArray<Input>): Base => {
+const indexBase = (
+  value: VolumeState,
+  identity: Merkle.Identity,
+  inputs: ReadonlyArray<Input>,
+  explicitPaths?: ReadonlyMap<string, Uint8Array>
+): Base => {
   const nodes = new Map<string, Node | undefined>()
-  const paths = new Map<string, Uint8Array>()
+  const paths = new Map(explicitPaths)
 
   for (const input of inputs) for (const [pathKey, path] of input.paths) paths.set(pathKey, path)
 
@@ -1297,7 +1312,20 @@ export const mergeSnapshotDeltas = Effect.fnUntraced(function*(
   const classified = classify(indexed, inputs.ours, inputs.theirs)
   const settled = yield* settle(classified, inputs, resolutions)
 
-  const changes = yield* Result.match(emit(indexed, settled.decisions, indexed.paths), {
+  const delta = yield* emitDelta(indexed, settled.decisions, indexed.paths, limits)
+
+  return { delta, conflicts: settled.conflicts }
+})
+
+const emitDelta = Effect.fnUntraced(function*(
+  indexed: Base,
+  decisions: ReadonlyMap<string, Decision>,
+  paths: ReadonlyMap<string, Uint8Array>,
+  limits: DeltaBudget
+) {
+  const { value, identity } = indexed
+
+  const changes = yield* Result.match(emit(indexed, decisions, paths), {
     onFailure: (reason) => Effect.die(new Error(`mergeSnapshotDeltas: ${reason}`)),
     onSuccess: Effect.succeed
   })
@@ -1320,5 +1348,229 @@ export const mergeSnapshotDeltas = Effect.fnUntraced(function*(
   const document: Delta.Document = { ...draft, target: CanonicalBase64.encode(target) }
   yield* Effect.fromResult(Delta.validate(document, limits))
 
-  return { delta: SnapshotDeltaModel.make(document), conflicts: settled.conflicts }
+  return SnapshotDeltaModel.make(document)
+})
+
+interface OverlayMergeOptions {
+  readonly paths?: ReadonlyArray<MergeResolution>
+  readonly renames?: ReadonlyArray<{ readonly source: MergeResolution["path"]; readonly take: Take }>
+}
+
+interface RenameConflict {
+  readonly source: MergeResolution["path"]
+  readonly path: MergeResolution["path"]
+  readonly reason: "RenameDiverged" | "BothChanged" | "ChangedRemoved" | "BothAddedDifferent"
+  readonly ours: {
+    readonly destination: MergeResolution["path"] | undefined
+    readonly changes: MergeSideChange
+    readonly independentAddition: boolean
+  }
+  readonly theirs: {
+    readonly destination: MergeResolution["path"] | undefined
+    readonly changes: MergeSideChange
+    readonly independentAddition: boolean
+  }
+}
+
+const summarizeRenameSide = (before: Node, local: LocalNodes, path: Uint8Array | undefined) => {
+  const meaningful = local.node === undefined
+    ? []
+    : differencesBetween(before, resolve(local.node), false).filter((field) => !isTimeField(field))
+
+  return {
+    destination: path === undefined ? undefined : makeBytePath(path.slice()),
+    changes: local.node === undefined
+      ? Removed.make({ kind: before.kind }, UNCHECKED)
+      : meaningful.length === 0
+      ? Unchanged.make({}, UNCHECKED)
+      : Updated.make({ beforeKind: before.kind, afterKind: local.node.kind, differences: meaningful }, UNCHECKED),
+    independentAddition: local.addition !== undefined
+  }
+}
+
+const chooseRename = (
+  before: Resolved,
+  group: RenameGroup,
+  ours: LocalNodes,
+  theirs: LocalNodes
+): { readonly node?: Resolved } | { readonly reason: RenameConflict["reason"] } => {
+  if (group.ours !== undefined && group.theirs !== undefined && !sameBytes(group.ours, group.theirs)) {
+    return { reason: "RenameDiverged" }
+  }
+
+  if (ours.node === undefined || theirs.node === undefined) {
+    const moved = ours.node ?? theirs.node
+
+    return moved === undefined || sameNode(before, resolve(moved)) ? {} : { reason: "ChangedRemoved" }
+  }
+
+  const combined = combine(before, resolve(ours.node), resolve(theirs.node))
+
+  if (combined.clashes.length > 0) return { reason: "BothChanged" }
+
+  const addition = ours.addition ?? theirs.addition
+  const node = addition === undefined ? combined.node : combineFresh(combined.node, resolve(addition.node))
+
+  return node === undefined ? { reason: "BothAddedDifferent" } : { node }
+}
+
+/** @internal */
+export const mergeOverlayCaptures = Effect.fnUntraced(function*(
+  base: Snapshot,
+  ours: MergeCapture,
+  theirs: MergeCapture,
+  limits: DeltaBudget,
+  options: OverlayMergeOptions = {}
+) {
+  const resolutions = options.renames ?? []
+  const pathResolutions = options.paths ?? []
+
+  if (resolutions.length + pathResolutions.length > limits.records) {
+    return yield* imageFailure(OVERLAY_OPERATION, "LimitExceeded", { field: "mergeResolutions" })
+  }
+
+  const value = yield* Image.valueOf(base)
+  const identity = yield* Merkle.identify(value, Delta.baseBudget(limits))
+
+  const captures = {
+    ours: yield* prepareCapture(ours, base, identity, limits),
+    theirs: yield* prepareCapture(theirs, base, identity, limits)
+  }
+
+  const groups = yield* collectGroups(captures.ours, captures.theirs, limits)
+
+  const pending = new Map<string, {
+    readonly group: RenameGroup
+    readonly ours: LocalNodes
+    readonly theirs: LocalNodes
+    readonly before: Node
+    readonly reason: RenameConflict["reason"]
+  }>()
+
+  const renamePaths = new Map<string, Uint8Array>()
+  const renameDecisions = new Map<string, Decision>()
+  const renameConflicts: Array<RenameConflict> = []
+
+  const place = (key: string, node: Resolved) =>
+    renameDecisions.set(key, Decision.Node({ lineage: `rename:${key}`, node }))
+
+  for (const [key, group] of groups) {
+    const ours = yield* Effect.fromResult(localNodes(captures.ours, group, "ours"))
+    const theirs = yield* Effect.fromResult(localNodes(captures.theirs, group, "theirs"))
+    const before = lookupNode(value, group.source)!
+    const result = chooseRename(resolve(before), group, ours, theirs)
+    const destination = (group.ours ?? group.theirs)!
+    const targetKey = Delta.key(destination)
+
+    renamePaths.set(key, group.source)
+    renamePaths.set(targetKey, destination)
+
+    if (group.theirs !== undefined) renamePaths.set(Delta.key(group.theirs), group.theirs)
+
+    if ("reason" in result) {
+      pending.set(key, { group, ours, theirs, before, reason: result.reason })
+      continue
+    }
+
+    renameDecisions.set(key, Decision.Removed())
+
+    if (result.node !== undefined) place(targetKey, result.node)
+  }
+
+  if (resolutions.length > pending.size) return yield* argumentFailure(OVERLAY_OPERATION, "renames")
+  const takes = new Map<string, Take>()
+
+  for (const { source, take } of resolutions) {
+    const path = getBytes(source)
+    const key = path === undefined ? undefined : Delta.key(path)
+
+    if (
+      key === undefined || !pending.has(key) || takes.has(key) ||
+      (take !== "ours" && take !== "theirs" && take !== "base")
+    ) {
+      return yield* argumentFailure(OVERLAY_OPERATION, "renames")
+    }
+
+    takes.set(key, take)
+  }
+
+  for (const [key, { group, ours, theirs, before, reason }] of pending) {
+    const take = takes.get(key)
+    const destination = (group.ours ?? group.theirs)!
+
+    if (take === undefined) {
+      renameConflicts.push({
+        source: makeBytePath(group.source.slice()),
+        path: makeBytePath((reason === "RenameDiverged" ? group.source : destination).slice()),
+        reason,
+        ours: summarizeRenameSide(before, ours, group.ours),
+        theirs: summarizeRenameSide(before, theirs, group.theirs)
+      })
+
+      continue
+    }
+
+    if (take === "base") continue
+    const local = take === "ours" ? ours : theirs
+    const moved = group[take]
+
+    if (local.atSource === undefined) renameDecisions.set(key, Decision.Removed())
+    else place(key, resolve(local.atSource))
+
+    if (moved !== undefined && local.node !== undefined) place(Delta.key(moved), resolve(local.node))
+
+    if (local.addition !== undefined) place(Delta.key(local.addition.path), resolve(local.addition.node))
+  }
+
+  const before = Delta.side(value, identity)
+
+  const inputs = {
+    ours: yield* overlayInput("ours", before, captures.ours, renamePaths, limits),
+    theirs: yield* overlayInput("theirs", before, captures.theirs, renamePaths, limits)
+  }
+
+  const indexed = indexBase(value, identity, [inputs.ours, inputs.theirs], renamePaths)
+  const classified = classify(indexed, inputs.ours, inputs.theirs)
+  const reportedPaths = classified.scopes.reduce((total, scope) => total + scope.records.length, 0)
+
+  if (pathResolutions.length > reportedPaths) return yield* argumentFailure(OVERLAY_OPERATION, "paths")
+  const chosen = new Set<string>()
+
+  for (const { path, take } of pathResolutions) {
+    const bytes = getBytes(path)
+    const key = bytes === undefined ? undefined : Delta.key(bytes)
+
+    if (
+      key === undefined || renamePaths.has(key) || chosen.has(key) ||
+      (take !== "ours" && take !== "theirs" && take !== "base")
+    ) {
+      return yield* argumentFailure(OVERLAY_OPERATION, "paths")
+    }
+
+    chosen.add(key)
+  }
+
+  const settled = yield* settle(classified, inputs, pathResolutions)
+  const decisions = new Map([...settled.decisions, ...renameDecisions])
+  const delta = yield* emitDelta(indexed, decisions, indexed.paths, limits)
+
+  return {
+    delta,
+    conflicts: settled.conflicts,
+    renameConflicts: Arr.sortWith(renameConflicts, (conflict) => getBytes(conflict.source)!, bytesOrder)
+  }
+})
+
+const overlayInput = Effect.fnUntraced(function*(
+  side: Side,
+  base: Delta.Side,
+  capture: PreparedCapture,
+  excluded: ReadonlyMap<string, Uint8Array>,
+  limits: DeltaBudget
+) {
+  const target = Delta.side(capture.state, capture.target)
+  const document = yield* Effect.fromResult(Delta.diffIdentified(base, target, limits))
+  const changes = document.changes.filter((change) => !excluded.has(Delta.key(CanonicalBase64.toBytes(change.path))))
+
+  return indexSide(side, { ...document, changes }, capture.state, base.value)
 })
