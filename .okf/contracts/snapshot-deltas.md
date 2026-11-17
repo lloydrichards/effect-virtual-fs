@@ -27,7 +27,7 @@ sources:
     resource: ../../packages/core/test/SnapshotDelta.test.ts
     title: Hostile decoding and exact-boundary limit tests
   - id: effect-crypto
-    resource: ../../packages/core/node_modules/effect/src/crypto/Digest.ts
+    resource: https://github.com/Effect-TS/effect/blob/effect%404.1.4/packages/effect/src/crypto/Digest.ts
     title: Installed Effect digest service and Web Crypto provider
   - id: merge
     resource: ../../packages/core/src/internal/snapshotMerge.ts
