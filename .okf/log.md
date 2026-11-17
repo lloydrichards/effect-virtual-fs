@@ -9,6 +9,8 @@
 
 - Require supplied clients across live-image store layers. Record PostgreSQL dedicated-client and receive-budget obligations, native client startup errors, borrowed-client lifetimes, per-store D1 drainage and local provider composition. Remove the R2 client option in favor of an injected capability service.
 
+- Enforce R2 image limits during S3 body reads through an optional bounded transport operation.
+
 - Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
 
 - Resolve Effect tag-handler and construction rules against imported bindings. Native rules own direct catch-tag
@@ -16,17 +18,27 @@
 
 - Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
 
+- Expose the scoped NFS listener's termination to serving programs and distinguish typed socket failures from normal shutdown.
+
 - Add the bounded D1 adapter and explicit STRICT migration. Record primary-only bindings, externally controlled ownership and pending-statement drainage before handoff. Add workerd contracts and a hosted qualification harness, with hosted release qualification still pending.
 
 - Add PostgreSQL live-image persistence with explicit migrations, one application-controlled owner, private scoped sessions and a memory-only release guarantee. Reuse adapter contracts and add a real PostgreSQL CI job. Defer writable NFS and D1 implementation.
 
+- Retire core compatibility tokens, symlinks, directory order, and handle grants through committed namespace and handle-release events.
+
 - **Shared Effect diagnostic policy**: Pin tsgo 0.70.0 and derive Oxlint and standalone checks from the compiler preset, retaining narrow preview/synchronous exceptions and preserving separate source and compatibility work.
+
+- Limit reducer accumulator copy lint to direct growing array concatenations and record semantic constraints for array fusion and reflection.
 
 - Consolidate validation under one local/CI sequence, keep Git hooks fast and read-only beyond staged formatting, and place
   tests and fixtures with their owning tooling. Remove superseded launchers and reuse existing consumer contracts.
 
 - Record Effect-aligned repository validation: complete workspace and export classification, public documentation and
   type contracts, checked lint tooling, dependency direction, generated ownership, and selected packed-consumer compilers.
+
+- Record [static analysis policy research](research/static-analysis-policy.md): effective diagnostic disagreement,
+  boundary-safe rule design, semantic limits, proposed rollout criteria and nine implementation issues. Keep proposals
+  separate from accepted validation policy.
 
 ## 2026-11-16
 

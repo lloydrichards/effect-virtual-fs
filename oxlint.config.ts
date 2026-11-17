@@ -2,6 +2,8 @@ import { effectNative, recommended } from "@effect/tsgo/oxlint-presets"
 import { defineConfig } from "oxlint"
 import compiler from "./packages/config-typescript/base.json" with { type: "json" }
 
+import { policies } from "./tools/checks/repository.mjs"
+
 const [languageService] = compiler.compilerOptions.plugins
 
 if (languageService === undefined) throw new Error("Missing shared Effect language-service policy")
@@ -99,7 +101,6 @@ export default defineConfig({
     "typescript/no-empty-object-type": "off",
     "typescript/no-confusing-non-null-assertion": "off",
     "oxc/no-accumulating-spread": "error",
-    "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
@@ -107,7 +108,6 @@ export default defineConfig({
     "anti-slop/no-module-mocking": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-reflect-apply": "error",
-    "anti-slop/no-reflect-get": "error",
     "anti-slop/no-runtime-typeof": "error",
     "anti-slop/require-public-effect-fn-signature": "error",
     "anti-slop/require-public-internal-alias-type": "error",
@@ -134,6 +134,14 @@ export default defineConfig({
     ]
   },
   "overrides": [
+    {
+      "files": Object.entries(policies).flatMap(([workspace, policy]) =>
+        policy.kind === "library" ? [`${workspace}/src/**/*.{ts,tsx}`] : []
+      ),
+      "rules": {
+        "anti-slop-effect/no-package-spans": "error"
+      }
+    },
     {
       "files": [
         "packages/persistence/src/**/*.ts",
@@ -169,7 +177,8 @@ export default defineConfig({
         "**/{test,typetest,examples,benchmark,bundle,scripts,scratchpad}/**"
       ],
       "rules": {
-        "eslint/no-console": "off"
+        "eslint/no-console": "off",
+        "anti-slop-effect/no-package-spans": "off"
       }
     },
     {
@@ -182,7 +191,8 @@ export default defineConfig({
         "**/test/**/*.tsx"
       ],
       "rules": {
-        "anti-slop-effect/no-manual-tagged-construction": "off"
+        "anti-slop-effect/no-manual-tagged-construction": "off",
+        "anti-slop-effect/no-package-spans": "off"
       }
     },
     {

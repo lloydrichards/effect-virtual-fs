@@ -13,7 +13,7 @@ bun add "effect@$(npm view @effect-vfs/nfs peerDependencies.effect)" "@effect/pl
 
 ## Create and serve a volume
 
-Save this as `server.ts`. The fixture creates `/hello.txt`, and the caller supplies the authority used for every NFS read. `NfsServer.make` starts the socket server. `Effect.never` keeps its scope, volume, and caller alive until you stop the process.
+Save this as `server.ts`. The fixture creates `/hello.txt`, and the caller supplies the authority used for every NFS read. `NfsServer.make` starts the socket server. `server.awaitTermination` keeps the scope open while the server runs and reports listener failures as `NfsServerError`.
 
 ```ts {16-17,22,25-28}
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
@@ -37,7 +37,7 @@ const program = Effect.scoped(
     const address = server.address
     yield* Effect.log("path" in address ? `NFS listening at ${address.path}` :
       `NFS listening at ${address.host}:${address.port}`)
-    return yield* Effect.never
+    return yield* server.awaitTermination
   })
 ).pipe(
   Effect.provide(Layer.merge(

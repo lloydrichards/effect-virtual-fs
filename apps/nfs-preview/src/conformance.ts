@@ -51,7 +51,7 @@ const program = Effect.scoped(
       `pynfs: nfs4.1/testserver.py 127.0.0.1:${server.address.port}/ --minorversion 1 --security sys --noinit --nocleanup --force all noreboot nocourteous`
     )
 
-    return yield* Effect.never
+    return yield* server.awaitTermination
   })
 ).pipe(
   Effect.provide(Layer.mergeAll(VfsLive, BunCrypto.layer, BunSocketServer.layer({ host: "127.0.0.1", port })))

@@ -112,7 +112,12 @@ const Store = R2LiveImageStore.layer({
 }).pipe(Layer.provide(R2ClientLayer))
 ```
 
-The AWS SDK creates `s3`; `fromS3` adapts its R2-compatible operations into the supplied Effect service.
+The AWS SDK creates `s3`. The store passes `maxImageBytes` to the bounded reader supplied by `fromS3`.
+It rejects an oversized response before reading when the reported length exceeds the limit. Otherwise, it counts chunks
+and releases the body when a chunk crosses the limit. An oversized stored image fails with `CorruptStore`.
+The SDK and its HTTP handler may buffer bytes before exposing a chunk. Legacy custom clients are checked after `read`
+returns. Implement `readBounded` to enforce a transport limit. Direct calls to `fromS3(...).read` still materialize the body.
+
 Keep the store Layer open for the full owner lifetime. For example, provide it around the program that uses the volume,
 or build it with `Layer.build` in the enclosing owner scope. Close the complete owner before opening a replacement for the
 same key. Closing waits for outstanding requests, even if their callers stopped waiting. The store borrows the SDK client,

@@ -29,6 +29,9 @@ Mount explicitly with NFSv4.1. The package excludes NFSv4.0, NFSv4.2, and RPCSEC
 options. Both require an Effect `SocketServer`. Local mode accepts loopback TCP or a UNIX-domain socket.
 Networked mode requires an application identity policy and `allowNonLoopback: true` to bind elsewhere.
 
+Wait on `server.awaitTermination` from the serving program to observe listener failures as `NfsServerError`. The
+listener is scoped, and closing its owner ends the wait normally after listener cleanup.
+
 Read locks are advisory between NFS clients. Direct VFS callers do not participate. Write locks return
 `NFS4ERR_ROFS` in read-only mode. Lease expiry and client revocation remove in-memory lock state.
 
