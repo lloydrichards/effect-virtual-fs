@@ -12,9 +12,9 @@
 
 - Add PostgreSQL live-image persistence with explicit migrations, one application-controlled owner, private scoped sessions and a memory-only release guarantee. Reuse adapter contracts and add a real PostgreSQL CI job. Defer writable NFS and D1 implementation.
 
-- Qualify a 10,000-file snapshot-delta workload with explicit volume and delta limits. Record the default rejection, one-below-limit checks and process memory cost.
-
 - **Shared Effect diagnostic policy**: Pin tsgo 0.70.0 and derive Oxlint and standalone checks from the compiler preset, retaining narrow preview/synchronous exceptions and preserving separate source and compatibility work.
+
+- Qualify a 10,000-file snapshot-delta workload with explicit volume and delta limits. Record the default rejection, one-below-limit checks and process memory cost.
 
 - Consolidate validation under one local/CI sequence, keep Git hooks fast and read-only beyond staged formatting, and place
   tests and fixtures with their owning tooling. Remove superseded launchers and reuse existing consumer contracts.
