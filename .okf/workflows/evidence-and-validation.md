@@ -71,7 +71,7 @@ Build before type-aware lint and consumer checks because packages export declara
 
 - `bun run check` is the fast read-only repository gate. `bun run lint` runs Oxlint only.
 - `bun run lint:effects` discovers applicable workspaces and accepts a workspace directory or package name for a focused run.
-- `bun run type-check` checks the lint implementation and workspace type contracts. Preview qualification retains its scoped
+- `bun run type-check` checks the typed Oxlint configuration, lint implementation and workspace type contracts. Preview qualification retains its scoped
   type, regeneration and standalone schema-consumer checks.
 - `bun run test` runs the tooling contracts and the shared runtime suites. `bun run test:tooling` is the focused policy suite:
   isolated lint fixtures, package/export checks, architecture checks and the docs workspace's documentation tests.

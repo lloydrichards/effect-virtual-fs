@@ -27,8 +27,51 @@
         "barrelImportPackages": [
           "effect"
         ],
-        "includeSuggestionsInTsc": true,
-        "diagnostics": false
+        "includeSuggestionsInTsc": false,
+        "diagnostics": false,
+        "effectFn": [
+          "untraced"
+        ],
+        "diagnosticSeverity": {
+          "effectFnOpportunity": "error",
+          "lazyEffect": "error",
+          "allOfMapToForEach": "error",
+          "preferEffectArray": "off",
+          "preferEffectRecord": "off",
+          "preferEffectString": "off",
+          "globalJson": "off",
+          "schemaClassMissingBrand": "off",
+          "errorPayloadShadowsName": "off",
+          "resultMatchToFromResult": "off",
+          "unstableApiUsage": "off",
+          "strictEffectProvide": "off"
+        },
+        "overrides": [
+          {
+            "include": [
+              "../../packages/core/src/internal/runtime.ts",
+              "../../packages/core/src/internal/synchronous.ts",
+              "../../packages/core/src/internal/durableStorage.ts",
+              "../../packages/core/src/internal/volumeWatch.ts",
+              "../../packages/core/test/PreviewRuntime.test.ts"
+            ],
+            "options": {
+              "diagnosticSeverity": {
+                "experimentalApiUsage": "off"
+              }
+            }
+          },
+          {
+            "include": [
+              "../../packages/core/src/internal/synchronous.ts"
+            ],
+            "options": {
+              "diagnosticSeverity": {
+                "runEffectInsideEffect": "off"
+              }
+            }
+          }
+        ]
       }
     ],
     "noEmit": true

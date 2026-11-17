@@ -1,5 +1,4 @@
 // The compatibility boundary owns core tokens and policy; all live filesystem state belongs to the public preview.
-/* eslint-disable effecttsgo/experimental-api-usage */
 import { BytePath as Path, VirtualFileSystem as P } from "@effect-vfs/effect-preview"
 import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
 import { cleanupError, resumeAllocator } from "@effect-vfs/effect-preview/internal/durableStorage"

@@ -1,3 +1,4 @@
+import compiler from "../../packages/config-typescript/base.json" with { type: "json" }
 import { root, validateInventory } from "./repository.mjs"
 
 const selected = process.argv.slice(2)
@@ -20,16 +21,9 @@ for (const workspace of workspaces) {
     continue
   }
 
-  // These diagnostics are not all applied by Oxlint in the pinned TSGo version.
-  const options = {
-    diagnostics: true,
-    effectFn: ["untraced"],
-    diagnosticSeverity: {
-      effectFnOpportunity: "error",
-      lazyEffect: "error",
-      allOfMapToForEach: "error"
-    }
-  }
+  // Oxlint and editors use the same policy. Only the dedicated pass enables diagnostics here.
+  const options = { ...compiler.compilerOptions.plugins[0], diagnostics: true }
+  delete options.name
 
   console.log(`Effect diagnostics: ${workspace.directory}`)
 

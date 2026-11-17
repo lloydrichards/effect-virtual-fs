@@ -1,13 +1,13 @@
 import { strict as assert } from "node:assert"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
+
+import policy from "../../../oxlint.config.ts"
 
 import { ruleCases } from "./cases.mjs"
 
 const root = path.resolve(import.meta.dirname, "../../..")
-
-const policy = JSON.parse(await readFile(path.join(root, ".oxlintrc.json"), "utf8"))
 
 const enabledRules = Object.keys(policy.rules).filter((rule) =>
   rule.startsWith("anti-slop") && policy.rules[rule] !== "off"

@@ -24,7 +24,8 @@ Omit Codex signatures and co-author trailers. Give new branches descriptive name
 
 Follow the [repository validation policy](.okf/decisions/repository-validation.md) and
 [validation workflow](.okf/workflows/evidence-and-validation.md). Keep policy metadata in `tools/checks/repository.mjs`;
-workspace manifests discover packages and exports.
+workspace manifests discover packages and exports. Shared Effect diagnostic settings and exceptions belong in
+`packages/config-typescript/base.json`; `oxlint.config.ts` and the standalone runner consume that policy.
 
 - Use `bun run check` for read-only formatting, inventory, dependency direction and runtime-cycle checks.
 - Use `bun run test:tooling` after editing policy checks or lint rules. `bun run lint` does not execute tests.

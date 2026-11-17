@@ -1,4 +1,3 @@
-/* eslint-disable effecttsgo/experimental-api-usage */
 import { BytePath, type VirtualFileSystem as P } from "@effect-vfs/effect-preview"
 import { Cause, Effect, Exit, Predicate, Queue, Scope, Stream } from "effect"
 import * as Scheduler from "effect/Scheduler"
