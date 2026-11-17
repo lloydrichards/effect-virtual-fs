@@ -87,6 +87,17 @@ read-side checks against a mounted preview and prints the client platform. Recor
 | 2026-09-16 | macOS 26.6.2 `mount_nfs`, `vers=4.1,sec=sys,noowners` (writable on the client)                                                                                                                        | preview with the read-only completion and the Section 15.2 audit | `verify-mount` (16 checks): 16 passed, 0 failed. The mount was writable on the client, so `touch`, `mkdir`, and append were refused by the server's `NFS4ERR_ROFS`, and the file was unchanged afterwards                                                                                                                      |
 | 2026-09-16 | Linux kernel `6.17.0-1022-azure`, Ubuntu 24.04.5 LTS, `nfs-utils` 2.6.4 (`ubuntu-24.04` runner image 20260907.300.1), `nfsvers=4.1,tcp,sec=sys,port=2049,actimeo=1` via `scripts/linux-mount-gate.sh` | preview with the read-only completion and the Section 15.2 audit | `verify-mount` (16 checks): 16 passed, 0 failed, repeatable in the `nfs-linux-mount` workflow. A second mount with no `vers=` option laddered from 4.2 to 4.1 (`/proc/mounts` reported `vers=4.1`), the first direct confirmation of the minor-version laddering                                                               |
 
+## Restart with a mounted Linux client
+
+The [2026-11-17 Linux mount gate](https://github.com/lloydrichards/effect-virtual-fs/actions/runs/44176030809/job/134367484857)
+tested the read-only preview on Linux `7.0.0-1017-azure` x86_64, Ubuntu 24.04.5 LTS, and `nfs-utils` 2.6.4
+(runner image `ubuntu24` 20261111.370.1). The restart probe used NFSv4.1 over TCP with `sec=sys` and
+`soft,timeo=10,retrans=2,actimeo=0,lookupcache=none`.
+
+The old mount read the fixture before replacement and returned `Input/output error` after the new server started.
+A fresh mount with the regular gate options read the expected fixture. The old-mount result is an observation for this
+client and mount configuration. The gate requires the fresh mount to recover access and records the old-mount outcome.
+
 ## What the run found
 
 The baseline run exposed defects that the focused test suite had not, all fixed and covered by tests before this
