@@ -2,6 +2,8 @@
 
 ## 2026-11-17
 
+- Install core and memory tarballs together in the pinned Node consumer gate and verify candidate resolution and a filesystem rebuild with no redundant writes.
+
 - Require each workspace to declare its test qualification. Derive shared Vitest projects from the validation registry and
   check workspace script and project references.
 
@@ -12,6 +14,8 @@
 - Require supplied clients across live-image store layers. Record PostgreSQL dedicated-client and receive-budget obligations, native client startup errors, borrowed-client lifetimes, per-store D1 drainage and local provider composition. Remove the R2 client option in favor of an injected capability service.
 
 - Enforce R2 image limits during S3 body reads through an optional bounded transport operation.
+
+- Separate SDK-independent R2 store imports from the S3 adapter. Preserve the legacy entrypoint and package dependency policy.
 
 - Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
 

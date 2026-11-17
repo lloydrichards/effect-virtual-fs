@@ -20,6 +20,9 @@ sources:
   - id: memory-package
     resource: ../../packages/memory/package.json
     title: Memory package manifest
+  - id: packed-consumer
+    resource: ../../packages/core/compatibility/packed/check.sh
+    title: Isolated core and memory tarball install
   - id: persistence-package
     resource: ../../packages/persistence/package.json
     title: Persistence package manifest
@@ -32,7 +35,7 @@ sources:
   - id: d1-qualification
     resource: ../../packages/persistence/test/fixtures/d1-worker.ts
     title: Disposable hosted D1 qualification Worker
-generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
+generated: { by: codex/okf, at: "2026-11-17T22:04:09+01:00" }
 ---
 
 # Release readiness
@@ -42,6 +45,8 @@ Core is the publication root. Memory, persistence, and nfs depend on core, so `@
 Before publishing, follow the [pull-request validation sequence](evidence-and-validation.md "depends on"). The release job uses Node 24 and invokes Changesets on pushes to `main`. When Changesets publishes, the release script builds the workspace first.
 
 Package-specific build gates matter. Core and persistence check emitted NodeNext consumption. Memory additionally bundles a browser-target entry and runs a Node smoke against that artifact. These establish export, module-resolution, and bundling compatibility; they do not establish full browser or worker runtime filesystem behavior.
+
+The pinned Node host job installs the candidate core and memory tarballs together outside the workspace. It verifies that memory resolves the candidate core package, checks strict NodeNext declarations, and runs a seeded filesystem workload with observed writes. This gate qualifies the candidate packages. Repeat the installation against the published versions after release.
 
 Release notes and version changes should reflect user-visible behavior. A release-ready claim must state any runtime matrix that was actually exercised rather than inheriting old local results. A release that states an NFS profile maturity must list the clients, suites, and versions behind it, as the [NFS interoperability and fault evidence decision](../decisions/nfs/nfs-interoperability-evidence.md "constrained by") requires; the preview app's conformance baseline is the record for the read-only profile. This workflow is [constrained by package boundaries](../decisions/package-boundaries.md "constrained by").
 

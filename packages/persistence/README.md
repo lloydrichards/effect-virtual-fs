@@ -90,11 +90,14 @@ before composing application layers. PostgreSQL and D1 client layers also provid
 all drivers at one level can give SQLite the wrong client. One store-layer instance represents one owner.
 Create separate store-layer instances and scopes for independent owners.
 
-R2 callers now provide the existing capability through `R2LiveImageStore.Client`:
+Import the transport-independent `R2Store` when you supply a custom R2 client. Its runtime
+and declarations do not load the AWS SDK. For an AWS SDK client, import `fromS3` from
+`R2S3Transport` and provide the adapted client to the store:
 
 ```ts
 import { S3Client } from "@aws-sdk/client-s3"
-import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+import { fromS3 } from "@effect-vfs/persistence/R2S3Transport"
+import * as R2Store from "@effect-vfs/persistence/R2Store"
 import { ByteSize, Layer } from "effect"
 
 const s3 = new S3Client({
@@ -103,14 +106,17 @@ const s3 = new S3Client({
   credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
 })
 const R2ClientLayer = Layer.succeed(
-  R2LiveImageStore.Client,
-  R2LiveImageStore.fromS3(s3, "workspace-images")
+  R2Store.Client,
+  fromS3(s3, "workspace-images")
 )
-const Store = R2LiveImageStore.layer({
+const Store = R2Store.layer({
   key: "workspace-123",
   maxImageBytes: ByteSize.mebibytes(4)
 }).pipe(Layer.provide(R2ClientLayer))
 ```
+
+The original `R2LiveImageStore` subpath continues to export the same store and S3 adapter.
+The package still installs the AWS SDK as a dependency.
 
 The AWS SDK creates `s3`. The store passes `maxImageBytes` to the bounded reader supplied by `fromS3`.
 It rejects an oversized response before reading when the reported length exceeds the limit. Otherwise, it counts chunks

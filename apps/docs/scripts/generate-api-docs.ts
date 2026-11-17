@@ -242,6 +242,11 @@ const keepPublishedExports = (moduleName: string, content: string): string => {
     return content.replace(/^# utils[\s\S]*$/m, "")
   }
 
+  if (moduleName === "R2LiveImageStore") {
+    // Docgen renders type-only re-exports as const values. Signatures belong to the defining modules.
+    return content.replace(/\*\*Signature\*\*\n\n```ts\n[\s\S]*?\n```\n\n/g, "")
+  }
+
   if (moduleName === "SnapshotDelta") {
     return content
       .replace(/^## makeSnapshotDeltaLimits[\s\S]*$/m, "")
