@@ -3982,7 +3982,7 @@ describe("Filehandles", () => {
         for (const code of [...Vfs.VfsCode.literals, "FutureCode"]) {
           // The constructor validates its code, so an unknown runtime code is forced onto a valid error afterwards.
           // SAFETY: the stub stands in for a volume whose failure carries any code, a newer core's included.
-          // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- see the invariant above.
+          // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off
           const failure = Object.assign(new Vfs.VfsError({ code: "NotFound", operation: "resolveReferenceKey" }), {
             code
           }) as Vfs.FsFailure
