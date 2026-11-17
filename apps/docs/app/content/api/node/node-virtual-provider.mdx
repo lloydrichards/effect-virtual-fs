@@ -48,7 +48,7 @@ declare const bind: (
 ) => Effect.Effect<Provider, FsFailure, Scope.Scope>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L431)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L480)
 
 Since v0.1.0
 
@@ -75,7 +75,7 @@ export type Options = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L50)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L53)
 
 Since v0.1.0
 
@@ -90,7 +90,7 @@ Instances are constructed with bind and remain valid for its enclosing Effect sc
 declare class Provider { constructor(private readonly binding: Adapter.Binding, private readonly readOnly = false) }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L73)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L80)
 
 Since v0.1.0
 
@@ -102,7 +102,7 @@ Since v0.1.0
 declare const mutate: (syscall: string, path: string) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L88)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L95)
 
 #### openSync (method)
 
@@ -112,7 +112,7 @@ declare const mutate: (syscall: string, path: string) => void
 declare const openSync: (input: string, flags?: string | number, mode?: number) => NodeFileHandle
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L92)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L99)
 
 #### open (method)
 
@@ -122,7 +122,7 @@ declare const openSync: (input: string, flags?: string | number, mode?: number) 
 declare const open: (path: string, flags?: string | number, mode?: number) => Promise<NodeFileHandle>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L121)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L128)
 
 #### statSync (method)
 
@@ -136,7 +136,7 @@ declare const statSync: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L128)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L135)
 
 #### stat (method)
 
@@ -150,7 +150,7 @@ declare const stat: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L136)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L143)
 
 #### lstatSync (method)
 
@@ -164,7 +164,7 @@ declare const lstatSync: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L142)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L149)
 
 #### lstat (method)
 
@@ -178,33 +178,44 @@ declare const lstat: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L150)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L157)
 
 #### readdirSync (method)
 
 **Signature**
 
 ```ts
-declare const readdirSync: (
-  input: string,
-  options?: DirectoryOptions | BufferEncoding
-) => Array<string | Buffer<ArrayBufferLike> | Entry<string | Buffer<ArrayBufferLike>>>
+declare const readdirSync: {
+  (input: string, options: DirectoryEntries<"buffer"> & BufferEncodingOption): Array<Entry<Buffer>>
+  (input: string, options: DirectoryEntries<BufferEncoding | null | undefined>): Array<Entry>
+  (input: string, options: DirectoryEntries): Array<Entry<string | Buffer>>
+  (input: string, options: DirectoryOptions<"buffer", false> & BufferEncodingOption): Array<Buffer>
+  (input: string, options?: DirectoryOptions<BufferEncoding | null | undefined, false> | BufferEncoding): Array<string>
+  (input: string, options?: DirectoryOptions | BufferEncoding): Array<string | Buffer | Entry<string | Buffer>>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L154)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L173)
 
 #### readdir (method)
 
 **Signature**
 
 ```ts
-declare const readdir: (
-  path: string,
-  options?: DirectoryOptions | BufferEncoding
-) => Promise<Array<string | Buffer<ArrayBufferLike> | Entry<string | Buffer<ArrayBufferLike>>>>
+declare const readdir: {
+  (path: string, options: DirectoryEntries<"buffer"> & BufferEncodingOption): Promise<Array<Entry<Buffer>>>
+  (path: string, options: DirectoryEntries<BufferEncoding | null | undefined>): Promise<Array<Entry>>
+  (path: string, options: DirectoryEntries): Promise<Array<Entry<string | Buffer>>>
+  (path: string, options: DirectoryOptions<"buffer", false> & BufferEncodingOption): Promise<Array<Buffer>>
+  (
+    path: string,
+    options?: DirectoryOptions<BufferEncoding | null | undefined, false> | BufferEncoding
+  ): Promise<Array<string>>
+  (path: string, options?: DirectoryOptions | BufferEncoding): Promise<Array<string | Buffer | Entry<string | Buffer>>>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L181)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L212)
 
 #### mkdirSync (method)
 
@@ -217,7 +228,7 @@ declare const mkdirSync: (
 ) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L184)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L215)
 
 #### mkdir (method)
 
@@ -230,7 +241,7 @@ declare const mkdir: (
 ) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L190)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L221)
 
 #### rmdirSync (method)
 
@@ -240,7 +251,7 @@ declare const mkdir: (
 declare const rmdirSync: (input: string) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L193)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L224)
 
 #### rmdir (method)
 
@@ -250,7 +261,7 @@ declare const rmdirSync: (input: string) => void
 declare const rmdir: (path: string) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L198)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L229)
 
 #### unlinkSync (method)
 
@@ -260,7 +271,7 @@ declare const rmdir: (path: string) => Promise<void>
 declare const unlinkSync: (input: string) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L201)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L232)
 
 #### unlink (method)
 
@@ -270,7 +281,7 @@ declare const unlinkSync: (input: string) => void
 declare const unlink: (path: string) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L206)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L237)
 
 #### renameSync (method)
 
@@ -280,7 +291,7 @@ declare const unlink: (path: string) => Promise<void>
 declare const renameSync: (from: string, to: string) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L209)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L240)
 
 #### rename (method)
 
@@ -290,7 +301,7 @@ declare const renameSync: (from: string, to: string) => void
 declare const rename: (from: string, to: string) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L214)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L245)
 
 #### linkSync (method)
 
@@ -300,7 +311,7 @@ declare const rename: (from: string, to: string) => Promise<void>
 declare const linkSync: (from: string, to: string) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L217)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L248)
 
 #### link (method)
 
@@ -310,7 +321,7 @@ declare const linkSync: (from: string, to: string) => void
 declare const link: (from: string, to: string) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L222)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L253)
 
 #### symlinkSync (method)
 
@@ -320,7 +331,7 @@ declare const link: (from: string, to: string) => Promise<void>
 declare const symlinkSync: (target: string, input: string, type?: string) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L225)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L256)
 
 #### symlink (method)
 
@@ -330,47 +341,63 @@ declare const symlinkSync: (target: string, input: string, type?: string) => voi
 declare const symlink: (target: string, path: string, type?: string) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L233)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L264)
 
 #### readlinkSync (method)
 
 **Signature**
 
 ```ts
-declare const readlinkSync: (input: string, options?: EncodingOptions) => string | Buffer<ArrayBufferLike>
+declare const readlinkSync: {
+  (input: string, options: BufferEncodingOption): Buffer
+  (input: string, options?: TextPathOptions): string
+  (input: string, options?: EncodingOptions): string | Buffer
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L236)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L270)
 
 #### readlink (method)
 
 **Signature**
 
 ```ts
-declare const readlink: (path: string, options?: EncodingOptions) => Promise<string | Buffer<ArrayBufferLike>>
+declare const readlink: {
+  (path: string, options: BufferEncodingOption): Promise<Buffer>
+  (path: string, options?: TextPathOptions): Promise<string>
+  (path: string, options?: EncodingOptions): Promise<string | Buffer>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L243)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L280)
 
 #### realpathSync (method)
 
 **Signature**
 
 ```ts
-declare const realpathSync: (input: string, options?: EncodingOptions) => string | Buffer<ArrayBufferLike>
+declare const realpathSync: {
+  (input: string, options: BufferEncodingOption): Buffer
+  (input: string, options?: TextPathOptions): string
+  (input: string, options?: EncodingOptions): string | Buffer
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L246)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L286)
 
 #### realpath (method)
 
 **Signature**
 
 ```ts
-declare const realpath: (path: string, options?: EncodingOptions) => Promise<string | Buffer<ArrayBufferLike>>
+declare const realpath: {
+  (path: string, options: BufferEncodingOption): Promise<Buffer>
+  (path: string, options?: TextPathOptions): Promise<string>
+  (path: string, options?: EncodingOptions): Promise<string | Buffer>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L253)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L296)
 
 #### accessSync (method)
 
@@ -380,7 +407,7 @@ declare const realpath: (path: string, options?: EncodingOptions) => Promise<str
 declare const accessSync: (input: string, mode?: number) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L256)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L299)
 
 #### access (method)
 
@@ -390,7 +417,7 @@ declare const accessSync: (input: string, mode?: number) => void
 declare const access: (path: string, mode?: number) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L265)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L308)
 
 #### chmodSync (method)
 
@@ -400,7 +427,7 @@ declare const access: (path: string, mode?: number) => Promise<void>
 declare const chmodSync: (input: string, mode: number, follow?: boolean) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L269)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L312)
 
 #### chmod (method)
 
@@ -410,7 +437,7 @@ declare const chmodSync: (input: string, mode: number, follow?: boolean) => void
 declare const chmod: (path: string, mode: number) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L275)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L318)
 
 #### lchmodSync (method)
 
@@ -420,7 +447,7 @@ declare const chmod: (path: string, mode: number) => Promise<void>
 declare const lchmodSync: (path: string, mode: number) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L278)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L321)
 
 #### lchmod (method)
 
@@ -430,7 +457,7 @@ declare const lchmodSync: (path: string, mode: number) => void
 declare const lchmod: (path: string, mode: number) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L281)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L324)
 
 #### chownSync (method)
 
@@ -440,7 +467,7 @@ declare const lchmod: (path: string, mode: number) => Promise<void>
 declare const chownSync: (input: string, uid: number, gid: number, follow?: boolean) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L284)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L327)
 
 #### chown (method)
 
@@ -450,7 +477,7 @@ declare const chownSync: (input: string, uid: number, gid: number, follow?: bool
 declare const chown: (path: string, uid: number, gid: number) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L293)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L336)
 
 #### lchownSync (method)
 
@@ -460,7 +487,7 @@ declare const chown: (path: string, uid: number, gid: number) => Promise<void>
 declare const lchownSync: (path: string, uid: number, gid: number) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L296)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L339)
 
 #### lchown (method)
 
@@ -470,7 +497,7 @@ declare const lchownSync: (path: string, uid: number, gid: number) => void
 declare const lchown: (path: string, uid: number, gid: number) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L299)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L342)
 
 #### utimesSync (method)
 
@@ -480,7 +507,7 @@ declare const lchown: (path: string, uid: number, gid: number) => Promise<void>
 declare const utimesSync: (input: string, atime: Time, mtime: Time, follow?: boolean) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L302)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L345)
 
 #### utimes (method)
 
@@ -490,7 +517,7 @@ declare const utimesSync: (input: string, atime: Time, mtime: Time, follow?: boo
 declare const utimes: (path: string, atime: Time, mtime: Time) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L311)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L354)
 
 #### lutimesSync (method)
 
@@ -500,7 +527,7 @@ declare const utimes: (path: string, atime: Time, mtime: Time) => Promise<void>
 declare const lutimesSync: (path: string, atime: Time, mtime: Time) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L314)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L357)
 
 #### lutimes (method)
 
@@ -510,27 +537,35 @@ declare const lutimesSync: (path: string, atime: Time, mtime: Time) => void
 declare const lutimes: (path: string, atime: Time, mtime: Time) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L317)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L360)
 
 #### readFileSync (method)
 
 **Signature**
 
 ```ts
-declare const readFileSync: (path: string, options?: WholeFileOptions) => string | Buffer<ArrayBufferLike>
+declare const readFileSync: {
+  (path: string, options?: FileOptions<"buffer" | null | undefined> | null): Buffer
+  (path: string, options: BufferEncoding | (FileOptions & TextEncodingOption)): string
+  (path: string, options?: WholeFileOptions): string | Buffer
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L322)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L368)
 
 #### readFile (method)
 
 **Signature**
 
 ```ts
-declare const readFile: (path: string, options?: WholeFileOptions) => Promise<string | Buffer<ArrayBufferLike>>
+declare const readFile: {
+  (path: string, options?: FileOptions<"buffer" | null | undefined> | null): Promise<Buffer>
+  (path: string, options: BufferEncoding | (FileOptions & TextEncodingOption)): Promise<string>
+  (path: string, options?: WholeFileOptions): Promise<string | Buffer>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L332)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L381)
 
 #### writeFileSync (method)
 
@@ -540,7 +575,7 @@ declare const readFile: (path: string, options?: WholeFileOptions) => Promise<st
 declare const writeFileSync: (path: string, data: string | Uint8Array, options?: WholeFileOptions) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L335)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L384)
 
 #### writeFile (method)
 
@@ -550,7 +585,7 @@ declare const writeFileSync: (path: string, data: string | Uint8Array, options?:
 declare const writeFile: (path: string, data: string | Uint8Array, options?: WholeFileOptions) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L350)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L399)
 
 #### appendFileSync (method)
 
@@ -560,7 +595,7 @@ declare const writeFile: (path: string, data: string | Uint8Array, options?: Who
 declare const appendFileSync: (path: string, data: string | Uint8Array, options?: WholeFileOptions) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L353)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L402)
 
 #### appendFile (method)
 
@@ -570,7 +605,7 @@ declare const appendFileSync: (path: string, data: string | Uint8Array, options?
 declare const appendFile: (path: string, data: string | Uint8Array, options?: WholeFileOptions) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L359)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L408)
 
 #### existsSync (method)
 
@@ -580,7 +615,7 @@ declare const appendFile: (path: string, data: string | Uint8Array, options?: Wh
 declare const existsSync: (path: string) => boolean
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L362)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L411)
 
 #### exists (method)
 
@@ -590,7 +625,7 @@ declare const existsSync: (path: string) => boolean
 declare const exists: (path: string) => Promise<boolean>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L372)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L421)
 
 #### copyFileSync (method)
 
@@ -600,7 +635,7 @@ declare const exists: (path: string) => Promise<boolean>
 declare const copyFileSync: (src: string, dest: string, mode?: number) => void
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L375)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L424)
 
 #### copyFile (method)
 
@@ -610,7 +645,7 @@ declare const copyFileSync: (src: string, dest: string, mode?: number) => void
 declare const copyFile: (src: string, dest: string, mode?: number) => Promise<void>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L389)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L438)
 
 #### watch (method)
 
@@ -620,7 +655,7 @@ declare const copyFile: (src: string, dest: string, mode?: number) => Promise<vo
 declare const watch: () => never
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L393)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L442)
 
 #### watchAsync (method)
 
@@ -630,7 +665,7 @@ declare const watch: () => never
 declare const watchAsync: () => never
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L396)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L445)
 
 #### watchFile (method)
 
@@ -640,7 +675,7 @@ declare const watchAsync: () => never
 declare const watchFile: () => never
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L399)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L448)
 
 #### unwatchFile (method)
 
@@ -650,7 +685,7 @@ declare const watchFile: () => never
 declare const unwatchFile: () => never
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L402)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L451)
 
 #### statfsSync (method)
 
@@ -660,7 +695,7 @@ declare const unwatchFile: () => never
 declare const statfsSync: () => never
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L405)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L454)
 
 #### statfs (method)
 
@@ -670,7 +705,7 @@ declare const statfsSync: () => never
 declare const statfs: () => Promise<never>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L408)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L457)
 
 ## schemas
 
@@ -699,6 +734,6 @@ declare const Options: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L40)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/node/src/NodeVirtualProvider.ts#L43)
 
 Since v0.1.0
