@@ -261,10 +261,20 @@ probes = probes.replace(
 }`
 )
 
-// This workspace owns the Effect dependency; Bun need not hoist it to the repository root.
+// Resolve the dependency itself so copied engines use the same Effect in either linker layout.
 probes = probes.replace(
-  "new URL(\"../../../../node_modules/\", import.meta.url).href",
-  "new URL(\"../../node_modules/\", import.meta.url).href"
+  "const nodeModulesUrl = new URL(\"../../../../node_modules/\", import.meta.url).href",
+  "const effectPackageUrl = new URL(\"./\", import.meta.resolve(\"effect/package.json\")).href"
+)
+
+probes = probes.replace(
+  "import { cpSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from \"node:fs\"",
+  "import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from \"node:fs\""
+)
+
+probes = probes.replace(
+  "symlinkSync(fileURLToPath(${JSON.stringify(nodeModulesUrl)}), join(directory, \"node_modules\"), \"dir\")",
+  "mkdirSync(join(directory, \"node_modules\"))\nsymlinkSync(fileURLToPath(${JSON.stringify(effectPackageUrl)}), join(directory, \"node_modules/effect\"), \"dir\")"
 )
 
 probes = probes.replace(

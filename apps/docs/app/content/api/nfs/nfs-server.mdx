@@ -881,7 +881,8 @@ const serve = Effect.scoped(
   Effect.gen(function* () {
     const volume = yield* Vfs.make()
     const caller = yield* volume.caller()
-    return yield* NfsServer.make({ volume, caller })
+    yield* NfsServer.make({ volume, caller })
+    yield* Effect.never
   })
 )
 ```
@@ -892,6 +893,6 @@ const serve = Effect.scoped(
 declare class NfsServer
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L784)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L785)
 
 Since v0.1.0

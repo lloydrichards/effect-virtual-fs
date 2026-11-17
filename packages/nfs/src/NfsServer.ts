@@ -774,7 +774,8 @@ const make = (
  * const serve = Effect.scoped(Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
  *   const caller = yield* volume.caller()
- *   return yield* NfsServer.make({ volume, caller })
+ *   yield* NfsServer.make({ volume, caller })
+ *   yield* Effect.never
  * }))
  * ```
  *
