@@ -23,6 +23,9 @@ sources:
   - id: key-tests
     resource: ../../packages/core/test/Volume.test.ts
     title: Reference key round trip, lifetime, refusals, forks, and live reopen
+  - id: compatibility-index
+    resource: ../../packages/core/src/internal/compatibilityState.ts
+    title: Canonical references and committed retirement
 generated: { by: claude-code, at: "2026-09-26T12:30:00+02:00" }
 ---
 
@@ -47,6 +50,8 @@ Each operation requires on the referenced object exactly the mode bits its path-
 Forged values fail with `InvalidReference`; a valid reference presented to another volume fails with `ForeignReference`; and a deleted object whose reference lifetime has ended fails with `StaleReference`. A removed directory stales immediately. A moved directory follows its current parent, and the root is its own parent.
 
 A regular file's reference remains observable after final unlink only while a file handle that was already open retains it. The existing handle can finish reading or writing, but the reference cannot open another handle or resurrect the file through `linkReference`. Final handle close reclaims content and stales the reference. This avoids allowing an externally held reference to retain deleted content indefinitely.[^file-tests][^mutation-tests]
+
+The compatibility index retains tokens while an object has a name or a tracked handle. When the final name and handle are gone, a held reference still identifies the retired object through weak ownership metadata. Holding a retired reference preserves stale and foreign errors without retaining the object or its content.
 
 ## Reference keys
 

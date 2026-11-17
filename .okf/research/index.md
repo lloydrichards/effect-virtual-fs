@@ -1,5 +1,8 @@
 # Research
 
+- [Static analysis policy opportunities](static-analysis-policy.md) separates proposed lint improvements from existing
+  policy, records enforcement limits, and links the implementation issues.
+
 - [Effect filesystem public contract draft](effect-filesystem-contracts.md) assembles the stage 2 declarations, capture/restore model and adapter compatibility matrix for final review.
 
 - [Staged Effect filesystem implementation plan](minimal-effect-port.md) sequences engine-owned contracts, the Effect port, downstream packages and community-core retirement.
@@ -26,6 +29,7 @@
 - [NFS attributes ledger](nfs/nfs-attributes-ledger.md) does the same for REQUIRED and RECOMMENDED attributes.
 - [NFS protocol rules ledger](nfs/nfs-protocol-rules-ledger.md) covers cross-cutting requirements, errata, and the client matrix.
 - [NFS WRITE and COMMIT design](nfs/write-and-commit.md) records protocol facts, staged behavior, accepted decisions, and storage qualification requirements.
+- [NFS cross-client scheduling measurement](nfs/client-scheduling.md) separates compound admission, direct core reads, and controlled storage waits.
 - [NFS OPEN creation](nfs/open-creation.md) records all four internal create modes, atomic verifier storage, and the public writable export requirements.
 - [NFS namespace and metadata mutations](nfs/namespace-and-metadata.md) records internal CREATE, LINK, REMOVE, RENAME, and SETATTR behavior and its wire evidence.
 

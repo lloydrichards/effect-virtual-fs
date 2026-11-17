@@ -6,9 +6,15 @@
  *
  * @since 0.5.0
  */
-import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
+import {
+  GetObjectCommand,
+  type GetObjectCommandOutput,
+  PutObjectCommand,
+  type S3Client,
+  S3ServiceException
+} from "@aws-sdk/client-s3"
 import { LiveVolume, type VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Context, Effect, Layer } from "effect"
+import { Context, Data, Effect, Fiber, Layer, Scope } from "effect"
 import type * as ByteSize from "effect/ByteSize"
 import type * as Digest from "effect/crypto/Digest"
 import { dual } from "effect/Function"
@@ -58,7 +64,16 @@ export interface ObjectRecord {
  * @category models
  */
 export interface R2Client {
+  /** Materializes an object without a transport limit. Prefer readBounded when available. */
   readonly read: (key: string) => Effect.Effect<ObjectRecord | null, Vfs.VfsError>
+  /**
+   * Optional transport limit. Count bytes as they arrive and fail with
+   * `CorruptStore` after releasing an oversized body.
+   */
+  readonly readBounded?: (
+    key: string,
+    maxImageBytes: ByteSize.ByteSize
+  ) => Effect.Effect<ObjectRecord | null, Vfs.VfsError>
   readonly write: (
     key: string,
     bytes: Uint8Array,
@@ -101,7 +116,48 @@ const opening = storeFailures("R2LiveImageStore.layer")
 
 const loading = storeFailures("R2LiveImageStore.loadOrCreate")
 
+class OversizedBody extends Data.TaggedError("OversizedBody")<{}> {}
+
+type Body = NonNullable<GetObjectCommandOutput["Body"]>
+
+// oxlint-disable-next-line effecttsgo/async-function -- The SDK provides native asynchronous byte streams.
+const readBody = async (body: Body, contentLength: number | undefined, limit: number) => {
+  if (contentLength !== undefined && contentLength > limit) {
+    if ("destroy" in body) body.destroy()
+    else if ("cancel" in body) await body.cancel().catch(() => undefined)
+
+    throw new OversizedBody()
+  }
+
+  const stream = "stream" in body ? body.stream() : body
+  let image = new Uint8Array()
+  let length = 0
+
+  // Exiting either native iterator early releases its body. Iterate the Node
+  // response directly to avoid additional buffering in a Web Stream wrapper.
+  for await (const chunk of stream) {
+    if (!(chunk instanceof Uint8Array)) throw new TypeError("R2 body returned a non-byte chunk")
+
+    if (chunk.byteLength > limit - length) throw new OversizedBody()
+    const next = length + chunk.byteLength
+
+    if (next > image.byteLength) {
+      const grown = new Uint8Array(Math.min(limit, Math.max(next, image.byteLength * 2)))
+      grown.set(image)
+      image = grown
+    }
+
+    image.set(chunk, length)
+    length = next
+  }
+
+  return image.subarray(0, length)
+}
+
 /** Use R2's S3-compatible API from a Bun or Node NFS server.
+ *
+ * A store using this client enforces its per-store limit while reading the body.
+ * Direct calls to the client's legacy `read` still materialize the entire object.
  *
  * @example
  * ```ts
@@ -120,10 +176,10 @@ const loading = storeFailures("R2LiveImageStore.loadOrCreate")
  * @category constructors
  */
 export const fromS3: {
-  (bucket: string): (client: S3Client) => R2Client
-  (client: S3Client, bucket: string): R2Client
-} = dual(2, (client: S3Client, bucket: string): R2Client => ({
-  read: (key) =>
+  (bucket: string): (client: S3Client) => R2Client & Required<Pick<R2Client, "readBounded">>
+  (client: S3Client, bucket: string): R2Client & Required<Pick<R2Client, "readBounded">>
+} = dual(2, (client: S3Client, bucket: string) => {
+  const read = (key: string, limit?: number) =>
     Effect.tryPromise({
       // oxlint-disable-next-line effecttsgo/async-function -- AWS SDK streams and requests use promises at this adapter boundary.
       try: async () => {
@@ -133,7 +189,9 @@ export const fromS3: {
           if (object.Body === undefined) throw new Error("R2 object has no body")
 
           return {
-            bytes: await object.Body.transformToByteArray(),
+            bytes: limit === undefined
+              ? await object.Body.transformToByteArray()
+              : await readBody(object.Body, object.ContentLength, limit),
             etag: object.ETag ?? "",
             generation: object.Metadata?.["generation"],
             digest: object.Metadata?.["digest"]
@@ -143,34 +201,42 @@ export const fromS3: {
           throw error
         }
       },
-      catch: (cause) => transport.fail("Storage", cause)
-    }),
-  write: (key, bytes, generation, digest, condition) =>
-    Effect.tryPromise({
-      // oxlint-disable-next-line effecttsgo/async-function -- AWS SDK requests use promises at this adapter boundary.
-      try: async () => {
-        try {
-          const result = await client.send(
-            new PutObjectCommand({
-              Bucket: bucket,
-              Key: key,
-              Body: bytes,
-              Metadata: { generation, digest },
-              ...("ifMatch" in condition ? { IfMatch: condition.ifMatch } : { IfNoneMatch: "*" })
-            })
-          )
-
-          if (result.ETag === undefined || result.ETag === "") throw new Error("R2 response has no ETag")
-
-          return { etag: result.ETag }
-        } catch (error) {
-          if (error instanceof S3ServiceException && error.$metadata.httpStatusCode === 412) return null
-          throw error
-        }
-      },
-      catch: (cause) => transport.fail("Storage", cause)
+      catch: (cause) => transport.fail(cause instanceof OversizedBody ? "CorruptStore" : "Storage", cause)
     })
-}))
+
+  return {
+    read: (key) => read(key),
+    readBounded: (key, maxImageBytes) =>
+      Protocol.imageLimit(maxImageBytes, transport).pipe(
+        Effect.flatMap((limit) => read(key, Number(limit)))
+      ),
+    write: (key, bytes, generation, digest, condition) =>
+      Effect.tryPromise({
+        // oxlint-disable-next-line effecttsgo/async-function -- AWS SDK requests use promises at this adapter boundary.
+        try: async () => {
+          try {
+            const result = await client.send(
+              new PutObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Body: bytes,
+                Metadata: { generation, digest },
+                ...("ifMatch" in condition ? { IfMatch: condition.ifMatch } : { IfNoneMatch: "*" })
+              })
+            )
+
+            if (result.ETag === undefined || result.ETag === "") throw new Error("R2 response has no ETag")
+
+            return { etag: result.ETag }
+          } catch (error) {
+            if (error instanceof S3ServiceException && error.$metadata.httpStatusCode === 412) return null
+            throw error
+          }
+        },
+        catch: (cause) => transport.fail("Storage", cause)
+      })
+  } satisfies R2Client
+})
 
 /** Configuration for one experimental R2-backed image.
  *
@@ -196,8 +262,18 @@ export interface Options {
 }
 
 /**
- * A single-key experimental store. The application must ensure one live owner;
+ * A single-key experimental store. It passes the image limit to the transport's
+ * `readBounded` operation when one is supplied. With a legacy client, the
+ * store checks the limit after `read` returns.
+ *
+ * The application must ensure one live owner;
  * ETag conditions detect stale writes but cannot prevent stale reads.
+ *
+ * A store scope waits for pending transport operations to settle before
+ * releasing ownership. A caller can stop waiting without aborting an SDK
+ * request. If a write fails with an uncertain remote outcome, keep the key
+ * offline until reconciliation establishes that the request cannot still
+ * change the object and confirms the stored image.
  *
  * @example
  * ```ts
@@ -230,16 +306,32 @@ export const layer = (
     LiveVolume.LiveImageStore,
     Effect.gen(function*() {
       if (options.key.length === 0) return yield* opening.invalid("options")
-      const maxImage = yield* Protocol.imageLimit(options.maxImageBytes, opening, "options")
+      const { maxImageBytes } = options
+      const maxImage = yield* Protocol.imageLimit(maxImageBytes, opening, "options")
       const client = yield* Client
+      const scope = yield* Scope.Scope
+
+      // The scope drains the transport even if the caller stops waiting.
+      const run = Effect.fnUntraced(function*<A, E>(request: Effect.Effect<A, E>) {
+        const pending = yield* Effect.forkIn(Effect.uninterruptible(request), scope)
+
+        return yield* Fiber.join(pending)
+      })
 
       const protocol = yield* Protocol.make({
         maxImage,
         loading,
         durability: options.durability ?? "memory-only",
         storage: {
-          read: Effect.suspend(() => client.read(options.key)).pipe(
-            Effect.mapError((cause) => loading.fail("Storage", cause)),
+          read: run(Effect.suspend(() =>
+            client.readBounded === undefined
+              ? client.read(options.key).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
+              : client.readBounded(options.key, maxImageBytes).pipe(
+                Effect.mapError((cause) =>
+                  loading.fail(cause.code === "CorruptStore" ? "CorruptStore" : "Storage", cause)
+                )
+              )
+          )).pipe(
             Effect.flatMap((record) => {
               if (record === null) return Effect.succeed(null)
 
@@ -254,13 +346,18 @@ export const layer = (
             })
           ),
           compareAndSwap: Effect.fnUntraced(function*(expected: string | undefined, next: Protocol.Image) {
-            return yield* client.write(
-              options.key,
-              next.image,
-              String(next.generation),
-              next.digest,
-              expected === undefined ? { ifNoneMatch: "*" } : { ifMatch: expected }
-            ).pipe(Effect.match({
+            // The request can outlive the caller's ownership of its input bytes.
+            const image = new Uint8Array(next.image)
+
+            return yield* run(Effect.suspend(() =>
+              client.write(
+                options.key,
+                image,
+                String(next.generation),
+                next.digest,
+                expected === undefined ? { ifNoneMatch: "*" } : { ifMatch: expected }
+              )
+            )).pipe(Effect.match({
               onFailure: (cause) => Protocol.WriteResult.Unknown({ cause }),
               onSuccess: (written) => {
                 if (written === null) return Protocol.WriteResult.Conflict()

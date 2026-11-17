@@ -81,6 +81,55 @@ await test("should reject engine imports when they require host services or priv
   assert.equal(forbiddenImport(core, undefined, "effect/Effect"), undefined)
 })
 
+await test("should enforce Node builtin restrictions in the complete source graph", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "vfs-builtin-boundaries-"))
+  const engines = ["core", "effect-preview"]
+  const names = [...engines, "node", "tools"]
+
+  const entries = names.map((name) => ({
+    ...workspace(`@effect-vfs/${name}`),
+    directory: `packages/${name}`
+  }))
+
+  const builtins = ["fs", "fs/promises", "child_process", "node:fs"]
+  const builtinImports = builtins.map((specifier) => `import "${specifier}"`).join("\n")
+
+  try {
+    for (const name of names) {
+      const source = path.join(directory, `packages/${name}/src`)
+      await mkdir(source, { recursive: true })
+      await writeFile(
+        path.join(source, "index.ts"),
+        engines.includes(name) ? "import \"effect/Effect\"" : builtinImports
+      )
+    }
+
+    const options = { directory, workspaces: entries, quiet: true }
+    assert.deepEqual(await checkBoundaries(options), { modules: 4, workspaces: 4 })
+
+    for (const name of engines) {
+      await writeFile(path.join(directory, `packages/${name}/src/index.ts`), builtinImports)
+    }
+
+    await assert.rejects(checkBoundaries(options), (error) => {
+      const diagnostics = error.message.split("\n").map((line) =>
+        `${line.slice(0, line.indexOf(": "))} ${line.slice(line.lastIndexOf(": ") + 2)}`
+      )
+
+      const expected = engines.flatMap((name) =>
+        builtins.map((specifier) => `packages/${name}/src/index.ts ${specifier}`)
+      )
+
+      assert.equal(diagnostics.length, expected.length)
+      assert.deepEqual(new Set(diagnostics), new Set(expected))
+
+      return true
+    })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 await test("should enforce package boundaries when the complete source graph is checked", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "vfs-boundary-test-"))
 

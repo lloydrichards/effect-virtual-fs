@@ -4,6 +4,7 @@ import { ByteSize, Cause, Deferred, Effect, Exit, Fiber, Scheduler, Schema, Scop
 import { VirtualFileSystem as Vfs } from "../../src/index.js"
 import { KeySecret, VolumeEpoch } from "../../src/internal/hex128.js"
 import * as LiveImage from "../../src/internal/liveImage.js"
+import { runtimeOf } from "../../src/internal/runtime.js"
 import { LiveTreeNode } from "../../src/internal/tree.js"
 import { makeVolume, memoryCommitProvider, VolumeSource } from "../../src/internal/virtualFileSystem.js"
 
@@ -455,11 +456,18 @@ describe("staged volume state", () => {
           const caller = yield* volume.caller()
           const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
           yield* handle.write(new Uint8Array([1]))
+          const ino = (yield* handle.stat).ino
+          const compatibility = runtimeOf(volume)!.compatibility
           yield* caller.unlink("/file")
+          assert.isTrue(compatibility.tokens.has(ino))
+          assert.isTrue(compatibility.retained.has(ino))
           outcome = "rejected"
 
           assert.strictEqual((yield* Effect.flip(handle.close)).code, "StorageRejected")
           assert.strictEqual((yield* Effect.flip(volume.usage)).code, "VolumeUnavailable")
+          assert.isFalse(compatibility.tokens.has(ino))
+          assert.isFalse(compatibility.retained.has(ino))
+          assert.strictEqual(compatibility.activeGrants.size, 0)
         }))
     )
   })

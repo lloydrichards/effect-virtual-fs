@@ -275,6 +275,6 @@ export const make = <C extends VfsCode>(props: Props<C>): VfsError & { readonly 
   if (props.cause !== undefined) fields.cause = props.cause
 
   // SAFETY: the error was built from `props.code`, which is a C.
-  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- see the invariant above.
+  // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off
   return new VfsError(fields) as VfsError & { readonly code: C }
 }

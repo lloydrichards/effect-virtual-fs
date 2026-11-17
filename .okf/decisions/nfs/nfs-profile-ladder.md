@@ -23,7 +23,10 @@ sources:
   - id: pynfs
     resource: https://github.com/kofemann/pynfs
     title: pynfs NFSv4.1 server tester
-generated: { by: codex/okf, at: 2026-09-20T12:00:00Z }
+  - id: listener
+    resource: ../../../packages/nfs/src/NfsServer.ts
+    title: Scoped listener termination observation
+generated: { by: codex/okf, at: "2026-11-17T21:04:00+01:00" }
 ---
 
 # NFS profile ladder
@@ -44,6 +47,10 @@ Profiles, in delivery order:
 | `stateful`            | grace and reclaim, restart recovery of sessions, opens, and locks                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 Maturity labels are `experimental`, `preview`, and `stable`.
+
+## Serving lifetime
+
+The application supplies a bound Effect `SocketServer` and owns its binding. `NfsServer.make` and `NfsServer.layer` start a listener owned by their scope and return its address and `awaitTermination`. A successful constructor indicates setup completed. The serving program can await termination to receive a typed `NfsServerError` if the socket server's serving effect fails. Observer interruption leaves the listener running. Normal owner closure interrupts the listener and completes the observation after it has cleaned up its connections. A restart belongs to the application.[^listener]
 
 ## Wording
 
@@ -78,3 +85,5 @@ Where each kind of evidence comes from, which checks run in CI, and which fault 
 [^linux-gate]: Issue #39 owns the Linux mount gate and retains the macOS 26.6 manual result from 2026-09-13.
 
 [^pynfs]: pynfs speaks raw RPC, defaults to minor version 2 and `sec=sys`, and can run read-side test flags against a pre-populated tree without mounting.
+
+[^listener]: `NfsServer` exposes the scoped listener result as `awaitTermination`.

@@ -17,6 +17,7 @@
     "format": "dprint fmt",
     "format:check": "dprint check",
     "lint": "oxlint",
+    "lint:audit-boundaries": "oxlint --config tools/oxlint/boundary-audit.config.ts --disable-nested-config",
     "lint:fix": "oxlint --fix",
     "lint-staged": "lint-staged",
     "postprepare": "husky",
@@ -28,7 +29,7 @@
     "lint:effects": "bun tools/checks/effects.mjs",
     "version-packages": "changeset version",
     "test:node": "bun run --cwd packages/node test && bun run --cwd packages/node test:consumer",
-    "test:tooling": "bun tools/oxlint/test/run.mjs && bun test tools/checks/test && bun run --cwd apps/docs test",
+    "test:tooling": "bun tools/oxlint/test/run.mjs && bun test tools/checks/test tools/oxlint/test && bun run --cwd apps/docs test",
     "check": "bun run format:check && bun tools/checks/repository.mjs && bun tools/checks/boundaries.mjs"
   },
   "devDependencies": {

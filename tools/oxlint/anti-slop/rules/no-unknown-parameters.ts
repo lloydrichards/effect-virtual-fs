@@ -1,69 +1,53 @@
 import { defineRule } from "@oxlint/plugins"
 import type { ESTree } from "@oxlint/plugins"
 
-import {
-  containsUnknownType,
-  functionParameterBindingName,
-  functionParameterTypeAnnotation
-} from "../shared/function-parameters.ts"
-type ParameterOwner =
-  | ESTree.ArrowFunctionExpression
-  | ESTree.Function
-  | ESTree.TSCallSignatureDeclaration
-  | ESTree.TSConstructSignatureDeclaration
-  | ESTree.TSConstructorType
-  | ESTree.TSFunctionType
-  | ESTree.TSMethodSignature
-
-function isTypePredicateSubject(owner: ParameterOwner, parameterName: string): boolean {
-  const predicate = owner.returnType?.typeAnnotation
-  return (
-    predicate?.type === "TSTypePredicate" &&
-    predicate.parameterName.type === "Identifier" &&
-    predicate.parameterName.name === parameterName
-  )
+function containsTopType(type: ESTree.TSType): boolean {
+  if (type.type === "TSUnknownKeyword" || type.type === "TSAnyKeyword") return true
+  if (type.type === "TSParenthesizedType") return containsTopType(type.typeAnnotation)
+  return type.type === "TSUnionType" && type.types.some(containsTopType)
 }
 
-/** Disallow unknown inputs except explicitly named error-cause enrichment. */
+function directReturn(body: ESTree.BlockStatement | ESTree.Expression): ESTree.Expression | null {
+  if (body.type !== "BlockStatement") return body
+  const [statement] = body.body
+  return body.body.length === 1 && statement?.type === "ReturnStatement" ? statement.argument : null
+}
+
+/** Flag direct pass-throughs for review without guessing which functions own parsing. */
 export const noUnknownParametersRule = defineRule({
   meta: {
-    type: "problem",
+    type: "suggestion",
     docs: {
-      description:
-        "Disallow explicitly unknown function parameters except `cause` and type-predicate subjects; decode unknown input at its I/O boundary instead."
+      description: "Review functions that return an explicitly unknown or any parameter unchanged."
     },
     messages: {
       unknownParameter:
-        "Parameter `{{parameter}}` leaves input unparsed. Accept a named domain type; run the expected schema or parser at the I/O boundary before calling this function."
+        "This function returns `{{parameter}}` unchanged. Check which boundary owns validation and keep `unknown` for raw input."
     }
   },
   createOnce(context) {
-    const checkParameters = (node: ParameterOwner) => {
+    const checkParameters = (node: ESTree.ArrowFunctionExpression | ESTree.Function) => {
+      if (node.body === null) return
+      const returned = directReturn(node.body)
+      if (returned?.type !== "Identifier") return
+
       for (const parameter of node.params) {
-        const annotation = functionParameterTypeAnnotation(parameter)
-        if (annotation === null || annotation === undefined) continue
-        if (!containsUnknownType(annotation.typeAnnotation)) continue
-        const name = functionParameterBindingName(parameter, context.sourceCode)
-        if (name === "cause" || isTypePredicateSubject(node, name)) continue
-        context.report({
-          node: annotation.typeAnnotation,
-          messageId: "unknownParameter",
-          data: { parameter: name }
-        })
+        if (parameter.type !== "Identifier" || parameter.name !== returned.name) continue
+        const annotation = parameter.typeAnnotation
+        if (annotation !== null && annotation !== undefined && containsTopType(annotation.typeAnnotation)) {
+          context.report({
+            node: annotation.typeAnnotation,
+            messageId: "unknownParameter",
+            data: { parameter: parameter.name }
+          })
+        }
       }
     }
 
     return {
       ArrowFunctionExpression: checkParameters,
       FunctionDeclaration: checkParameters,
-      FunctionExpression: checkParameters,
-      TSCallSignatureDeclaration: checkParameters,
-      TSConstructSignatureDeclaration: checkParameters,
-      TSConstructorType: checkParameters,
-      TSDeclareFunction: checkParameters,
-      TSEmptyBodyFunctionExpression: checkParameters,
-      TSFunctionType: checkParameters,
-      TSMethodSignature: checkParameters
+      FunctionExpression: checkParameters
     }
   }
 })

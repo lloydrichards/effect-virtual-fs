@@ -1,5 +1,5 @@
 import { defineRule } from "@oxlint/plugins"
-import type { ESTree, SourceCode, Variable } from "@oxlint/plugins"
+import type { ESTree } from "@oxlint/plugins"
 
 import {
   arrayMethodTarget,
@@ -8,103 +8,58 @@ import {
   unwrapArrayExpression
 } from "../shared/array-method.ts"
 
-function enclosingReducer(node: ESTree.Node) {
-  let parent = node.parent
-  while (parent !== null) {
-    if (parent.type === "FunctionDeclaration") return null
-    if (parent.type === "ArrowFunctionExpression" || parent.type === "FunctionExpression") {
-      const callback = parent
-      let owner: ESTree.Node | null = callback.parent
-      while (owner !== null && unwrapArrayExpression(owner) === callback) owner = owner.parent
-      if (owner?.type !== "CallExpression") return null
-      const method = arrayMethodTarget(owner.callee)
-      const firstArgument = owner.arguments[0]
-      if (
-        method === null || (method.name !== "reduce" && method.name !== "reduceRight") ||
-        owner.arguments.length > 2 || firstArgument === undefined ||
-        unwrapArrayExpression(firstArgument) !== callback
-      ) return null
-      const firstParameter = callback.params[0]
-      const accumulator = firstParameter?.type === "AssignmentPattern" ? firstParameter.left : firstParameter
-      if (accumulator?.type !== "Identifier") return null
-      return { callback, accumulator, initialValue: owner.arguments[1] }
-    }
-    parent = parent.parent
-  }
-  return null
+function returnedExpression(body: ESTree.BlockStatement | ESTree.Expression): ESTree.Expression | null {
+  if (body.type !== "BlockStatement") return body
+  const statement = body.body[0]
+  return body.body.length === 1 && statement?.type === "ReturnStatement" ? statement.argument : null
 }
 
-function referencesAccumulator(
-  sourceCode: SourceCode,
-  node: ESTree.Node,
-  accumulator: Variable,
-  visited = new Set<Variable>()
-): boolean {
-  const variable = resolveArrayBinding(sourceCode, node)
-  if (variable === null || visited.has(variable)) return false
-  if (variable === accumulator) return true
-  visited.add(variable)
-  if (variable.references.some((reference) => reference.isWrite() && !reference.init)) return false
-  for (const definition of variable.defs) {
-    if (
-      definition.type === "Variable" && definition.node.type === "VariableDeclarator" &&
-      definition.node.id.type === "Identifier" && definition.node.init !== null &&
-      definition.node.parent.type === "VariableDeclaration" && definition.node.parent.kind === "const"
-    ) {
-      return referencesAccumulator(sourceCode, definition.node.init, accumulator, visited)
-    }
-  }
-  return false
-}
-
-function isGlobalCopyOwner(sourceCode: SourceCode, node: ESTree.Node, name: string): boolean {
-  node = unwrapArrayExpression(node)
-  if (node.type !== "Identifier" || node.name !== name) return false
-  const variable = resolveArrayBinding(sourceCode, node)
-  return variable === null || variable.defs.length === 0
-}
-
-/** Reject non-spread copies of reducer accumulators; pair with oxc/no-accumulating-spread. */
+/** Report a direct concat of new values into a fresh array accumulator. */
 export const noReduceAccumulatorCopyRule = defineRule({
   meta: {
     type: "problem",
     docs: {
-      description:
-        "Disallow copying growing reducer accumulators with Object.assign, Array.from, or array copy methods."
+      description: "Disallow returning a concatenated array accumulator when each iteration can grow it."
     },
     messages: {
       accumulatorCopy:
-        "Do not copy the reducer accumulator on every iteration; growing copies can cause quadratic work. Mutate a fresh, locally owned accumulator and return it, or use an iterator pipeline/flatMap."
+        "Returning a copy of a growing array accumulator can cause quadratic work. Consider pushing onto the fresh accumulator and returning it."
     }
   },
   createOnce(context) {
     return {
       CallExpression(node) {
-        const method = arrayMethodTarget(node.callee)
-        if (method === null) return
-        const reducer = enclosingReducer(node)
-        if (reducer === null) return
-        const accumulator = context.sourceCode.getDeclaredVariables(reducer.callback).find((variable) =>
-          variable.identifiers.some((identifier) => identifier.start === reducer.accumulator.start)
-        )
-        if (accumulator === undefined) return
-        const isAccumulator = (expression: ESTree.Node) =>
-          referencesAccumulator(context.sourceCode, expression, accumulator)
-        let copiesAccumulator = false
-        if (method.name === "assign" && isGlobalCopyOwner(context.sourceCode, method.object, "Object")) {
-          const target = node.arguments[0]
-          copiesAccumulator = target !== undefined && unwrapArrayExpression(target).type === "ObjectExpression" &&
-            node.arguments.slice(1).some(isAccumulator)
-        } else if (method.name === "from" && isGlobalCopyOwner(context.sourceCode, method.object, "Array")) {
-          const source = node.arguments[0]
-          copiesAccumulator = source !== undefined && isAccumulator(source)
-        } else if (["concat", "slice", "toSpliced", "toSorted", "toReversed", "with"].includes(method.name)) {
-          const initialValue = reducer.initialValue
-          const arrayAccumulator = initialValue !== undefined &&
-            isKnownArrayExpression(context.sourceCode, initialValue)
-          copiesAccumulator = arrayAccumulator && isAccumulator(method.object)
+        const reducer = arrayMethodTarget(node.callee)
+        if (reducer === null || (reducer.name !== "reduce" && reducer.name !== "reduceRight")) return
+        const [callbackArgument, initialValue] = node.arguments
+        if (callbackArgument === undefined || initialValue === undefined || node.arguments.length !== 2) return
+        if (unwrapArrayExpression(initialValue).type !== "ArrayExpression") return
+        if (!isKnownArrayExpression(context.sourceCode, reducer.object)) return
+
+        const callback = unwrapArrayExpression(callbackArgument)
+        if (callback.type !== "ArrowFunctionExpression" && callback.type !== "FunctionExpression") return
+        const accumulator = callback.params[0]
+        if (accumulator?.type !== "Identifier" || callback.body === null) return
+        const returned = returnedExpression(callback.body)
+        if (returned === null) return
+        const copy = unwrapArrayExpression(returned)
+        if (copy.type !== "CallExpression") return
+        const concat = arrayMethodTarget(copy.callee)
+        if (concat?.name !== "concat") return
+        const accumulatorBinding = resolveArrayBinding(context.sourceCode, accumulator)
+        if (
+          accumulatorBinding === null || resolveArrayBinding(context.sourceCode, concat.object) !== accumulatorBinding
+        ) {
+          return
         }
-        if (copiesAccumulator) context.report({ node, messageId: "accumulatorCopy" })
+
+        const appendsValues = copy.arguments.some((argument) => {
+          const value = unwrapArrayExpression(argument)
+          return value.type !== "SpreadElement" &&
+            (value.type !== "ArrayExpression" ||
+              value.elements.some((element) => element === null || element.type !== "SpreadElement"))
+        })
+        if (appendsValues) context.report({ node: copy, messageId: "accumulatorCopy" })
       }
     }
   }

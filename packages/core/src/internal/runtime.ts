@@ -3,7 +3,7 @@ import { BytePath as Path, VirtualFileSystem as P } from "@effect-vfs/effect-pre
 import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
 import { cleanupError, resumeAllocator } from "@effect-vfs/effect-preview/internal/durableStorage"
 import { unsafeFromOwnedRecords } from "@effect-vfs/effect-preview/internal/ownedCapture"
-import { ByteSize, Data, Effect, Exit, Iterable, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
+import { ByteSize, Data, Effect, Exit, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
 import * as Clock from "effect/Clock"
 import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Hex from "effect/encoding/Hex"
@@ -13,7 +13,6 @@ import * as Semaphore from "effect/Semaphore"
 import {
   CallerId,
   MkdirOptions,
-  ObjectReferenceId,
   OpenEntryOptions as EntryOpenSchema,
   OpenOptions as OpenSchema,
   RemoveOptions,
@@ -32,6 +31,7 @@ import { ReferenceKey, VolumeId, VolumeIdentity, VolumeIncarnation } from "../Vo
 import { CallerWatchOptions, WatchOptions } from "../Watch.js"
 import * as CorePath from "./bytePath.js"
 import { sameBytes } from "./bytes.js"
+import * as Compatibility from "./compatibilityState.js"
 import { attachStore } from "./durableStorage.js"
 import { imageFailure } from "./errors.js"
 import { hmacSha256, sameTag } from "./hmac.js"
@@ -161,14 +161,6 @@ const decode = <A, I>(schema: Schema.Codec<A, I>, input: I, operation: string) =
 
 const oldPath = (value: Path.BytePath) => Paths.pathFromBytes(Path.toBytes(value))
 
-interface Token {
-  readonly reference: P.ObjectReference
-  revision: P.ObjectRevision | undefined
-  number: bigint
-  readonly core: V.ObjectReference
-  readonly ino: bigint
-}
-
 export interface Runtime {
   frozen?: boolean
   storageReady?: Effect.Effect<void>
@@ -178,8 +170,7 @@ export interface Runtime {
   readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
   readonly clock: Clock.Clock
   readonly rootScope: Scope.Closeable
-  readonly tokens: Map<bigint, Token>
-  readonly references: WeakMap<V.ObjectReference, P.ObjectReference>
+  readonly compatibility: ReturnType<typeof Compatibility.make<Grant>>
   readonly files: WeakMap<V.FileHandle, P.FileHandle>
   readonly directories: WeakMap<V.DirectoryHandle, P.DirectoryHandle>
   revision: bigint
@@ -189,21 +180,15 @@ export interface Runtime {
   readonly gate: Semaphore.Semaphore
   readonly admission: Semaphore.Semaphore
   readonly captureReaders: Semaphore.Semaphore | undefined
-  readonly orders: Map<bigint, Array<string>>
-  readonly retained: Array<WeakRef<P.FileHandle | P.DirectoryHandle>>
   readonly time: { active: boolean; value: bigint | undefined }
   readonly readClock: () => bigint
-  readonly links: Map<bigint, Uint8Array>
   readonly grants: WeakMap<V.FileHandle | V.DirectoryHandle, Grant>
-  readonly activeGrants: Array<WeakRef<Grant>>
   readonly pending: Array<Effect.Effect<void>>
 }
 
 const runtimes = new WeakMap<V.Volume, Runtime>()
 
 const ownerRuntimes = new WeakMap<P.Owner, Runtime>()
-
-const referenceOwners = new WeakMap<V.ObjectReference, Runtime>()
 
 const handleOwners = new WeakMap<V.FileHandle | V.DirectoryHandle, Runtime>()
 
@@ -344,30 +329,10 @@ const intern = (
   reference: P.ObjectReference,
   ino: bigint,
   revision?: P.ObjectRevision
-): Token => {
+) => {
   if (ino > runtime.highestObjectNumber) runtime.highestObjectNumber = ino
-  const known = runtime.tokens.get(ino)
 
-  if (known !== undefined) {
-    if (revision !== undefined) {
-      if (known.revision !== undefined && !P.equalsObjectRevision(known.revision, revision)) {
-        known.number = runtime.revision > known.number ? runtime.revision : known.number + 1n
-      }
-
-      known.revision = revision
-    }
-
-    return known
-  }
-
-  const core: V.ObjectReference = Object.freeze({ [ObjectReferenceId]: true as const })
-  const created: Token = { core, ino, reference, revision, number: runtime.revision }
-
-  runtime.tokens.set(ino, created)
-  runtime.references.set(core, reference)
-  referenceOwners.set(core, runtime)
-
-  return created
+  return runtime.compatibility.intern(reference, ino, revision, runtime.revision)
 }
 
 const token = (runtime: Runtime, observation: P.ObjectObservation) =>
@@ -397,13 +362,21 @@ export const metadata = (runtime: Runtime, observation: P.ObjectObservation): Me
 
 export const coreReference = (runtime: Runtime, observation: P.ObjectObservation) => token(runtime, observation).core
 
-const reference = (runtime: Runtime, value: V.ObjectReference): Effect.Effect<P.ObjectReference, V.FsFailure> => {
-  const found = runtime.references.get(value)
+const referenceToken = (
+  runtime: Runtime,
+  value: V.ObjectReference
+): Effect.Effect<Compatibility.Token, V.FsFailure> => {
+  const found = runtime.compatibility.references.get(value)
 
   return found === undefined
-    ? Effect.fail(Errors.fsFailure(referenceOwners.has(value) ? "ForeignReference" : "InvalidReference", "reference"))
+    ? Effect.fail(
+      Errors.fsFailure(Compatibility.issuedReferences.has(value) ? "ForeignReference" : "InvalidReference", "reference")
+    )
     : Effect.succeed(found)
 }
+
+const reference = (runtime: Runtime, value: V.ObjectReference) =>
+  referenceToken(runtime, value).pipe(Effect.map((token) => token.reference))
 
 export const target = Effect.fnUntraced(
   function*(runtime: Runtime, value: V.TargetInput): Effect.fn.Return<P.Target, V.FsFailure> {
@@ -536,7 +509,7 @@ const validateResolution = Effect.fnUntraced(
         Paths.validatePath(Paths.ownedPath(bytes), "path", runtime.owner.limits.expandedPathBytes)
       ).pipe(Effect.mapError((error) => Errors.fsFailure(error.code, "path", { path: selected.path })))
 
-      if (runtime.links.size === 0) return
+      if (runtime.compatibility.links.size === 0) return
       let expanded = false
 
       for (let end = 0; end <= bytes.length; end++) {
@@ -549,7 +522,7 @@ const validateResolution = Effect.fnUntraced(
         if (Result.isFailure(object)) return
 
         if (object.success.kind !== "symlink") continue
-        const target = runtime.links.get(object.success.metadata.objectNumber)
+        const target = runtime.compatibility.links.get(object.success.metadata.objectNumber)
 
         if (target === undefined) return
 
@@ -663,10 +636,7 @@ const checkGrant = Effect.fnUntraced(function*(runtime: Runtime, grant: Grant) {
 })
 
 const refreshGrants = Effect.fnUntraced(function*(runtime: Runtime) {
-  for (const retained of runtime.activeGrants) {
-    const grant = retained.deref()
-
-    if (grant === undefined) continue
+  for (const grant of runtime.compatibility.activeGrants) {
     const object = yield* Effect.result(grant.handle.stat())
 
     if (Result.isFailure(object) || object.success.metadata.nlink === 0n) continue
@@ -774,15 +744,21 @@ const entryActor = Effect.fnUntraced(
   }
 )
 
-const retainedObservation = Effect.fnUntraced(function*(runtime: Runtime, reference: P.ObjectReference) {
-  for (const retained of runtime.retained) {
-    const handle = retained.deref()
+const retainedObservation = Effect.fnUntraced(function*(
+  runtime: Runtime,
+  reference: P.ObjectReference,
+  ino?: bigint
+) {
+  const retained = runtime.compatibility.retained
+  const handles = ino === undefined ? retained.values() : [retained.get(ino) ?? []]
 
-    if (handle === undefined) continue
-    const object = yield* Effect.result(handle.stat())
+  for (const group of handles) {
+    for (const handle of group) {
+      const object = yield* Effect.result(handle.stat())
 
-    if (Result.isSuccess(object) && P.equalsObjectReference(object.success.reference, reference)) {
-      return Option.some(object.success)
+      if (Result.isSuccess(object) && P.equalsObjectReference(object.success.reference, reference)) {
+        return Option.some(object.success)
+      }
     }
   }
 
@@ -835,7 +811,13 @@ const stat = Effect.fnUntraced(
         const root = yield* mapped(caller.stat("/"))
 
         if (root.metadata.objectNumber === 1n) {
-          const retained = yield* retainedObservation(runtime, selected)
+          const requested = Target.of(value)
+
+          const issued = Predicate.isTagged(requested, "Reference")
+            ? runtime.compatibility.references.get(requested.reference)
+            : undefined
+
+          const retained = yield* retainedObservation(runtime, selected, issued?.ino)
 
           if (
             Option.isSome(retained) &&
@@ -845,15 +827,10 @@ const stat = Effect.fnUntraced(
             return retained.value
           }
 
-          const issued = Iterable.findFirst(
-            runtime.tokens.values(),
-            (token) => P.equalsObjectReference(token.reference, selected)
-          )
-
-          if (Option.isSome(issued)) {
+          if (issued !== undefined) {
             const captured = yield* Image.valueOf(yield* snapshot(runtime.owner)).pipe(Effect.orDie)
 
-            if (State.getNode(captured, State.Ino(Number(issued.value.ino))) === undefined) {
+            if (State.getNode(captured, State.Ino(Number(issued.ino))) === undefined) {
               return yield* Errors.fsFailure("StaleReference", "stat")
             }
           }
@@ -1052,9 +1029,10 @@ const wrapFile = (
     close: execute(runtime, "close", undefined, file.close)
   }
 
-  runtime.activeGrants.push(new WeakRef(grant))
+  runtime.compatibility.track(handle, grant)
+
+  if (positioned !== handle) runtime.compatibility.track(positioned)
   runtime.grants.set(protectedFile, grant)
-  runtime.retained.push(new WeakRef(handle))
   runtime.files.set(protectedFile, handle)
   handleOwners.set(protectedFile, runtime)
 
@@ -1098,9 +1076,8 @@ const wrapDirectory = (
     )
   }
 
-  runtime.activeGrants.push(new WeakRef(grant))
+  runtime.compatibility.track(handle, grant)
   runtime.grants.set(protectedDirectory, grant)
-  runtime.retained.push(new WeakRef(handle))
   runtime.directories.set(protectedDirectory, handle)
   handleOwners.set(protectedDirectory, runtime)
 
@@ -1113,7 +1090,7 @@ const ordered = (runtime: Runtime, list: P.DirentListing) => {
   const names: Array<string> = []
   const entries: Array<P.DirentListing["entries"][number]> = []
 
-  for (const name of runtime.orders.get(id) ?? []) {
+  for (const name of runtime.compatibility.orders.get(id) ?? []) {
     const entry = present.get(name)
 
     if (entry === undefined) continue
@@ -1127,7 +1104,7 @@ const ordered = (runtime: Runtime, list: P.DirentListing) => {
     entries.push(entry)
   }
 
-  runtime.orders.set(id, names)
+  if (list.directory.metadata.nlink > 0n) runtime.compatibility.orders.set(id, names)
 
   return entries
 }
@@ -1135,8 +1112,11 @@ const ordered = (runtime: Runtime, list: P.DirentListing) => {
 const remember = (runtime: Runtime, parent: P.ObjectObservation, name: Path.BytePath, removed = false) => {
   const id = parent.metadata.objectNumber
   const key = Hex.encode(Path.toBytes(name))
-  const prior = runtime.orders.get(id) ?? []
-  runtime.orders.set(id, removed ? prior.filter((name) => name !== key) : prior.includes(key) ? prior : [...prior, key])
+  const prior = runtime.compatibility.orders.get(id) ?? []
+  runtime.compatibility.orders.set(
+    id,
+    removed ? prior.filter((name) => name !== key) : prior.includes(key) ? prior : [...prior, key]
+  )
 }
 
 const change = (before: bigint, after: bigint): V.DirectoryChange => ({ before, after })
@@ -1351,7 +1331,7 @@ const wrapCaller = (
         })
       }
 
-      const data = runtime.links.get(observed.success.metadata.objectNumber)
+      const data = runtime.compatibility.links.get(observed.success.metadata.objectNumber)
 
       if (data === undefined) return yield* Errors.fsFailure("StaleReference", "open")
       const parent = yield* parentEntry(current, selected)
@@ -1922,7 +1902,7 @@ const wrapCaller = (
       )
 
       if (object.kind !== "symlink") return yield* Errors.fsFailure("InvalidArgument", "readLink")
-      const stored = runtime.links.get(object.metadata.objectNumber)
+      const stored = runtime.compatibility.links.get(object.metadata.objectNumber)
 
       if (stored !== undefined) return stored.slice()
 
@@ -2171,7 +2151,7 @@ const wrapCaller = (
             { preserveTimes: preserved }
           ).pipe(Effect.andThen(actor.linkStat(t))))
 
-      runtime.links.set(
+      runtime.compatibility.links.set(
         made.result.metadata.objectNumber,
         Predicate.isString(p) ? new TextEncoder().encode(p) : Path.toBytes(p)
       )
@@ -3088,8 +3068,7 @@ export const makeVolume = Effect.fnUntraced(
       walkEntrySize: (ref) => mapped(ownerCaller.stat(ref)).pipe(Effect.map((entry) => entry.metadata.size)),
       clock: yield* Clock.Clock,
       rootScope,
-      tokens: new Map(),
-      references: new WeakMap(),
+      compatibility: Compatibility.make(watches.hasName, P.equalsObjectRevision),
       files: new WeakMap(),
       directories: new WeakMap(),
       revision: 1n,
@@ -3101,13 +3080,9 @@ export const makeVolume = Effect.fnUntraced(
       captureReaders: Predicate.isTagged(source, "Overlay") && !owner.limits.synchronous
         ? Semaphore.makeUnsafe(Number.MAX_SAFE_INTEGER)
         : undefined,
-      orders: new Map(),
-      retained: [],
       time,
       readClock,
-      links: new Map(),
       grants: new WeakMap(),
-      activeGrants: [],
       pending: []
     }
 
@@ -3115,9 +3090,11 @@ export const makeVolume = Effect.fnUntraced(
 
     if ("value" in source) {
       for (const [, node] of source.value.inodes) {
-        if (node.kind === "symlink") runtime.links.set(BigInt(node.ino), node.target.slice())
+        if (node.kind === "symlink") runtime.compatibility.links.set(BigInt(node.ino), node.target.slice())
 
-        if (node.kind === "directory") runtime.orders.set(BigInt(node.ino), [...node.entries.keys()].sort(Order.String))
+        if (node.kind === "directory") {
+          runtime.compatibility.orders.set(BigInt(node.ino), [...node.entries.keys()].sort(Order.String))
+        }
       }
     }
 
@@ -3158,7 +3135,7 @@ export const makeVolume = Effect.fnUntraced(
       return hmacSha256(secret, message).subarray(0, 16)
     }
 
-    const keyObservation = Effect.fnUntraced(function*(selected: P.ObjectReference) {
+    const keyObservation = Effect.fnUntraced(function*(selected: P.ObjectReference, ino: bigint) {
       const observed = yield* Effect.result(mapped(ownerCaller.stat(selected)))
 
       if (Result.isSuccess(observed)) return observed.success
@@ -3169,16 +3146,9 @@ export const makeVolume = Effect.fnUntraced(
           observed.failure.cause.reason === "temporarilyInaccessibleReference")
       ) return yield* observed.failure
 
-      for (const retained of runtime.retained) {
-        const handle = retained.deref()
+      const retained = yield* retainedObservation(runtime, selected, ino)
 
-        if (handle === undefined) continue
-        const object = yield* Effect.result(mapped(handle.stat()))
-
-        if (Result.isSuccess(object) && P.equalsObjectReference(object.success.reference, selected)) {
-          return object.success
-        }
-      }
+      if (Option.isSome(retained)) return retained.value
 
       return yield* Errors.fsFailure("StaleReference", "referenceKey")
     })
@@ -3209,7 +3179,19 @@ export const makeVolume = Effect.fnUntraced(
     const observeSnapshot = <A, E, R>(use: (value: V.Snapshot) => Effect.Effect<A, E, R>) =>
       observe("snapshot")(Effect.flatMap(snapshot(owner), use))
 
-    yield* Scope.provide(owner.onCommit(watches.publish), rootScope)
+    yield* Scope.provide(
+      owner.onCommit((batch) => {
+        watches.publish(batch)
+
+        for (const action of batch) {
+          if (Predicate.isTagged(action, "Remove")) runtime.compatibility.retire(action.object)
+          else if (!Predicate.isTagged(action, "Update") && action.previous !== undefined) {
+            runtime.compatibility.retire(action.previous)
+          }
+        }
+      }),
+      rootScope
+    )
 
     const volume: V.Volume = {
       [VolumeId]: true,
@@ -3254,19 +3236,15 @@ export const makeVolume = Effect.fnUntraced(
             let root = 1n
 
             if (selected.scope !== undefined) {
-              yield* reference(runtime, selected.scope)
-              const known = Iterable.findFirst(runtime.tokens.values(), (entry) => entry.core === selected.scope)
-
-              if (Option.isNone(known)) return yield* Errors.fsFailure("StaleReference", "watch")
-              root = known.value.ino
+              root = (yield* referenceToken(runtime, selected.scope)).ino
             }
 
             return yield* watches.subscribe(root, selected.recursive ?? true)
           })
         ),
       referenceKey: Effect.fnUntraced(function*(value) {
-        const selected = yield* reference(runtime, value)
-        const observed = yield* keyObservation(selected)
+        const selected = yield* referenceToken(runtime, value)
+        const observed = yield* keyObservation(selected.reference, selected.ino)
         const ino = observed.metadata.objectNumber
 
         return { identity: identityBytes.slice(), epoch: epochBytes.slice(), ino, tag: keyTag(ino) }
@@ -3282,10 +3260,10 @@ export const makeVolume = Effect.fnUntraced(
           return yield* Errors.fsFailure("InvalidReference", "resolveReferenceKey")
         }
 
-        const selected = runtime.tokens.get(key.ino)
+        const selected = runtime.compatibility.tokens.get(key.ino)
 
         if (selected === undefined) return yield* Errors.fsFailure("StaleReference", "resolveReferenceKey")
-        yield* keyObservation(selected.reference)
+        yield* keyObservation(selected.reference, selected.ino)
 
         return selected.core
       }, observe("resolveReferenceKey"))

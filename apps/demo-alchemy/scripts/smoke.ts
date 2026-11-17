@@ -1,4 +1,4 @@
-/* oxlint-disable effecttsgo/async-function, effecttsgo/global-console, effecttsgo/global-console-in-effect, effecttsgo/global-fetch, effecttsgo/process-env, eslint/no-console -- This CLI drives independent HTTP requests and reports their results. */
+/* oxlint-disable effecttsgo/global-console, effecttsgo/global-fetch -- This CLI drives independent HTTP requests and reports their results. */
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import assert from "node:assert/strict"

@@ -135,11 +135,11 @@ export const bind = Effect.fnUntraced(
     )
 
     const resolveReference = (value: ObjectReference) => {
-      const r = runtime.references.get(value)
+      const r = runtime.compatibility.references.get(value)
 
       if (r === undefined) throw Errors.fsFailure("ForeignReference", "bind")
 
-      return r
+      return r.reference
     }
 
     const checked = (input: string) => {
@@ -287,7 +287,10 @@ export const bind = Effect.fnUntraced(
       },
       symlink: (target: string, path: string) => {
         unwrap(sync.makeSymlink(checked(path), target))
-        runtime.links.set(unwrap(sync.linkStat(path)).metadata.objectNumber, new TextEncoder().encode(target))
+        runtime.compatibility.links.set(
+          unwrap(sync.linkStat(path)).metadata.objectNumber,
+          new TextEncoder().encode(target)
+        )
       },
       chmod: (t: Target, mode: number) => attributes(t, { mode }),
       chown: (t: Target, owner: OwnerUpdate) => attributes(t, owner),
@@ -315,7 +318,7 @@ export const bind = Effect.fnUntraced(
           truncateCursor: "preserve"
         }))
 
-        runtime.retained.push(new WeakRef(handle.effect))
+        runtime.compatibility.track(handle.effect)
         let released = false
 
         const file = () => {

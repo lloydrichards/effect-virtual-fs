@@ -12,7 +12,7 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
 })
 
-async function repository() {
+async function repository(project = "example") {
   const directory = await mkdtemp(path.join(tmpdir(), "vfs-policy-"))
   temporary.push(directory)
   await mkdir(path.join(directory, "packages/example/src"), { recursive: true })
@@ -21,6 +21,11 @@ async function repository() {
     path.join(directory, "packages/example/package.json"),
     JSON.stringify({
       name: "example",
+      scripts: {
+        test: `vitest run --project ${project}`,
+        "test:host": "node --test test/Host.test.js",
+        "test:live": "bun scripts/test-live.ts"
+      },
       exports: { "./Example": { types: "./dist/Example.d.ts", import: "./dist/Example.js" }, "./internal/*": null }
     })
   )
@@ -35,6 +40,7 @@ const policy = {
   runtime: "mixed",
   effects: true,
   documentation: "public",
+  tests: { shared: "example", runtime: ["test:host"], operator: ["test:live"] },
   allowedDependencies: []
 }
 
@@ -42,6 +48,33 @@ test("should reject an unclassified package when a workspace is added", async ()
   const directory = await repository()
   const workspaces = await discoverWorkspaces(directory, {})
   await expect(validateInventory(workspaces, directory, {})).rejects.toThrow("missing repository validation policy")
+})
+
+test("should reject a classified workspace without test qualification", async () => {
+  const directory = await repository()
+  const registry = { "packages/example": { ...policy, tests: undefined } }
+  await expect(validateInventory(undefined, directory, registry))
+    .rejects.toThrow("tests need an explicit qualification or exclusion reason")
+})
+
+test("should reject test qualification that names an undeclared workspace script", async () => {
+  const directory = await repository()
+  const tests = { ...policy.tests, operator: ["test:missing"] }
+  await expect(validateInventory(undefined, directory, { "packages/example": { ...policy, tests } }))
+    .rejects.toThrow("tests refer to unknown script test:missing")
+})
+
+test("should reject a workspace test script that selects an unregistered project", async () => {
+  const directory = await repository("unregistered")
+  await expect(validateInventory(undefined, directory, { "packages/example": policy }))
+    .rejects.toThrow("test script must select shared test project example")
+})
+
+test("should accept a workspace without a runtime suite when its reason is explicit", async () => {
+  const directory = await repository()
+  const tests = { reason: "Type-checked configuration has no runtime suite." }
+  const workspaces = await validateInventory(undefined, directory, { "packages/example": { ...policy, tests } })
+  expect(workspaces.map(({ directory }) => directory)).toEqual(["packages/example"])
 })
 
 test("should reject a public export when its source module is missing", async () => {

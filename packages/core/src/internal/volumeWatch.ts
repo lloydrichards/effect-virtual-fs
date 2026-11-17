@@ -340,5 +340,11 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
     }))
   })
 
-  return { publish, subscribe, subscribeCaller, directoryPath }
+  return {
+    publish,
+    subscribe,
+    subscribeCaller,
+    directoryPath,
+    hasName: (ino: bigint) => ino === root || names.has(ino)
+  }
 }
