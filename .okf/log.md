@@ -43,6 +43,9 @@
   boundary-safe rule design, semantic limits, proposed rollout criteria and nine implementation issues. Keep proposals
   separate from accepted validation policy.
 
+- Resolve Effect tag-handler and construction rules against imported bindings. Native rules own direct catch-tag
+  dispatch. Custom rules advise on caught reasons and report a single diagnostic for a chained tag dispatch.
+
 ## 2026-11-16
 
 - Align system and adapter profiles with the preview engine, Node bindings, and qualified NFS exports. Restore missing evidence references and add omitted contracts and decisions to their indexes.

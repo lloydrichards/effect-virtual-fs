@@ -1,20 +1,6 @@
 import { defineRule } from "@oxlint/plugins"
 
-import type { ESTree } from "@oxlint/plugins"
-import { isMatchPatternObject, isStringLiteral, propertyName } from "../shared/tagged-values.ts"
-
-function isSystemErrorOptions(node: ESTree.ObjectExpression): boolean {
-  const parent = node.parent
-  if (parent.type !== "CallExpression" || !parent.arguments.includes(node)) return false
-  const callee = parent.callee
-  return (
-    (callee.type === "Identifier" && callee.name === "systemError") ||
-    (callee.type === "MemberExpression" &&
-      !callee.computed &&
-      callee.property.type === "Identifier" &&
-      callee.property.name === "systemError")
-  )
-}
+import { isStringLiteral, isTaggedApiArgument, propertyName } from "../shared/tagged-values.ts"
 
 export const noManualTaggedConstructionRule = defineRule({
   meta: {
@@ -30,7 +16,7 @@ export const noManualTaggedConstructionRule = defineRule({
   createOnce(context) {
     return {
       ObjectExpression(node) {
-        if (isMatchPatternObject(node) || isSystemErrorOptions(node)) return
+        if (isTaggedApiArgument(context.sourceCode, node)) return
         const tag = node.properties.find(
           (property) =>
             property.type === "Property" &&
