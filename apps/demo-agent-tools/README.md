@@ -83,13 +83,14 @@ pinned `@opencode/codemode@2.1.1` interpreter with the repository's Effect `4.0.
 by the server. The upstream package declares Effect `4.0.1`; this example qualifies only the overridden `4.0.0`
 combination. Repeat its tests and type-check when upgrading either dependency.
 
-The server exposes three MCP tools:
+The server exposes these MCP tools:
 
-| Tool           | Arguments                                             | Result                                                                   |
-| -------------- | ----------------------------------------------------- | ------------------------------------------------------------------------ |
-| `execute`      | `{ code }`                                            | `{ runId, execution, changes }` from a fresh overlay of the seeded base. |
-| `inspect_run`  | `{ runId, path, action: "read" \| "list" \| "stat" }` | Saved run result and changes, plus the inspected `entry`.                |
-| `inspect_base` | `{ path, action: "read" \| "list" \| "stat" }`        | Original file content, listing, or metadata.                             |
+| Tool           | Arguments                                             | Result                                                                      |
+| -------------- | ----------------------------------------------------- | --------------------------------------------------------------------------- |
+| `execute`      | `{ code }`                                            | `{ runId, execution, changes }` from a fresh overlay of the seeded base.    |
+| `inspect_run`  | `{ runId, path, action: "read" \| "list" \| "stat" }` | Saved run result and changes, plus the inspected `entry`.                   |
+| `inspect_base` | `{ path, action: "read" \| "list" \| "stat" }`        | Original file content, listing, or metadata.                                |
+| `combine_runs` | `{ ours, theirs, take? }`                             | Pilot result, version 1 snapshot delta, conflict, and path-only comparison. |
 
 The host connects the components in this order:
 
@@ -97,7 +98,7 @@ The host connects the components in this order:
 McpServer execute handler
   fresh VFS overlay from the base snapshot
   caller rooted at /projects/release
-  OpenCode interpreter with four caller-bound Effect tools
+  OpenCode interpreter with caller-bound Effect tools
   await execution and scoped cleanup
   capture snapshot + final changes, retain by run ID
 ```
@@ -110,6 +111,7 @@ Inside `execute`, the model can use only these workspace tools and the interpret
 ```js
 tools.workspace.read_file({ path })
 tools.workspace.write_file({ path, content })
+tools.workspace.rename({ from, to })
 tools.workspace.list_directory({ path })
 tools.workspace.stat({ path })
 ```
@@ -146,6 +148,31 @@ Send that to `inspect_run`. Send `{ "path": "plans/draft.md", "action": "read" }
 draft. A second `execute` starts from that original draft and cannot see the first run's `report.txt`. Previous runs
 remain inspectable. Changes describe final file differences, not the history of tool calls, and omit timestamp-only
 differences.
+
+### Combine two runs pilot
+
+Call `execute` twice in the same Code Mode session. Run these programs separately and note their run IDs:
+
+```js
+return await tools.workspace.rename({ from: "plans/draft.md", to: "plans/moved.md" })
+```
+
+```js
+return await tools.workspace.write_file({ path: "plans/draft.md", content: "Edited release plan." })
+```
+
+Call `combine_runs` with the rename run ID as `ours` and the edit run ID as `theirs`. The pilot reports the edited text at
+`plans/moved.md` with no conflict. Its `baseline` shows how the existing delta-only merge handles the same inputs.
+The returned `delta` is version 1 snapshot delta JSON for the common base.
+
+For competing renames, run the rename program twice with different destinations, then combine those two IDs. The
+conflict reports both destinations, and the unresolved result keeps the draft at its original path. Call again with
+`take: "ours"`, `"theirs"`, or `"base"` to pick the resulting file. Combining leaves the original runs available for
+inspection.
+
+The pilot accepts a single clean rename or content edit of the seeded `plans/draft.md` per run. Rename destinations
+must be new paths. The demo owner still needs to confirm whether combining runs solves a real handoff problem.
+The public merge API remains on hold in [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271).
 
 Program diagnostics use `execution.ok: false` inside a successful MCP response. Expected filesystem failures appear
 inside the workspace tool's outcome. Invalid outer requests and inspection failures are MCP tool errors. A failed
