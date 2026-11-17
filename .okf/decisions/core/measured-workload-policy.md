@@ -46,10 +46,10 @@ order, immutable snapshots, and encoded formats stay compatible. Restored native
 namespace edit. This reduces repeated wide-directory copying while adding some retained directory metadata. The
 [persistent-state decision](persistent-volume-state.md "refined by") owns the collection and ordering policy.
 
-Retain dense replacement-buffer file storage for this release. Detaching before write preserves captured and
-overlay content; one-machine measurements do not justify a replacement storage design. Frequent large-file updates
-should receive separate storage investigation for a named consumer. Prefer small files and batch writes in current
-applications.
+Retain dense replacement-buffer file storage for this release. Detaching before a write preserves captured
+and overlay content. The [large-file model comparison](../../evidence/large-file-content-models.md) measures
+allocation and export trade-offs. A change still needs a named consumer and end-to-end qualification.
+Prefer small files and batch writes in current applications.
 
 Logical quotas do not bound metadata, temporary copies, snapshots, processing, watch subscriber totals, or runtime
 memory. The engine file ceiling is not recommended operating capacity. Use literal patterns for agent queries by

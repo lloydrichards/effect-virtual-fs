@@ -14,7 +14,10 @@ sources:
     title: Untraced volume, caller, and handle operations
   - resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Untraced checkpoint operations
-generated: { by: codex/okf, at: "2026-10-04T18:03:35+00:00" }
+  - id: tracing-lint
+    resource: ../../oxlint.config.ts
+    title: Scope of the package tracing lint rule
+generated: { by: codex/okf, at: "2026-11-17T20:15:00+00:00" }
 ---
 
 # Package boundaries
@@ -26,3 +29,5 @@ generated: { by: codex/okf, at: "2026-10-04T18:03:35+00:00" }
 The memory package also owns `FileSystemTesting`, a decorator over any Effect filesystem. Its [fault and spy contract](../contracts/filesystem-testing.md "constrains") defines public-call interception and state allocated per build. This utility stays outside the core state engine. Local package placement does not settle ownership in a future upstream Effect port.
 
 Packages leave tracing boundaries to their consuming applications. Reusable Effect operations use `Effect.fnUntraced`; package implementations do not add spans with named `Effect.fn`, `Effect.withSpan`, or `Stream.withSpan`. Applications can wrap the operations they want to trace.
+
+The `anti-slop-effect/no-package-spans` rule checks handwritten library source using the workspace policy registry. It follows Effect and Stream imports through constant aliases. For `Effect.fn`, it reports calls whose first argument is recognizable as a string from source syntax. The rule does not infer arbitrary computed names or follow wrappers across modules. Runtime tracing tests still cover the application boundary.

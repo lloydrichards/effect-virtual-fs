@@ -1,8 +1,11 @@
+import type { S3Client } from "@aws-sdk/client-s3"
 import { type LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { type CheckpointError, CheckpointStore } from "@effect-vfs/persistence"
 import * as D1LiveImageStore from "@effect-vfs/persistence/D1LiveImageStore"
 import * as PgLiveImageStore from "@effect-vfs/persistence/PgLiveImageStore"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+import { fromS3 } from "@effect-vfs/persistence/R2S3Transport"
+import type * as R2Store from "@effect-vfs/persistence/R2Store"
 import * as SqliteLiveImageStore from "@effect-vfs/persistence/SqliteLiveImageStore"
 import * as D1Client from "@effect/sql-d1/D1Client"
 import * as PgClient from "@effect/sql-pg/PgClient"
@@ -80,6 +83,20 @@ export type R2Requirements = Assert<Equals<Layer.Services<typeof r2>, R2LiveImag
 
 export const r2Provided = (client: R2LiveImageStore.R2Client) =>
   r2.pipe(Layer.provide(Layer.succeed(R2LiveImageStore.Client, client)))
+
+export const r2LegacyTransport: R2LiveImageStore.R2Client = {
+  read: () => Effect.succeed(null),
+  write: () => Effect.succeed(null)
+}
+
+export const r2BoundedRead = (sdk: S3Client) =>
+  R2LiveImageStore.fromS3("images")(sdk).readBounded("workspace-1", ByteSize.bytes(100))
+
+export type R2ClientIdentity = Assert<Equals<typeof R2LiveImageStore.Client, typeof R2Store.Client>>
+
+export type R2S3AdapterCompatibility = Assert<Equals<typeof R2LiveImageStore.fromS3, typeof fromS3>>
+
+export const r2S3Transport = (sdk: S3Client) => fromS3(sdk, "images").readBounded("workspace-1", ByteSize.bytes(100))
 
 export const sqlite = SqliteLiveImageStore.layer({
   filename: "/tmp/live.sqlite",

@@ -11,11 +11,11 @@ const program = Effect.scoped(Effect.gen(function*() {
   const config = yield* loadConfig()
 
   const live = Effect.gen(function*() {
-    yield* gateway(config)
+    const server = yield* gateway(config)
 
     yield* Effect.log("Use one gateway only. Unmount before stopping or restarting this process.")
 
-    return yield* Effect.never
+    return yield* server.awaitTermination
   })
 
   return yield* live.pipe(Effect.provide(Layer.merge(

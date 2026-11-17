@@ -1,5 +1,8 @@
 # Research
 
+- [Static analysis policy opportunities](static-analysis-policy.md) separates proposed lint improvements from existing
+  policy, records enforcement limits, and links the implementation issues.
+
 - [Effect filesystem public contract draft](effect-filesystem-contracts.md) assembles the stage 2 declarations, capture/restore model and adapter compatibility matrix for final review.
 
 - [Staged Effect filesystem implementation plan](minimal-effect-port.md) sequences engine-owned contracts, the Effect port, downstream packages and community-core retirement.
@@ -12,6 +15,7 @@
 - [Bounded POSIX requirements](posix-requirements.md) records the standards frame used to define and test the core without claiming full POSIX conformance.
 - [Overlay filesystem direction](overlay-filesystem.md) retains the alternatives considered for overlay v1 and the parity cases a future harness should cover.
 - [Snapshot delta representation research](overlay-changes.md) retains the open delta questions: alternative encodings, checkpoint storage, profiling, and rebasing onto a different base. The [snapshot delta merge decision](../decisions/overlay/snapshot-delta-merge.md) covers merging two deltas from the same base.
+- [Rename-aware overlay merge proposal](overlay-rename-merge.md) describes trusted capture inputs, file move conflicts, and group resolutions for issue #271.
 - [Live durable volume proposal](live-durable-volume.md) records the staged core mutation boundary and proposes a bounded storage provider, with crash recovery and NFS replay prerequisites.
 - [Cloudflare Durable Object live image store](cloudflare-durable-object-live-image.md) examines the storage adapter, native NFS gateway, and durability evidence needed for a Cloudflare-backed volume.
 - [Cloudflare remote volume storage options](cloudflare-remote-volume-storage-options.md) compares DO SQLite, D1, and R2 for a remotely accessible volume with replaceable storage.
@@ -26,6 +30,7 @@
 - [NFS attributes ledger](nfs/nfs-attributes-ledger.md) does the same for REQUIRED and RECOMMENDED attributes.
 - [NFS protocol rules ledger](nfs/nfs-protocol-rules-ledger.md) covers cross-cutting requirements, errata, and the client matrix.
 - [NFS WRITE and COMMIT design](nfs/write-and-commit.md) records protocol facts, staged behavior, accepted decisions, and storage qualification requirements.
+- [NFS cross-client scheduling measurement](nfs/client-scheduling.md) separates compound admission, direct core reads, and controlled storage waits.
 - [NFS OPEN creation](nfs/open-creation.md) records all four internal create modes, atomic verifier storage, and the public writable export requirements.
 - [NFS namespace and metadata mutations](nfs/namespace-and-metadata.md) records internal CREATE, LINK, REMOVE, RENAME, and SETATTR behavior and its wire evidence.
 

@@ -18,19 +18,21 @@ const nfs = "@effect-vfs/nfs"
 
 const node = "@effect-vfs/node"
 
-const library = (runtime, allowedDependencies) => ({
+const library = (runtime, allowedDependencies, tests) => ({
   kind: "library",
   runtime,
   effects: true,
   documentation: "public",
+  tests,
   allowedDependencies: [...allowedDependencies, config]
 })
 
-const application = (runtime, allowedDependencies) => ({
+const application = (runtime, allowedDependencies, tests) => ({
   kind: "application",
   runtime,
   effects: true,
   documentation: { reason: "Application entrypoints are not published library APIs." },
+  tests,
   allowedDependencies: [...allowedDependencies, config]
 })
 
@@ -41,6 +43,7 @@ export const policies = {
     runtime: "none",
     effects: { reason: "JSON compiler configuration has no Effect implementation." },
     documentation: { reason: "Compiler presets are configuration exports, not TypeScript APIs." },
+    tests: { reason: "Compiler presets are exercised by workspace type checks." },
     allowedDependencies: []
   },
   "packages/effect-preview": {
@@ -48,22 +51,69 @@ export const policies = {
     runtime: "mixed",
     effects: { reason: "Pinned upstream output is checked by sync, type, consumer and runtime suites." },
     documentation: { reason: "Private generated upstream snapshot; downstream public modules own documentation." },
+    tests: { shared: "effect-preview", tooling: ["test:types", "test:sync", "test:consumer"] },
     allowedDependencies: [config]
   },
-  "packages/core": library("mixed", [preview]),
-  "packages/memory": library("mixed", [core]),
-  "packages/node": library("node", [core]),
-  "packages/nfs": library("mixed", [core]),
-  "packages/persistence": library("mixed", [core]),
-  "apps/demo-agent-tools": application("bun", [core]),
-  "apps/demo-alchemy": application("bun", [core, persistence]),
-  "apps/demo-overlay": application("bun", [core]),
-  "apps/demo-r2-nfs": application("bun", [core, nfs, persistence]),
-  "apps/demo-typescript-workbench": application("node", [core, node]),
-  "apps/docs": application("mixed", [core, memory, persistence]),
-  "apps/nfs-preview": application("bun", [core, nfs]),
-  "apps/scratchpad": application("bun", [core, memory, persistence]),
-  "apps/virtual-build": application("bun", [core, memory])
+  "packages/core": library("mixed", [preview], { shared: "core", runtime: ["test:packed"] }),
+  "packages/memory": library("mixed", [core], { shared: "memory", runtime: ["test:host"] }),
+  "packages/nfs": library("mixed", [core], { shared: "nfs" }),
+  "packages/persistence": library("mixed", [core], {
+    shared: "persistence",
+    runtime: ["test:pg", "test:d1"],
+    operator: ["test:r2", "test:r2:fault", "test:r2:volume", "test:d1:remote"]
+  }),
+  "apps/demo-overlay": application("bun", [core], { shared: "demo-overlay" }),
+  "apps/demo-agent-tools": application("bun", [core], { shared: "demo-agent-tools" }),
+  "apps/demo-alchemy": application("bun", [core, persistence], { shared: "demo-alchemy", operator: ["test:live"] }),
+  "apps/virtual-build": application("bun", [core, memory], { shared: "virtual-build" }),
+  "packages/node": library("node", [core], { runtime: ["test", "test:consumer", "test:mounted"] }),
+  "apps/demo-r2-nfs": application("bun", [core, nfs, persistence], { operator: ["verify-mount"] }),
+  "apps/demo-typescript-workbench": application("node", [core, node], { runtime: ["test"] }),
+  "apps/docs": application("mixed", [core, memory, persistence], { tooling: ["test"] }),
+  "apps/nfs-preview": application("bun", [core, nfs], {
+    runtime: ["pynfs-gate"],
+    operator: ["linux-mount-gate", "verify-mount"]
+  }),
+  "apps/scratchpad": application("bun", [core, memory, persistence], {
+    reason: "Type-checked experiments have no runtime suite."
+  })
+}
+
+export const sharedTestProjects = Object.entries(policies).flatMap(([directory, policy]) => {
+  const name = policy.tests?.shared
+
+  return name ? [{ directory, name }] : []
+})
+
+function validateTestQualification(workspaces, errors) {
+  const shared = new Set()
+
+  for (const { directory, manifest, policy } of workspaces) {
+    if (!policy) continue
+
+    const { shared: project, tooling = [], runtime = [], operator = [], reason } = policy.tests ?? {}
+    const scripts = [...tooling, ...runtime, ...operator]
+
+    if (!project && scripts.length === 0 && !reason?.trim()) {
+      errors.push(`${directory}: tests need an explicit qualification or exclusion reason`)
+      continue
+    }
+
+    for (const script of project ? ["test", ...scripts] : scripts) {
+      if (!manifest.scripts?.[script]?.trim()) errors.push(`${directory}: tests refer to unknown script ${script}`)
+    }
+
+    if (project) {
+      if (shared.has(project)) errors.push(`${directory}: duplicate shared test project ${project}`)
+      shared.add(project)
+
+      const selector = manifest.scripts?.test?.match(/(?:^|\s)--project(?:\s+|=)(["']?)([\w.-]+)\1(?=\s|$)/)?.[2]
+
+      if (selector !== project) {
+        errors.push(`${directory}: test script must select shared test project ${project}`)
+      }
+    }
+  }
 }
 
 export async function discoverWorkspaces(directory = root, registry = policies) {
@@ -138,6 +188,8 @@ export async function validateInventory(workspaces, directory = root, registry =
   const errors = []
   const directories = new Set(workspaces.map((workspace) => workspace.directory))
   const names = new Set(workspaces.map((workspace) => workspace.manifest.name))
+
+  validateTestQualification(workspaces, errors)
 
   if (names.size !== workspaces.length) errors.push("Workspace package names must be unique.")
 

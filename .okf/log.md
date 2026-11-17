@@ -2,17 +2,42 @@
 
 ## 2026-11-17
 
+- Install core and memory tarballs together in the pinned Node consumer gate and verify candidate resolution and a filesystem rebuild with no redundant writes.
+
+- Require each workspace to declare its test qualification. Derive shared Vitest projects from the validation registry and
+  check workspace script and project references.
+
 - Extend the feature map with PostgreSQL, D1, supplied clients, the shared image protocol and keyed live-volume ownership. Align architecture, capability profiles, registry composition and release guidance; mark the Cloudflare RC survey as historical and retain hosted qualification and remote-service work as open.
+
+- Classify FileSystem tree-transfer source entries with `lstat`. Propagate filesystem classification and link-read errors even in skip mode.
 
 - Require supplied clients across live-image store layers. Record PostgreSQL dedicated-client and receive-budget obligations, native client startup errors, borrowed-client lifetimes, per-store D1 drainage and local provider composition. Remove the R2 client option in favor of an injected capability service.
 
+- Enforce R2 image limits during S3 body reads through an optional bounded transport operation.
+
+- Separate SDK-independent R2 store imports from the S3 adapter. Preserve the legacy entrypoint and package dependency policy.
+
+- Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
+
+- Reject unused Oxlint disable directives and verify that production, test, tooling, and generated paths participate according to root policy.
+
 - Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
+
+- Expose the scoped NFS listener's termination to serving programs and distinguish typed socket failures from normal shutdown.
+
+- Move broad type and raw-input lint advice to an opt-in audit. Keep the focused widen-then-assert check blocking.
 
 - Add the bounded D1 adapter and explicit STRICT migration. Record primary-only bindings, externally controlled ownership and pending-statement drainage before handoff. Add workerd contracts and a hosted qualification harness, with hosted release qualification still pending.
 
+- Measure NFS cross-client admission and direct core reads during a controlled live-image store delay. Keep the current compound scheduler.
+
 - Add PostgreSQL live-image persistence with explicit migrations, one application-controlled owner, private scoped sessions and a memory-only release guarantee. Reuse adapter contracts and add a real PostgreSQL CI job. Defer writable NFS and D1 implementation.
 
+- Retire core compatibility tokens, symlinks, directory order, and handle grants through committed namespace and handle-release events.
+
 - **Shared Effect diagnostic policy**: Pin tsgo 0.70.0 and derive Oxlint and standalone checks from the compiler preset, retaining narrow preview/synchronous exceptions and preserving separate source and compatibility work.
+
+- Limit reducer accumulator copy lint to direct growing array concatenations and record semantic constraints for array fusion and reflection.
 
 - Consolidate validation under one local/CI sequence, keep Git hooks fast and read-only beyond staged formatting, and place
   tests and fixtures with their owning tooling. Remove superseded launchers and reuse existing consumer contracts.
@@ -21,6 +46,13 @@
 
 - Record Effect-aligned repository validation: complete workspace and export classification, public documentation and
   type contracts, checked lint tooling, dependency direction, generated ownership, and selected packed-consumer compilers.
+
+- Record [static analysis policy research](research/static-analysis-policy.md): effective diagnostic disagreement,
+  boundary-safe rule design, semantic limits, proposed rollout criteria and nine implementation issues. Keep proposals
+  separate from accepted validation policy.
+
+- Resolve Effect tag-handler and construction rules against imported bindings. Native rules own direct catch-tag
+  dispatch. Custom rules advise on caught reasons and report a single diagnostic for a chained tag dispatch.
 
 ## 2026-11-16
 

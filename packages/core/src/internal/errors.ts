@@ -59,6 +59,5 @@ export const retargetFailure = <E>(operation: string, error: E): E => {
   if (!Schema.is(VfsError)(error)) return error
 
   // SAFETY: retarget changes only the operation, preserving E's error variant.
-  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- see the invariant above.
   return retarget(operation, error) as E
 }

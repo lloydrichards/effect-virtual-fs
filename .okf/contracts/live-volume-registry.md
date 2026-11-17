@@ -23,7 +23,7 @@ sources:
   - id: d1-client
     resource: ../../packages/persistence/src/D1LiveImageStore.ts
     title: Per-store drainage over a shared supplied client
-generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
+generated: { by: codex/okf, at: "2026-11-17T20:54:51+01:00" }
 ---
 
 # Shared live-volume registry
@@ -40,6 +40,6 @@ Capacity is an optional positive integer entry limit; omission is unlimited. Acq
 
 Keys follow Effect equality and must identify canonical backing-store locations. Different aliases, multiple registries, or independent processes can create competing owners. Canonicalization and external ownership coordination belong to the application. The registry exposes no invalidation operation because replacing an entry with live borrowers could violate exclusive store ownership.
 
-A supplied client has its own lifetime. For PostgreSQL, include `PgClient.layerFrom(PgClient.makeClient(...))` in the per-key store composition so the registry's fresh build acquires a new single-connection client per owner. Do not supply one already-built client to multiple entries. Close the complete store/client composition when an entry retires; rebuilding a store around a retained old client does not meet the replacement contract. D1 and R2 may share a transport across keys, but each entry retains its own protocol state and D1 pending-statement scope. The [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by") defines these client obligations.
+A supplied client has its own lifetime. For PostgreSQL, include `PgClient.layerFrom(PgClient.makeClient(...))` in the per-key store composition so the registry's fresh build acquires a new single-connection client per owner. Do not supply one already-built client to multiple entries. Close the complete store/client composition when an entry retires; rebuilding a store around a retained old client does not meet the replacement contract. D1 and R2 may share a transport across keys, but each entry retains its own protocol state and pending transport work scope. The [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by") defines these client obligations.
 
 Reference counting tracks consumers of a complete live volume. It does not replace inode link counts, transactionally staged open counts, opaque object references, or NFS protocol leases. Existing inode reclamation still requires no names and no open handles. Backend workload and retention policy must be qualified for the intended consumer; local in-memory timings establish no disk or network performance guarantee.

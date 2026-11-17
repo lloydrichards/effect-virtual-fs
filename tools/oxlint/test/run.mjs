@@ -1,17 +1,27 @@
 import { strict as assert } from "node:assert"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
 import policy from "../../../oxlint.config.ts"
+import boundaryAudit from "../boundary-audit.config.ts"
 
 import { ruleCases } from "./cases.mjs"
+import { checkCustomLintIntegration } from "./integration.mjs"
 
 const root = path.resolve(import.meta.dirname, "../../..")
 
-const enabledRules = Object.keys(policy.rules).filter((rule) =>
-  rule.startsWith("anti-slop") && policy.rules[rule] !== "off"
-)
+const oxlint = path.join(root, "node_modules/.bin/oxlint")
+
+const enabledRules = [
+  ...new Set(
+    [policy.rules, ...policy.overrides.map((override) => override.rules)].flatMap((rules) =>
+      Object.entries(rules).flatMap(([name, value]) => name.startsWith("anti-slop") && value !== "off" ? [name] : [])
+    )
+  )
+]
+
+enabledRules.push(...Object.keys(boundaryAudit.rules))
 
 assert.deepEqual(
   Object.keys(ruleCases).sort(),
@@ -57,7 +67,7 @@ try {
         await writeFile(filePath, source + "\n")
 
         const result = Bun.spawnSync([
-          path.join(root, "node_modules/.bin/oxlint"),
+          oxlint,
           "--config",
           configPath,
           "--disable-nested-config",
@@ -77,8 +87,155 @@ try {
       }
     }
   }
+
+  const scopedConfigPath = path.join(directory, "oxlint.config.ts")
+  await writeFile(
+    scopedConfigPath,
+    `import path from "node:path"
+import policy from ${JSON.stringify(path.join(root, "oxlint.config.ts"))}
+export default {
+  ...policy,
+  jsPlugins: policy.jsPlugins.map(plugin => ({
+    ...plugin,
+    specifier: path.resolve(${JSON.stringify(root)}, plugin.specifier)
+  }))
+}
+`
+  )
+  await symlink(path.join(root, "node_modules"), path.join(directory, "node_modules"))
+
+  const libraryFiles = [
+    "packages/core/src/internal/tracing.ts",
+    "packages/memory/src/tracing.ts",
+    "packages/nfs/src/tracing.ts",
+    "packages/node/src/tracing.ts",
+    "packages/persistence/src/tracing.ts"
+  ]
+
+  const allowedFiles = [
+    "apps/docs/examples/tracing.ts",
+    "apps/demo-overlay/src/tracing.ts",
+    "packages/core/examples/tracing.ts",
+    "packages/core/src/examples/tracing.ts",
+    "packages/core/src/tracing.test.ts",
+    "packages/core/test/tracing.ts"
+  ]
+
+  const generatedFile = "packages/effect-preview/src/tracing.ts"
+  const lintedFiles = [...libraryFiles, ...allowedFiles]
+
+  for (const filename of [...lintedFiles, generatedFile]) {
+    await mkdir(path.join(directory, path.dirname(filename)), { recursive: true })
+    await writeFile(
+      path.join(directory, filename),
+      `import { Effect, Stream } from "effect"
+
+Effect.fn("scope")
+
+Effect.withSpan("scope")
+
+Stream.withSpan("scope")
+`
+    )
+  }
+
+  const scopeOptions = [oxlint, "--config", scopedConfigPath, "--disable-nested-config"]
+  const paths = [...lintedFiles, generatedFile]
+  const participation = Bun.spawnSync([...scopeOptions, "--debug", "files", ...paths], { cwd: directory })
+  assert.equal(participation.exitCode, 0, participation.stderr.toString())
+  assert.deepEqual(participation.stdout.toString().trim().split("\n").sort(), [...lintedFiles].sort())
+
+  const scopedResult = Bun.spawnSync([...scopeOptions, "--format", "json", ...paths], { cwd: directory })
+  const scopedDiagnostics = parseReport(scopedResult, "package tracing scope")
+  assert.deepEqual(
+    scopedDiagnostics
+      .filter(({ code }) => code === "anti-slop-effect(no-package-spans)")
+      .map(({ filename }) => filename)
+      .sort(),
+    libraryFiles.flatMap((filename) => [filename, filename, filename]).sort()
+  )
 } finally {
   await rm(directory, { recursive: true, force: true })
 }
 
+await checkCustomLintIntegration()
+
 console.log(`Custom lint policy passed: ${enabledRules.length} rules, ${fixtures} isolated fixtures.`)
+
+// Type-aware fixtures live under the workspace so their Effect imports resolve.
+const cache = path.join(root, ".cache")
+
+await mkdir(cache, { recursive: true })
+
+const typedDirectory = await mkdtemp(path.join(cache, "vfs-tag-policy-"))
+
+try {
+  const configPath = path.join(typedDirectory, "oxlint.json")
+  const filePath = path.join(typedDirectory, "tag-ownership.ts")
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jsPlugins: policy.jsPlugins.map((plugin) => ({ ...plugin, specifier: path.resolve(root, plugin.specifier) })),
+      plugins: ["effecttsgo"],
+      categories: { correctness: "off" },
+      rules: {
+        "effecttsgo/catch-all-tag-dispatch-to-catch-tag": "error",
+        "effecttsgo/catch-if-tag-to-catch-tag": "error",
+        "anti-slop-effect/no-manual-effect-error-tag": "error",
+        "anti-slop-effect/no-manual-tag-comparison": "error"
+      }
+    })
+  )
+
+  for (const identifier of ["Effect", "E"]) {
+    await writeFile(
+      filePath,
+      `
+import { Effect${identifier === "E" ? " as E" : ""} } from "effect"
+declare const task: ${identifier}.Effect<never, { readonly _tag: "Missing"; readonly reason: { readonly _tag: "A" | "B" } } | { readonly _tag: "Other"; readonly reason: { readonly _tag: "A" | "B" } }>
+declare const state: { readonly _tag: "Closed" | "Open" }
+export const direct = ${identifier}.catch(task, error => error._tag === "Missing" ? ${identifier}.succeed(1) : ${identifier}.fail(error))
+export const predicate = ${identifier}.catchIf(task, error => error._tag === "Missing", () => ${identifier}.succeed(1))
+export const reason = ${identifier}.catch(task, error => error.reason._tag === "A" ? ${identifier}.succeed(1) : error.reason._tag === "B" ? ${identifier}.succeed(2) : ${identifier}.fail(error))
+export const external = ${identifier}.catch(task, error => state._tag === "Closed" ? ${identifier}.succeed(1) : ${identifier}.fail(error))
+export const externalChain = state._tag === "Closed" ? 1 : state._tag === "Open" ? 2 : 3
+type Failure = ${identifier}.Error<typeof task>
+export const directFallback = ${identifier}.catchIf(task, error => error.reason._tag === "A", () => ${identifier}.succeed(1), error => ${identifier}.fail(error))
+export const curriedFallback = task.pipe(${identifier}.catchIf((error: Failure) => error.reason._tag === "A", () => ${identifier}.succeed(1), error => ${identifier}.fail(error)))
+export const directExternal = ${identifier}.catchIf(task, () => state._tag === "Closed", () => ${identifier}.succeed(1), error => ${identifier}.fail(error))
+export const curriedExternal = task.pipe(${identifier}.catchIf((_error: Failure) => state._tag === "Closed", () => ${identifier}.succeed(1), error => ${identifier}.fail(error)))
+`
+    )
+
+    const result = Bun.spawnSync([
+      path.join(root, "node_modules/.bin/oxlint"),
+      "--type-aware",
+      "--config",
+      configPath,
+      "--disable-nested-config",
+      "--format",
+      "json",
+      filePath
+    ], { cwd: root })
+
+    assert.deepEqual(
+      parseReport(result, filePath).map((diagnostic) => [
+        diagnostic.code,
+        diagnostic.labels[0].span.line
+      ]).sort(),
+      [
+        ["anti-slop-effect(no-manual-effect-error-tag)", 11],
+        ["anti-slop-effect(no-manual-effect-error-tag)", 12],
+        ["anti-slop-effect(no-manual-effect-error-tag)", 7],
+        ["anti-slop-effect(no-manual-tag-comparison)", 9],
+        ["effecttsgo(catch-all-tag-dispatch-to-catch-tag)", 5],
+        ["effecttsgo(catch-if-tag-to-catch-tag)", 6]
+      ],
+      `Unexpected native/custom catch-tag policy for ${identifier}: ${result.stdout.toString()}`
+    )
+  }
+} finally {
+  await rm(typedDirectory, { recursive: true, force: true })
+}
+
+console.log("Native and custom tag diagnostics have separate ownership for canonical and aliased imports.")

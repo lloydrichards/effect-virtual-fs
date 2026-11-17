@@ -29,7 +29,7 @@ const program = Effect.scoped(Effect.gen(function*() {
     Config.withDefault("0")
   )) === "1"
 
-  const live = Effect.gen(function*() {
+  const serve = Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
@@ -39,7 +39,6 @@ const program = Effect.scoped(Effect.gen(function*() {
       if (code !== 0) return yield* new CommandFailed({ command, code })
     })
 
-    yield* gateway(config)
     yield* fs.makeDirectory(mountPoint, { recursive: true })
 
     const options = ["nfsvers=4.1", "tcp", "sec=sys", `port=${config.port}`, "actimeo=1"]
@@ -63,6 +62,12 @@ const program = Effect.scoped(Effect.gen(function*() {
         Layer.provide(BunHttpServer.layer({ port: 8080 }))
       )
     )
+  })
+
+  const live = Effect.gen(function*() {
+    const server = yield* gateway(config)
+
+    return yield* Effect.raceFirst(server.awaitTermination, serve)
   })
 
   return yield* live.pipe(Effect.provide(Layer.mergeAll(

@@ -1,213 +1,100 @@
 # R2LiveImageStore.ts overview
 
-Experimental whole-image R2 storage for one externally owned live volume.
-Each mutation replaces one object with an ETag condition. R2's concurrent
-same-key write limit and the absence of a reader lease require a single
-application-controlled gateway for the experimental writable NFS profile.
+Compatibility entrypoint for the R2 store and AWS SDK transport.
+Use `@effect-vfs/persistence/R2Store` for the transport-independent
+store and `@effect-vfs/persistence/R2S3Transport` for the S3 adapter.
 
 Since v0.5.0
 
 ---
 
-## constructors
+## utils
 
-### fromS3
+### Client
 
-Use R2's S3-compatible API from a Bun or Node NFS server.
-
-**Example**
-
-```ts
-import { S3Client } from "@aws-sdk/client-s3"
-import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
-  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
-})
-const client = R2LiveImageStore.fromS3(s3, "test-bucket")
-```
-
-**Signature**
-
-```ts
-declare const fromS3: { (bucket: string): (client: S3Client) => R2Client; (client: S3Client, bucket: string): R2Client }
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L122)
-
-Since v0.5.0
-
-## layers
-
-### layer
-
-A single-key experimental store. The application must ensure one live owner;
-ETag conditions detect stale writes but cannot prevent stale reads.
+Client supplies a borrowed transport.
 
 **Example**
 
 ```ts
-import { S3Client } from "@aws-sdk/client-s3"
-import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
-import { ByteSize, Layer } from "effect"
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
-  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
-})
-const R2ClientLayer = Layer.succeed(R2LiveImageStore.Client, R2LiveImageStore.fromS3(s3, "workspace-images"))
-const Store = R2LiveImageStore.layer({
-  key: "workspace-123",
-  maxImageBytes: ByteSize.mebibytes(4)
-}).pipe(Layer.provide(R2ClientLayer))
+import { Client } from "@effect-vfs/persistence/R2LiveImageStore"
 ```
 
-**Signature**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L19)
 
-```ts
-declare const layer: (
-  options: Options
-) => Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Client | Digest.Digest>
-```
+Since v0.12.0
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L226)
+### ObjectRecord
 
-Since v0.5.0
-
-## models
-
-### ObjectRecord (interface)
-
-A complete R2 image plus the metadata needed to validate and fence it.
+Bytes and metadata returned by a transport.
 
 **Example**
 
 ```ts
 import type { ObjectRecord } from "@effect-vfs/persistence/R2LiveImageStore"
-
-const record: ObjectRecord = {
-  bytes: new Uint8Array(),
-  etag: '"version-1"',
-  generation: "0",
-  digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-}
 ```
 
-**Signature**
-
-```ts
-export interface ObjectRecord {
-  readonly bytes: Uint8Array
-  readonly etag: string
-  readonly generation: string | undefined
-  readonly digest: string | undefined
-}
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L35)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L41)
 
 Since v0.5.0
 
-### Options (interface)
+### Options
 
-Configuration for one experimental R2-backed image.
+Options for a single R2 store.
 
 **Example**
 
 ```ts
 import type { Options } from "@effect-vfs/persistence/R2LiveImageStore"
-import { ByteSize } from "effect"
-
-const options: Options = {
-  key: "effect-vfs-nfs-test/live-image",
-  maxImageBytes: ByteSize.mebibytes(16)
-}
 ```
 
-**Signature**
-
-```ts
-export interface Options {
-  readonly key: string
-  readonly maxImageBytes: ByteSize.ByteSize
-  /** Assert R2's documented synchronous durable-write contract for a verified R2 endpoint and single owner. */
-  readonly durability?: "survives-power-loss"
-}
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L191)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L52)
 
 Since v0.5.0
 
-### R2Client (interface)
+### R2Client
 
-Transport operations required by the live-image adapter.
+The capability supplied to the store.
 
 **Example**
 
 ```ts
-import { S3Client } from "@aws-sdk/client-s3"
-import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
-  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
-})
-const client: R2LiveImageStore.R2Client = R2LiveImageStore.fromS3(s3, "test-bucket")
+import type { R2Client } from "@effect-vfs/persistence/R2LiveImageStore"
 ```
 
-**Signature**
-
-```ts
-export interface R2Client {
-  readonly read: (key: string) => Effect.Effect<ObjectRecord | null, Vfs.VfsError>
-  readonly write: (
-    key: string,
-    bytes: Uint8Array,
-    generation: string,
-    digest: string,
-    condition: { readonly ifMatch: string } | { readonly ifNoneMatch: "*" }
-  ) => Effect.Effect<{ readonly etag: string } | null, Vfs.VfsError>
-}
-```
-
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L60)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L63)
 
 Since v0.5.0
 
-## services
+### fromS3
 
-### Client (class)
-
-Supplies the borrowed R2 transport used by live-image stores. Share a client
-across distinct object keys while keeping each store owner separately scoped.
-The store does not close the supplied transport.
+Adapt an application-owned AWS SDK client.
 
 **Example**
 
 ```ts
-import { S3Client } from "@aws-sdk/client-s3"
-import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
-import { Layer } from "effect"
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
-  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
-})
-const R2ClientLayer = Layer.succeed(R2LiveImageStore.Client, R2LiveImageStore.fromS3(s3, "workspace-images"))
+import { fromS3 } from "@effect-vfs/persistence/R2LiveImageStore"
 ```
 
-**Signature**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L77)
+
+Since v0.5.0
+
+### layer
+
+Build a store layer for one R2 key.
+
+**Example**
 
 ```ts
-declare class Client
+import { layer } from "@effect-vfs/persistence/R2LiveImageStore"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L96)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L30)
 
-Since v0.12.0
+Since v0.5.0
+
+## Related documentation
+
+- [Transport-independent R2 store](/api/persistence/r2-store)
+- [AWS SDK transport](/api/persistence/r2-s3-transport)

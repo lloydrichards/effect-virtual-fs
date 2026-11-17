@@ -69,7 +69,6 @@ const readablePublicType = (text: string, packagePath: string): string =>
         : original)
 
 // Render aliases through their owning declarations so docs never depend on private namespace names.
-// oxlint-disable-next-line effecttsgo/async-function -- Prettier exposes an asynchronous formatting API.
 const expandPublicAliases = async (packagePath: string, moduleName: string, content: string): Promise<string> => {
   let project = projects.get(packagePath)
 
@@ -128,7 +127,6 @@ const expandPublicAliases = async (packagePath: string, moduleName: string, cont
   return result
 }
 
-// oxlint-disable-next-line effecttsgo/async-function -- Prettier exposes an asynchronous formatting API.
 const expandTypeAliases = async (packagePath: string, moduleName: string, content: string): Promise<string> => {
   let project = projects.get(packagePath)
 
@@ -195,7 +193,6 @@ const expandTypeAliases = async (packagePath: string, moduleName: string, conten
 }
 
 // Docgen omits the base type of tagged error classes, including their public fields.
-// oxlint-disable-next-line effecttsgo/async-function -- Prettier exposes an asynchronous formatting API.
 const expandTaggedErrorClasses = async (packagePath: string, moduleName: string, content: string): Promise<string> => {
   if (moduleName !== "VfsError") return content
 
@@ -243,6 +240,11 @@ const keepPublishedExports = (moduleName: string, content: string): string => {
 
   if (moduleName === "BytePath") {
     return content.replace(/^# utils[\s\S]*$/m, "")
+  }
+
+  if (moduleName === "R2LiveImageStore") {
+    // Docgen renders type-only re-exports as const values. Signatures belong to the defining modules.
+    return content.replace(/\*\*Signature\*\*\n\n```ts\n[\s\S]*?\n```\n\n/g, "")
   }
 
   if (moduleName === "SnapshotDelta") {

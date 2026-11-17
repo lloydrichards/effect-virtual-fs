@@ -1,4 +1,4 @@
-/* oxlint-disable effecttsgo/node-builtin-import, effecttsgo/process-env -- Standalone launcher builds the Worker and runs workerd integration under Node with inherited environment. */
+/* oxlint-disable effecttsgo/node-builtin-import -- Standalone launcher builds the Worker and runs workerd integration under Node with inherited environment. */
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 

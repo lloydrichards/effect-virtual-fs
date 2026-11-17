@@ -90,11 +90,14 @@ before composing application layers. PostgreSQL and D1 client layers also provid
 all drivers at one level can give SQLite the wrong client. One store-layer instance represents one owner.
 Create separate store-layer instances and scopes for independent owners.
 
-R2 callers now provide the existing capability through `R2LiveImageStore.Client`:
+Import the transport-independent `R2Store` when you supply a custom R2 client. Its runtime
+and declarations do not load the AWS SDK. For an AWS SDK client, import `fromS3` from
+`R2S3Transport` and provide the adapted client to the store:
 
 ```ts
 import { S3Client } from "@aws-sdk/client-s3"
-import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+import { fromS3 } from "@effect-vfs/persistence/R2S3Transport"
+import * as R2Store from "@effect-vfs/persistence/R2Store"
 import { ByteSize, Layer } from "effect"
 
 const s3 = new S3Client({
@@ -103,16 +106,33 @@ const s3 = new S3Client({
   credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
 })
 const R2ClientLayer = Layer.succeed(
-  R2LiveImageStore.Client,
-  R2LiveImageStore.fromS3(s3, "workspace-images")
+  R2Store.Client,
+  fromS3(s3, "workspace-images")
 )
-const Store = R2LiveImageStore.layer({
+const Store = R2Store.layer({
   key: "workspace-123",
   maxImageBytes: ByteSize.mebibytes(4)
 }).pipe(Layer.provide(R2ClientLayer))
 ```
 
-The AWS SDK creates `s3`; `fromS3` adapts its R2-compatible operations into the supplied Effect service.
+The original `R2LiveImageStore` subpath continues to export the same store and S3 adapter.
+The package still installs the AWS SDK as a dependency.
+
+The AWS SDK creates `s3`. The store passes `maxImageBytes` to the bounded reader supplied by `fromS3`.
+It rejects an oversized response before reading when the reported length exceeds the limit. Otherwise, it counts chunks
+and releases the body when a chunk crosses the limit. An oversized stored image fails with `CorruptStore`.
+The SDK and its HTTP handler may buffer bytes before exposing a chunk. Legacy custom clients are checked after `read`
+returns. Implement `readBounded` to enforce a transport limit. Direct calls to `fromS3(...).read` still materialize the body.
+
+Keep the store Layer open for the full owner lifetime. For example, provide it around the program that uses the volume,
+or build it with `Layer.build` in the enclosing owner scope. Close the complete owner before opening a replacement for the
+same key. Closing waits for outstanding requests, even if their callers stopped waiting. The store borrows the SDK client,
+so a separate owner for another key can continue using it.
+
+If the SDK reports a write failure with an uncertain outcome, keep the key offline. Use transport or provider evidence to
+establish that the request can no longer change the object, then verify the authoritative image before reopening. A
+successful GET alone can still precede a late remote write. The adapter freezes the uncertain owner and provides no
+automatic retry or takeover.
 The application owns the SDK client and closes it after all stores using it have closed. Closing a store does not
 destroy that client. SQLite continues to require a dedicated `SqlClient` for its verified filename, plus
 `FileSystem`, `Path` and `Digest`.

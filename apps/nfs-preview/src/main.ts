@@ -57,7 +57,7 @@ const program = Effect.scoped(
       "sudo mount_nfs -o vers=4.1,tcp,sec=sys,port=2049,actimeo=1,noowners 127.0.0.1:/ /Volumes/effect-vfs-nfs-preview"
     )
 
-    return yield* Effect.never
+    return yield* server.awaitTermination
   })
 ).pipe(
   Effect.provide(Layer.mergeAll(VfsLive, BunCrypto.layer, BunSocketServer.layer({ host: "127.0.0.1", port: 2049 })))

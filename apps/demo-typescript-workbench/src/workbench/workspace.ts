@@ -1,5 +1,5 @@
 // Node compiler and module-loader calls are the native boundary; VFS workflows retain Effect contracts.
-/* eslint-disable effecttsgo/node-builtin-import, effecttsgo/schema-sync */
+/* eslint-disable effecttsgo/node-builtin-import */
 import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { NodeVirtualProvider } from "@effect-vfs/node"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"

@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-// oxlint-disable effecttsgo/node-builtin-import, effecttsgo/global-console -- This repository checker reads paths and reports diagnostics through the host CLI.
-
 import path from "node:path"
 import {
   type ClassDeclaration,
