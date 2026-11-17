@@ -15,9 +15,11 @@ import type * as Scope from "effect/Scope"
 import { type BigIntStats, constants, type Stats } from "node:fs"
 import { VirtualProvider } from "node:vfs"
 import {
+  type BufferEncodingOption,
   dataOf,
   encoded,
   encodingOf,
+  type EncodingOption,
   type EncodingOptions,
   Entry,
   flagsOf,
@@ -27,6 +29,7 @@ import {
   ownerOf,
   pathOf,
   statsOf,
+  type TextEncodingOption,
   textOf,
   timesOf
 } from "./internal/conversions.js"
@@ -49,13 +52,17 @@ export const Options = Schema.Struct({
  */
 export type Options = typeof Options.Type
 
-type DirectoryOptions = Exclude<EncodingOptions, string> & {
-  readonly withFileTypes?: boolean
-  readonly recursive?: boolean
+type DirectoryOptions<Encoding = BufferEncoding | "buffer" | null | undefined, WithFileTypes = boolean> =
+  & EncodingOption<Encoding>
+  & { readonly withFileTypes?: WithFileTypes; readonly recursive?: boolean }
+
+type DirectoryEntries<Encoding = BufferEncoding | "buffer" | null | undefined> = DirectoryOptions<Encoding, true> & {
+  readonly withFileTypes: true
 }
 
-type FileOptions = {
-  readonly encoding?: BufferEncoding | "buffer" | null | undefined
+type TextPathOptions = BufferEncoding | EncodingOption<BufferEncoding | null | undefined> | null
+
+type FileOptions<Encoding = BufferEncoding | "buffer" | null | undefined> = EncodingOption<Encoding> & {
   readonly flag?: string | number
   readonly mode?: number
 }
@@ -151,6 +158,18 @@ export class Provider extends VirtualProvider {
     return this.lstatSync(path, options)
   }
 
+  readdirSync(input: string, options: DirectoryEntries<"buffer"> & BufferEncodingOption): Array<Entry<Buffer>>
+  readdirSync(input: string, options: DirectoryEntries<BufferEncoding | null | undefined>): Array<Entry>
+  readdirSync(input: string, options: DirectoryEntries): Array<Entry<string | Buffer>>
+  readdirSync(input: string, options: DirectoryOptions<"buffer", false> & BufferEncodingOption): Array<Buffer>
+  readdirSync(
+    input: string,
+    options?: DirectoryOptions<BufferEncoding | null | undefined, false> | BufferEncoding
+  ): Array<string>
+  readdirSync(
+    input: string,
+    options?: DirectoryOptions | BufferEncoding
+  ): Array<string | Buffer | Entry<string | Buffer>>
   readdirSync(input: string, options?: DirectoryOptions | BufferEncoding) {
     const path = pathOf(input, "scandir")
     const settings = Predicate.isString(options) ? { encoding: options } : options
@@ -178,6 +197,18 @@ export class Provider extends VirtualProvider {
 
     return results
   }
+  readdir(path: string, options: DirectoryEntries<"buffer"> & BufferEncodingOption): Promise<Array<Entry<Buffer>>>
+  readdir(path: string, options: DirectoryEntries<BufferEncoding | null | undefined>): Promise<Array<Entry>>
+  readdir(path: string, options: DirectoryEntries): Promise<Array<Entry<string | Buffer>>>
+  readdir(path: string, options: DirectoryOptions<"buffer", false> & BufferEncodingOption): Promise<Array<Buffer>>
+  readdir(
+    path: string,
+    options?: DirectoryOptions<BufferEncoding | null | undefined, false> | BufferEncoding
+  ): Promise<Array<string>>
+  readdir(
+    path: string,
+    options?: DirectoryOptions | BufferEncoding
+  ): Promise<Array<string | Buffer | Entry<string | Buffer>>>
   async readdir(path: string, options?: DirectoryOptions | BufferEncoding) {
     return this.readdirSync(path, options)
   }
@@ -233,6 +264,9 @@ export class Provider extends VirtualProvider {
   async symlink(target: string, path: string, type?: string) {
     this.symlinkSync(target, path, type)
   }
+  readlinkSync(input: string, options: BufferEncodingOption): Buffer
+  readlinkSync(input: string, options?: TextPathOptions): string
+  readlinkSync(input: string, options?: EncodingOptions): string | Buffer
   readlinkSync(input: string, options?: EncodingOptions) {
     const path = pathOf(input, "readlink")
     const bytes = invoke("readlink", path, () => this.binding.readLink(path))
@@ -240,9 +274,15 @@ export class Provider extends VirtualProvider {
 
     return encoded(bytes, Predicate.isString(options) ? options : { encoding: options?.encoding ?? "utf8" })
   }
+  readlink(path: string, options: BufferEncodingOption): Promise<Buffer>
+  readlink(path: string, options?: TextPathOptions): Promise<string>
+  readlink(path: string, options?: EncodingOptions): Promise<string | Buffer>
   async readlink(path: string, options?: EncodingOptions) {
     return this.readlinkSync(path, options)
   }
+  realpathSync(input: string, options: BufferEncodingOption): Buffer
+  realpathSync(input: string, options?: TextPathOptions): string
+  realpathSync(input: string, options?: EncodingOptions): string | Buffer
   realpathSync(input: string, options?: EncodingOptions) {
     const path = pathOf(input, "realpath")
     const bytes = invoke("realpath", path, () => this.binding.realPath(path))
@@ -250,6 +290,9 @@ export class Provider extends VirtualProvider {
 
     return encoded(bytes, Predicate.isString(options) ? options : { encoding: options?.encoding ?? "utf8" })
   }
+  realpath(path: string, options: BufferEncodingOption): Promise<Buffer>
+  realpath(path: string, options?: TextPathOptions): Promise<string>
+  realpath(path: string, options?: EncodingOptions): Promise<string | Buffer>
   async realpath(path: string, options?: EncodingOptions) {
     return this.realpathSync(path, options)
   }
@@ -319,6 +362,9 @@ export class Provider extends VirtualProvider {
   }
 
   // Derived whole-file methods validate input before open can create or truncate a file.
+  readFileSync(path: string, options?: FileOptions<"buffer" | null | undefined> | null): Buffer
+  readFileSync(path: string, options: BufferEncoding | (FileOptions & TextEncodingOption)): string
+  readFileSync(path: string, options?: WholeFileOptions): string | Buffer
   readFileSync(path: string, options?: WholeFileOptions) {
     encodingOf(options)
     const handle = this.openSync(path, Predicate.isObject(options) ? options.flag ?? "r" : "r")
@@ -329,6 +375,9 @@ export class Provider extends VirtualProvider {
       handle.closeSync()
     }
   }
+  readFile(path: string, options?: FileOptions<"buffer" | null | undefined> | null): Promise<Buffer>
+  readFile(path: string, options: BufferEncoding | (FileOptions & TextEncodingOption)): Promise<string>
+  readFile(path: string, options?: WholeFileOptions): Promise<string | Buffer>
   async readFile(path: string, options?: WholeFileOptions) {
     return this.readFileSync(path, options)
   }

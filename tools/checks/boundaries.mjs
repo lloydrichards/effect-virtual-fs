@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises"
-import { createRequire } from "node:module"
+import { createRequire, isBuiltin } from "node:module"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { discoverWorkspaces, publicEntries } from "./repository.mjs"
@@ -100,7 +100,7 @@ export function forbiddenImport(workspace, target, specifier) {
 
   if (
     (workspace.manifest.name === "@effect-vfs/core" || workspace.manifest.name === "@effect-vfs/effect-preview") &&
-    /^(?:node:|bun:|@effect\/platform-)/.test(specifier)
+    (/^(?:node:|bun:|@effect\/platform-)/.test(specifier) || isBuiltin(specifier))
   ) {
     return "The filesystem engine must remain runtime neutral"
   }

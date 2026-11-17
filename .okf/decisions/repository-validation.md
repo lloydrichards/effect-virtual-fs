@@ -43,6 +43,13 @@ Workspace manifests discover packages and public exports. The policy registry cl
 application, generated snapshot or configuration package, records runtime requirements, and specifies allowed workspace
 dependency directions. Missing classifications, stale entries and unexplained exclusions fail validation.
 
+Each workspace declares how its tests run. The shared Bun suite derives its Vitest projects from the registry, and each
+workspace test script selects its registered project. The registry also records workspace scripts for tooling suites,
+dedicated runtime jobs and operator gates, or a reason for having no suite. Inventory validation checks that named
+scripts exist in workspace manifests and that shared test scripts select their registered project. Entry points for
+runtime jobs and operator gates follow the
+[validation workflow](../workflows/evidence-and-validation.md).
+
 Every published TypeScript module has a corresponding source, API page and packed-consumer import. Root barrels contain re-exports only and inherit
 documentation from inventoried public defining modules. Local split exports are checked at their defining declarations. Configuration exports and package metadata have explicit dispositions.
 Effect diagnostics run over every applicable workspace; JSON presets and generated preview code have reasoned exclusions.

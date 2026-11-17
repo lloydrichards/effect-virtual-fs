@@ -8,12 +8,14 @@ import {
   dataOf,
   encoded,
   encodingOf,
+  type EncodingOption,
   type EncodingOptions,
   integer,
   invoke,
   NodeError,
   ownerOf,
   statsOf,
+  type TextEncodingOption,
   timesOf
 } from "./conversions.js"
 
@@ -250,6 +252,9 @@ export class NodeFileHandle {
     return { bytesWritten: this.writeInput(data, offsetOrOptions, lengthOrEncoding, position), buffer: data }
   }
 
+  readFileSync(options?: EncodingOption<"buffer" | null | undefined> | null): Buffer
+  readFileSync(options: BufferEncoding | TextEncodingOption): string
+  readFileSync(options?: EncodingOptions): string | Buffer
   readFileSync(options?: EncodingOptions) {
     this.check("read")
     encodingOf(options)
@@ -265,6 +270,9 @@ export class NodeFileHandle {
 
     return encoded(Buffer.concat(chunks), options)
   }
+  readFile(options?: EncodingOption<"buffer" | null | undefined> | null): Promise<Buffer>
+  readFile(options: BufferEncoding | TextEncodingOption): Promise<string>
+  readFile(options?: EncodingOptions): Promise<string | Buffer>
   async readFile(options?: EncodingOptions) {
     return this.readFileSync(options)
   }

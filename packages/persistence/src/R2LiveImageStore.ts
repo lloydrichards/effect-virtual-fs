@@ -8,7 +8,7 @@
  */
 import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
 import { LiveVolume, type VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Fiber, Layer, Scope } from "effect"
 import type * as ByteSize from "effect/ByteSize"
 import type * as Digest from "effect/crypto/Digest"
 import { dual } from "effect/Function"
@@ -199,6 +199,12 @@ export interface Options {
  * A single-key experimental store. The application must ensure one live owner;
  * ETag conditions detect stale writes but cannot prevent stale reads.
  *
+ * A store scope waits for pending transport operations to settle before
+ * releasing ownership. A caller can stop waiting without aborting an SDK
+ * request. If a write fails with an uncertain remote outcome, keep the key
+ * offline until reconciliation establishes that the request cannot still
+ * change the object and confirms the stored image.
+ *
  * @example
  * ```ts
  * import { S3Client } from "@aws-sdk/client-s3"
@@ -232,13 +238,21 @@ export const layer = (
       if (options.key.length === 0) return yield* opening.invalid("options")
       const maxImage = yield* Protocol.imageLimit(options.maxImageBytes, opening, "options")
       const client = yield* Client
+      const scope = yield* Scope.Scope
+
+      // The scope drains the transport even if the caller stops waiting.
+      const run = Effect.fnUntraced(function*<A, E>(request: Effect.Effect<A, E>) {
+        const pending = yield* Effect.forkIn(Effect.uninterruptible(request), scope)
+
+        return yield* Fiber.join(pending)
+      })
 
       const protocol = yield* Protocol.make({
         maxImage,
         loading,
         durability: options.durability ?? "memory-only",
         storage: {
-          read: Effect.suspend(() => client.read(options.key)).pipe(
+          read: run(Effect.suspend(() => client.read(options.key))).pipe(
             Effect.mapError((cause) => loading.fail("Storage", cause)),
             Effect.flatMap((record) => {
               if (record === null) return Effect.succeed(null)
@@ -254,13 +268,18 @@ export const layer = (
             })
           ),
           compareAndSwap: Effect.fnUntraced(function*(expected: string | undefined, next: Protocol.Image) {
-            return yield* client.write(
-              options.key,
-              next.image,
-              String(next.generation),
-              next.digest,
-              expected === undefined ? { ifNoneMatch: "*" } : { ifMatch: expected }
-            ).pipe(Effect.match({
+            // The request can outlive the caller's ownership of its input bytes.
+            const image = new Uint8Array(next.image)
+
+            return yield* run(Effect.suspend(() =>
+              client.write(
+                options.key,
+                image,
+                String(next.generation),
+                next.digest,
+                expected === undefined ? { ifNoneMatch: "*" } : { ifMatch: expected }
+              )
+            )).pipe(Effect.match({
               onFailure: (cause) => Protocol.WriteResult.Unknown({ cause }),
               onSuccess: (written) => {
                 if (written === null) return Protocol.WriteResult.Conflict()
