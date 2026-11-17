@@ -7,6 +7,8 @@
 
 - Extend the feature map with PostgreSQL, D1, supplied clients, the shared image protocol and keyed live-volume ownership. Align architecture, capability profiles, registry composition and release guidance; mark the Cloudflare RC survey as historical and retain hosted qualification and remote-service work as open.
 
+- Classify FileSystem tree-transfer source entries with `lstat`. Propagate filesystem classification and link-read errors even in skip mode.
+
 - Require supplied clients across live-image store layers. Record PostgreSQL dedicated-client and receive-budget obligations, native client startup errors, borrowed-client lifetimes, per-store D1 drainage and local provider composition. Remove the R2 client option in favor of an injected capability service.
 
 - Enforce R2 image limits during S3 body reads through an optional bounded transport operation.
