@@ -301,9 +301,11 @@ export const liveImageStoreContract = (options: {
         f.hooks.set("read", held.hold)
         const loading = yield* Effect.forkChild(store.loadOrCreate(initial))
         yield* held.entered
-        yield* Fiber.interrupt(loading)
-        assertInterrupted(yield* Fiber.await(loading))
-        assert.strictEqual(f.writeCount(), 0)
+        yield* Effect.gen(function*() {
+          yield* Fiber.interrupt(loading)
+          assertInterrupted(yield* Fiber.await(loading))
+          assert.strictEqual(f.writeCount(), 0)
+        }).pipe(Effect.ensuring(held.release))
         assert.deepStrictEqual(yield* store.loadOrCreate(initial), initial)
       }))
 
@@ -325,12 +327,14 @@ export const liveImageStoreContract = (options: {
             )
 
             yield* held.entered
-            yield* Fiber.interrupt(writing)
-            assertInterrupted(yield* Fiber.await(writing))
-            const count = f.writeCount()
-            assert.strictEqual(yield* owner.store.commit(initial), "unknown")
-            assert.strictEqual((yield* Effect.flip(owner.store.loadOrCreate(initial))).code, "Storage")
-            assert.strictEqual(f.writeCount(), count)
+            yield* Effect.gen(function*() {
+              yield* Fiber.interrupt(writing)
+              assertInterrupted(yield* Fiber.await(writing))
+              const count = f.writeCount()
+              assert.strictEqual(yield* owner.store.commit(initial), "unknown")
+              assert.strictEqual((yield* Effect.flip(owner.store.loadOrCreate(initial))).code, "Storage")
+              assert.strictEqual(f.writeCount(), count)
+            }).pipe(Effect.ensuring(held.release))
             yield* owner.close
             assert.deepStrictEqual(
               yield* (yield* f.open()).store.loadOrCreate(initial),

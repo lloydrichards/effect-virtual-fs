@@ -46,6 +46,12 @@ Since v0.5.0
 A single-key experimental store. The application must ensure one live owner;
 ETag conditions detect stale writes but cannot prevent stale reads.
 
+A store scope waits for pending transport operations to settle before
+releasing ownership. A caller can stop waiting without aborting an SDK
+request. If a write fails with an uncertain remote outcome, keep the key
+offline until reconciliation establishes that the request cannot still
+change the object and confirms the stored image.
+
 **Example**
 
 ```ts
@@ -73,7 +79,7 @@ declare const layer: (
 ) => Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Client | Digest.Digest>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L226)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L232)
 
 Since v0.5.0
 
