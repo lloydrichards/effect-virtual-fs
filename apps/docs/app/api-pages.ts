@@ -195,6 +195,14 @@ export const apiPages = [
   },
   {
     packageDir: "packages/persistence",
+    moduleName: "D1LiveImageStore",
+    label: "Persistence · D1LiveImageStore",
+    href: "/api/persistence/d1-live-image-store",
+    routePath: "persistence/d1-live-image-store",
+    contentPath: "content/api/persistence/d1-live-image-store.mdx"
+  },
+  {
+    packageDir: "packages/persistence",
     moduleName: "PgLiveImageStore",
     label: "Persistence · PgLiveImageStore",
     href: "/api/persistence/pg-live-image-store",

@@ -41,7 +41,10 @@ sources:
   - id: worker-protocols
     resource: https://developers.cloudflare.com/workers/reference/protocols/
     title: Workers supported protocols
-generated: { by: codex/okf, at: 2026-09-21T08:57:26Z }
+  - id: implemented-d1
+    resource: ../../packages/persistence/src/D1LiveImageStore.ts
+    title: Bounded D1 storage without distributed owner coordination
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # Cloudflare remote volume storage options
@@ -51,6 +54,10 @@ generated: { by: codex/okf, at: 2026-09-21T08:57:26Z }
 The larger goal is a remote virtual filesystem deployable on Cloudflare, with storage chosen independently from how clients reach it. Today `LiveVolume.LiveImageStore` has `loadOrCreate` and whole-image `commit` methods; its documented contract assumes one exclusive owner, atomic image replacement, and explicit classification of uncertain commits. A storage adapter alone does not give multiple Workers a coherent writable `Volume`. See [the earlier Durable Object investigation](cloudflare-durable-object-live-image.md "refines").[^live-contract]
 
 The client access route is separate. Cloudflare Workers accept HTTP and WebSocket traffic, but currently cannot accept inbound TCP sockets. A browser or TypeScript client can call a Worker or Durable Object remotely; an ordinary NFS mount still needs a TCP-speaking gateway outside the Worker runtime.[^worker-protocols]
+
+## Current adapter boundary
+
+The bounded D1 adapter is now implemented through an application-supplied native Effect client. It uses the plain primary binding, caps whole images at 1 MiB, and drains each owner's pending statements before handoff. R2 and PostgreSQL adapters also share the common ownership protocol. The [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by") records accepted behavior; hosted D1 release qualification remains pending. These adapters provide storage mechanics, not the authenticated remote service, cross-isolate owner coordination or two-client proof required by the remote workspace goal.
 
 ## What each platform gives us
 

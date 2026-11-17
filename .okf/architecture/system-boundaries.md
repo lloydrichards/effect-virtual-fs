@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: System boundaries
-description: Separates the runtime-neutral filesystem core from Effect adaptation, checkpoint storage, build consumers, and Node and NFS integrations.
+description: Separates the runtime-neutral filesystem core from Effect adaptation, checkpoint and live-image storage, build consumers, and Node and NFS integrations.
 status: stable
 tags: [architecture, boundaries, core]
 sources:
@@ -10,15 +10,15 @@ sources:
     title: Core public implementation
   - resource: ../../packages/effect-preview/README.md
     title: Preview engine ownership
-  - resource: ../../packages/persistence/src/index.ts
-    title: Checkpoint and live-image store exports
+  - resource: ../../packages/persistence/package.json
+    title: Checkpoint and live-image store entrypoints
   - id: nfs-source
     resource: ../../packages/nfs/src/NfsServer.ts
     title: NFS server public configuration
   - id: agent-tools-example
     resource: ../../apps/demo-agent-tools/README.md
     title: Independent caller-bound MCP example
-generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # System boundaries
@@ -29,7 +29,7 @@ The private Effect preview owns the live namespace, file bytes, identities, perm
 
 `@effect-vfs/memory` adapts a core volume to Effect's `FileSystem` service. It preserves that service's string API, cursor behavior, helper operations, and `PlatformError` contract without moving those compatibility rules into core.
 
-`@effect-vfs/persistence` stores application-requested named checkpoints in SQLite. Its SQLite and R2 live-image stores serve a different purpose: core asks the selected store to commit a candidate image before publishing the live mutation. Storage I/O belongs to the provider. The [package feature map](package-feature-map.md "refined by") identifies each store’s durability qualification.
+`@effect-vfs/persistence` stores application-requested named checkpoints in SQLite. Its SQLite, R2, PostgreSQL and D1 live-image stores serve a different purpose: core asks the selected store to commit a candidate image before publishing the live mutation. Storage I/O, schema checks and store-local ownership belong to the provider; client construction and transport lifetime belong to the application. All four store layers require supplied clients. PostgreSQL needs a dedicated client per owner, while D1 and R2 can share transports across different keys. The [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by") records those boundaries and D1 statement drainage. The [package feature map](package-feature-map.md "refined by") identifies each store’s durability qualification.
 
 `@effect-vfs/nfs` exposes one live volume to native NFSv4.1 clients through an application-provided socket server. RPC, sessions, filehandles, protocol authentication, and resource limits belong to that package; it reaches the volume only through callers and object references and adds no rules to core.
 

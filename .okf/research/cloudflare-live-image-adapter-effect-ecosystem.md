@@ -74,12 +74,26 @@ sources:
   - id: alchemy-do
     resource: https://alchemy.run/cloudflare/compute/durable-objects/
     title: Alchemy Durable Object deployment and typed RPC
-generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
+  - id: current-persistence
+    resource: ../../packages/persistence/package.json
+    title: Matching Effect 4.1.4 optional PostgreSQL and D1 peers
+  - id: d1-live-store
+    resource: ../../packages/persistence/src/D1LiveImageStore.ts
+    title: Implemented bounded D1 adapter
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # Effect integration choices for a Cloudflare live image store
 
-The repository uses Effect `4.0.0-rc.114`. `LiveImageStore` is only two operations: `loadOrCreate(initial)` and `commit(image)`. Its provider must exclusively own the image, replace it atomically, and distinguish confirmed success, confirmed rejection, and an outcome that cannot be determined. This small seam makes a new provider feasible, but no storage client implements those semantics for this repository automatically. [Contract](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts), [manifest](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/package.json).
+## Current implementation
+
+The repository now uses Effect 4.1.4. R2, PostgreSQL and D1 live-image adapters are implemented alongside SQLite, with supplied-client composition recorded in the [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by"). D1's schema and commit protocol are implemented; its 1 MiB cap, primary-only binding and per-owner statement drainage are covered locally. Hosted Cloudflare qualification remains required before release. This does not supply a Durable Object owner, authenticated remote filesystem client or shared-workspace service. Those remain part of the [remote workspace investigation](cloudflare-remote-agent-filesystem.md "qualified by").
+
+## Earlier integration survey
+
+The survey below used Effect `4.0.0-rc.114`. Its third-party compatibility and package-availability observations are historical and require revalidation before adoption. The current adapter decision supersedes its D1 implementation to-do list.
+
+At the time of the survey, the repository used Effect `4.0.0-rc.114`. `LiveImageStore` is only two operations: `loadOrCreate(initial)` and `commit(image)`. Its provider must exclusively own the image, replace it atomically, and distinguish confirmed success, confirmed rejection, and an outcome that cannot be determined. This small seam makes a new provider feasible, but no storage client implements those semantics for this repository automatically. [Contract](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts), [manifest](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/package.json).
 
 ## Existing packages
 

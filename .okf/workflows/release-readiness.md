@@ -26,7 +26,13 @@ sources:
   - id: nfs-package
     resource: ../../packages/nfs/package.json
     title: NFS package manifest
-generated: { by: codex/okf-dream, at: 2026-11-16T21:53:21Z }
+  - id: persistence-readme
+    resource: ../../packages/persistence/README.md
+    title: Dedicated clients, adapter peers and hosted D1 qualification
+  - id: d1-qualification
+    resource: ../../packages/persistence/test/fixtures/d1-worker.ts
+    title: Disposable hosted D1 qualification Worker
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # Release readiness
@@ -38,3 +44,7 @@ Before publishing, follow the [pull-request validation sequence](evidence-and-va
 Package-specific build gates matter. Core and persistence check emitted NodeNext consumption. Memory additionally bundles a browser-target entry and runs a Node smoke against that artifact. These establish export, module-resolution, and bundling compatibility; they do not establish full browser or worker runtime filesystem behavior.
 
 Release notes and version changes should reflect user-visible behavior. A release-ready claim must state any runtime matrix that was actually exercised rather than inheriting old local results. A release that states an NFS profile maturity must list the clients, suites, and versions behind it, as the [NFS interoperability and fault evidence decision](../decisions/nfs/nfs-interoperability-evidence.md "constrained by") requires; the preview app's conformance baseline is the record for the read-only profile. This workflow is [constrained by package boundaries](../decisions/package-boundaries.md "constrained by").
+
+Persistence has separate runtime and storage gates. Keep PostgreSQL and D1 peers optional for unrelated entrypoints, and qualify native-client composition through the existing packed consumer fixture. PostgreSQL's dedicated-client setup, receive budget and complete-owner replacement must remain explicit in release docs. Local Miniflare/workerd contracts do not replace the hosted D1 qualification and intended-deployment ownership/cancellation checks described by the [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by"). Do not release the D1 adapter until those checks are recorded; SQLite, PostgreSQL and D1 continue to report `memory-only`.
+
+The supplied-client R2 API change is accepted as a breaking pre-1.0 release in 0.12.0. Migration notes must move `Options.client` into the supplied `R2LiveImageStore.Client` service. This release choice does not select v1.0 readiness for the independent Effect port or strengthen storage durability.

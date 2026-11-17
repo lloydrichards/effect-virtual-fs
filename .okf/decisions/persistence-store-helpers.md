@@ -1,9 +1,9 @@
 ---
 type: Decision
 title: Persistence store helpers
-description: Names every persistence failure by its entry point, shares live-image validation and ownership policy behind SQLite, PostgreSQL and R2 storage operations, and defines initialization and cancellation recovery.
+description: Names every persistence failure by its entry point, shares live-image validation and ownership policy behind SQLite, PostgreSQL, D1 and R2 storage operations, and defines initialization and cancellation recovery.
 status: stable
-tags: [persistence, errors, sqlite, postgres, r2]
+tags: [persistence, errors, sqlite, postgres, d1, r2]
 sources:
   - id: checkpoint-store
     resource: ../../packages/persistence/src/CheckpointStore.ts
@@ -29,6 +29,9 @@ sources:
   - id: r2-store
     resource: ../../packages/persistence/src/R2LiveImageStore.ts
     title: R2 reads and ETag compare-and-swap
+  - id: sql-image-key
+    resource: ../../packages/persistence/src/internal/sqlLiveImageKey.ts
+    title: Well-formed SQL image keys preserve UTF-8 identity
   - id: pg-store
     resource: ../../packages/persistence/src/PgLiveImageStore.ts
     title: Private PostgreSQL session and conservative conditional writes
@@ -38,13 +41,25 @@ sources:
   - id: pg-migration
     resource: ../../packages/persistence/migrations/postgresql/001_live_images.sql
     title: Explicit version-one PostgreSQL schema
+  - id: d1-store
+    resource: ../../packages/persistence/src/D1LiveImageStore.ts
+    title: Primary-binding D1 adapter and scoped statement drainage
+  - id: d1-contract
+    resource: ../../packages/persistence/test/D1LiveImageStore.test.ts
+    title: Miniflare contracts and late-write handoff
+  - id: d1-worker
+    resource: ../../packages/persistence/test/fixtures/d1-worker.ts
+    title: Local and hosted Worker qualification harness
+  - id: d1-migration
+    resource: ../../packages/persistence/migrations/d1/001_live_images.sql
+    title: Explicit STRICT D1 schema and version row
   - id: pg-ci
     resource: ../../.github/workflows/pr-validation.yml
     title: PostgreSQL qualification job
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/182
     title: Persistence store helpers
-generated: { by: claude-code, at: "2026-11-17T16:00:00+01:00" }
+generated: { by: codex/okf, at: "2026-11-17T17:50:32+01:00" }
 ---
 
 # Persistence store helpers
@@ -65,9 +80,15 @@ Follows the [public API decision](core/public-api-targets-services-and-errors.md
    Cancellation remains Effect interruption. Reads and hashing before a write can be cancelled without freezing; initialization releases its claim. Once creation or commit storage work starts, interruption freezes the owner and requires reopening, even after confirmed SQLite rollback. After a confirmed write, the generation/token update completes before pending cancellation takes effect and preserves any freeze. Storage I/O stays interruptible relative to the caller; short state transitions and necessary SQLite rollback cleanup are protected. Cleanup completes before connection release.
 5. **One reusable live-image contract suite runs against the adapters.** It covers bounds, corruption, recovery, ownership races, delayed acknowledgements, digest failures, and cancellation with deterministic barriers. SQLite transaction, exclusivity and crash tests and R2 transport mapping remain adapter-specific. Checkpoint tests share their setup. The dead `Crypto` layers are gone, each checkpoint suite shares one migrated database and takes a fresh one where a test alters the table, and both restart suites drive their workers through `ChildProcessSpawner`, checking the worker's exit code as well as its output.
 
-6. **PostgreSQL v1 uses application-controlled ownership and one private session per open store.** Stop the old volume owner's entire scope before starting a replacement for the same database and key. Generation CAS fences stale writes but cannot retire cached reads. There is no lease or automatic takeover. URL, TLS and connection timeout are the only connection settings. A fresh session and its reserved connection execute independent autocommit statements outside application transactions. Success requires a completed query with exactly one matching generation receipt. A successful zero-row result is conflict. Every attempted-query failure, malformed receipt or interruption freezes the owner without automatic reconnect or replay.
-7. **Provision PostgreSQL explicitly.** Applications run the versioned packaged migration before opening. Use the fixed `public.effect_vfs_live_images` table, its version marker, required columns and immediate primary key. Reject missing or incompatible schema without hidden DDL or repair. Runtime schema mutation, application triggers, rules, RLS, extra constraints and automatic schema selection are unsupported. Different keys share this table independently. The PostgreSQL driver is an optional peer with a matching pinned development dependency. Non-PostgreSQL consumers do not need that peer. The public module is `PgLiveImageStore`; the root barrel remains checkpoint-only.
-8. **PostgreSQL v1 reports memory-only with no stronger-durability override.** Reopen, killed-writer recovery in a fresh process, cancellation, lost-response and real database tests qualify transaction and recovery behavior. They do not establish power-loss durability or qualify writable NFS. The explicit PostgreSQL command refuses an absent test URL and CI runs the service-backed suite separately from ordinary tests. D1 remains a follow-on investigation. The protocol proxy withholds ReadyForQuery after a real committed statement. It models server rejection and cancellation at controlled barriers. PostgreSQL's bigint column cannot contain fractional generations, and its serial private session cannot deliver another result while ReadyForQuery is withheld, so those two synthetic adapter cases remain covered by SQLite/R2 and protocol tests.
+6. **PostgreSQL v1 requires an application-supplied native PgClient.** Supply a fresh, dedicated single-connection client for each open store with `PgClient.layerFrom(PgClient.makeClient(...))`. Keep application queries, other stores, transactions, listeners and streams on different clients. Pools are outside the supported setup. This exclusivity is a caller obligation; a service tag cannot prove it. The store reserves one connection for its scope and executes directly through it, outside ambient application transaction routing. Stop both the old store and its dedicated client before building fresh replacements. Generation CAS fences stale writes but cannot retire cached reads. There is no lease or automatic takeover. Success requires a completed query with exactly one matching generation receipt. A successful zero-row result is conflict. Every attempted-query failure, malformed receipt or interruption freezes the owner without automatic reconnect or replay.
+7. **Provision PostgreSQL explicitly and configure its supplied client.** Applications run the versioned packaged migration before opening. Use the fixed `public.effect_vfs_live_images` table, its version marker, required columns and immediate primary key. Reject missing or incompatible schema without hidden DDL or repair. Both the key column and its primary index must use deterministic collations. Keys contain 1 to 256 UTF-16 code units of well-formed Unicode without NUL; reject lone surrogates before reservation or store SQL. The client layer can already have connected before store admission. Native client startup failures remain in that layer's SQL error channel; reservation and store work retain VFS mapping. Require default PostgreSQL type decoding, no acquisition hooks and an advertised receive limit of at least `max(16 MiB, maxImageBytes + 90 bytes)`. Reject incompatible advertised limits and hooks with `InvalidArgument` before reservation. Do not mutate supplied client configuration after construction. Runtime schema mutation, application triggers, rules, RLS, extra constraints and automatic schema selection are unsupported. Different keys share the table independently, each through its dedicated client. The PostgreSQL driver is an optional peer with a matching pinned development dependency. Non-PostgreSQL consumers do not need that peer. The public module is `PgLiveImageStore`; the root barrel remains checkpoint-only.
+8. **PostgreSQL v1 reports memory-only with no stronger-durability override.** Reopen, killed-writer recovery in a fresh process, cancellation, lost-response and real database tests qualify transaction and recovery behavior. They do not establish power-loss durability or qualify writable NFS. The explicit PostgreSQL command refuses an absent test URL and CI runs the service-backed suite separately from ordinary tests. The protocol proxy withholds ReadyForQuery after a real committed statement. It models server rejection and cancellation at controlled barriers. PostgreSQL's bigint column cannot contain fractional generations, and its serial private session cannot deliver another result while ReadyForQuery is withheld, so those two synthetic adapter cases remain covered by SQLite/R2 and protocol tests.
+
+9. **D1 v1 requires an application-supplied native D1Client.** Validate the client's configured binding is a plain primary-serving D1Database before querying. Native driver configuration excludes D1DatabaseSession at the type boundary; the store rejects cast session bindings at runtime. Use raw response envelopes without query/result-name transforms. Single conditional statements replace generic transactions or reserve, which the pinned D1 driver does not support. Different keys may share a supplied client while each store retains its own owner scope. A fixed STRICT image table and separate version table are provisioned through explicit app-run migrations. Compare both tables with their published v1 declarations, admitting only whitespace, keyword-case and ordinary quoted-identifier spelling differences. Retain the column, required-value, version, binary primary-key collation, trigger and index checks. Added CHECK constraints, foreign keys and other non-published clauses fail startup without repair. Keys share PostgreSQL's well-formed, 1-to-256-code-unit, no-NUL admission. Lone surrogates fail before any database query; valid Unicode identities remain distinct through UTF-8 transport. Image limits are positive and at most 1 MiB, leaving metadata headroom below D1's complete-row limit. Read images through a bounded BLOB projection. Validate native numeric byte arrays and their lengths before converting to Uint8Array. Receipts require a successful response envelope and exactly one matching generation. Attempted errors or malformed responses are Unknown, without adapter replay.
+10. **D1 ownership handoff drains pending statements.** Applications control one owner per database and key. Independent Worker isolates must not cache the same live volume. The adapter supplies no Durable Object hosting, routing or automatic takeover. D1 Promises may complete after caller interruption. Run queries uninterruptibly in fibers attached to the store scope, while callers wait interruptibly. The shared protocol freezes interrupted writes. Closing the entire old owner waits for its pending statements to settle before replacement. It can wait for an unresponsive binding. Do not destroy the borrowed database binding. Shared contracts account explicitly for writes that finish while a cancelled owner closes.
+11. **D1 release qualification remains separate from local emulation.** The guarantee is memory-only, with no override and no writable NFS. Node-driven Miniflare/workerd contracts cover binary views, the 1 MiB cap, malformed data and receipts, lost replies, stale CAS, cancellation and drained handoff. The bundled qualification Worker checks primary metadata and images across fresh owners inside workerd. CI runs this through an explicit job, and ordinary Bun tests skip it. Hosted Cloudflare qualification is still required before release. The provided hosted harness uses disposable keys and cleans its rows. Worker CPU, memory, query budgets and the deployment's ownership lifecycle need workload qualification. Local tests do not establish hosted behavior or power-loss durability.
+
+12. **Live-image layers require supplied clients and retain owner-local resources.** SQLite continues to require its dedicated SQL client, verified filename and platform services. R2 requires a service over its existing explicit `R2Client` capability; `Options.client` is removed and callers provide the service through native Layer composition. `fromS3` continues to borrow a supplied SDK client and closing the store does not destroy it. Supply each driver locally to its store before composing application layers, because PostgreSQL and D1 also publish the generic SQL service SQLite consumes. A store-layer instance is one memoized owner; separate owners need separate layer instances and scopes. Shared transport does not share protocol state or D1 pending-query scopes. Closing a PostgreSQL or SQLite store releases its reservation before the supplied client finalizes; it does not independently destroy a client whose scope remains open. Existing byte layouts, schema checks and commit outcomes remain unchanged.
 
 ## Consequences
 

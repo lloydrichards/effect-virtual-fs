@@ -26,7 +26,19 @@ sources:
   - id: preview-manifest
     resource: ../../packages/effect-preview/upstream/manifest.json
     title: Pinned upstream preview revision
-generated: { by: codex/okf, at: 2026-11-16T21:17:47+00:00 }
+  - id: live-volume
+    resource: ../../packages/core/src/LiveVolume.ts
+    title: Scoped live-volume opening and keyed registry
+  - id: live-protocol
+    resource: ../../packages/persistence/src/internal/liveImageProtocol.ts
+    title: Shared ownership and image-validation protocol
+  - id: pg-store
+    resource: ../../packages/persistence/src/PgLiveImageStore.ts
+    title: Supplied PostgreSQL client and dedicated session requirement
+  - id: d1-store
+    resource: ../../packages/persistence/src/D1LiveImageStore.ts
+    title: Primary D1 client and per-owner statement drainage
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # Package feature map
@@ -90,6 +102,7 @@ flowchart TB
     subgraph Integration["Integration"]
       Sync["Synchronous adapter binding"]
       Live["LiveVolume<br/>Image-store contract"]
+      Registry["Live-volume registry<br/>Scoped owners by canonical key"] -->|opens and retains owners| Live
     end
     Volume <-->|captures and restores| Snapshot
     Volume -->|binds callers| Sync
@@ -120,10 +133,25 @@ flowchart TB
     Checkpoint["CheckpointStore<br/>Named SQLite snapshots"]
     SQLite["SqliteLiveImageStore<br/>Memory-only durability"]
     R2["R2LiveImageStore<br/>Application-qualified durability"]
+    PostgreSQL["PgLiveImageStore<br/>Memory-only durability"]
+    D1["D1LiveImageStore<br/>1 MiB cap · memory-only<br/>Hosted qualification pending"]
+    Protocol["Shared live-image protocol<br/>Generation, digest, bounds and freeze"]
+    R2Client["R2Client service<br/>Supplied transport capability"] -.->|required by| R2
+    SQLite -->|uses| Protocol
+    R2 -->|uses| Protocol
+    PostgreSQL -->|uses| Protocol
+    D1 -->|uses| Protocol
   end
   Snapshot <-->|saves and loads| Checkpoint
   Live <-->|loads and commits images| SQLite
   Live <-->|loads and commits images| R2
+  Live <-->|loads and commits images| PostgreSQL
+  Live <-->|loads and commits images| D1
+  SqlClient(["Effect SqlClient<br/>SQLite driver"]) -.->|required by| Checkpoint
+  SqlClient -.->|dedicated client required by| SQLite
+  PgClient(["Effect PgClient<br/>Dedicated single-connection client"]) -.->|reserved by| PostgreSQL
+  D1Client(["Effect D1Client<br/>Plain primary-serving binding"]) -.->|required by| D1
+  Digest(["Effect Digest"]) -.->|required by| Protocol
   subgraph NFS["@effect-vfs/nfs"]
     Server["NfsServer · one volume"]
     subgraph Profiles["Access profiles"]
@@ -154,17 +182,21 @@ flowchart TB
   classDef external fill:#f1f5f9,stroke:#475569,color:#0f172a,stroke-width:2px
   classDef requirement fill:#fff7ed,stroke:#9a3412,color:#7c2d12,stroke-width:3px,stroke-dasharray:6 4
   class Owner,Caller,Files,Handles,Guards,Capture preview
-  class Volume,Watches,Fixtures,Testing,Snapshot,Overlay,Delta,Search,Sync,Live core
+  class Volume,Watches,Fixtures,Testing,Snapshot,Overlay,Delta,Search,Sync,Live,Registry core
   class MemoryFS,Transfer,Faults memory
   class Provider node
-  class Checkpoint,SQLite,R2 persistence
+  class Checkpoint,SQLite,R2,PostgreSQL,D1,Protocol,R2Client persistence
   class Server,ReadOnly,Writable,Local,Network nfs
-  class EffectFS,NodeFS,Mounted,Socket,Clients external
+  class EffectFS,NodeFS,Mounted,Socket,Clients,SqlClient,PgClient,D1Client,Digest external
   class SyncRequirement,Durable requirement
 ```
 
 ## Integration qualifications
 
-Node requires synchronous memory execution. Live volumes commit whole images on mutations. SQLite live storage declares `memory-only` durability. Writable NFS requires at least `survives-power-loss` durability. An R2 deployment needs application qualification and one gateway per image before declaring that durability.
+Node requires synchronous memory execution. All four live-image stores commit whole images before core publishes a mutation and use the same ownership and validation protocol. Applications supply each store's client through Effect layers. SQLite, PostgreSQL and D1 report `memory-only`; writable NFS requires at least `survives-power-loss`. Only an explicitly qualified R2 deployment may assert that stronger tier, with one gateway per image.
+
+Each PostgreSQL owner needs its own dedicated single-connection client. Closing a store releases its reservation; replacement must also close the old client and build a fresh composition. D1 and R2 clients may be shared across distinct image keys, while each store keeps independent ownership state. D1 owner closure drains its pending native statements before handoff. Local workerd checks do not complete hosted D1 release qualification.
+
+The registry shares complete owners within one process by canonical key; it does not coordinate independent processes or Workers. The [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by") owns the client, cancellation and schema rules. The [registry contract](../contracts/live-volume-registry.md "refined by") owns scope sharing and shutdown order.
 
 The [system boundaries](system-boundaries.md "constrained by") describe responsibility ownership. The [implemented filesystem profile](../profiles/implemented-filesystem.md "refined by") records supported behavior and limits. The checked-in preview manifest identifies the upstream revision represented by the engine nodes.

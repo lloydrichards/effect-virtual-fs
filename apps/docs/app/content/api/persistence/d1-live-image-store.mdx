@@ -1,0 +1,81 @@
+# D1LiveImageStore.ts overview
+
+Bounded Cloudflare D1 live images with application-controlled ownership.
+
+Since v0.12.0
+
+---
+
+## layers
+
+### layer
+
+Borrows the supplied native D1Client without closing it. Its binding must
+serve the primary; D1DatabaseSession bindings are rejected before SQL.
+Require one application-controlled owner per key. Interrupted or uncertain
+writes freeze the owner. Closing the Layer waits for pending statements to
+settle before ownership can be handed off. The guarantee is memory-only.
+
+**Example**
+
+```ts
+import * as D1LiveImageStore from "@effect-vfs/persistence/D1LiveImageStore"
+import * as D1Client from "@effect/sql-d1/D1Client"
+import { ByteSize, Layer } from "effect"
+
+const store = (db: D1Client.D1ClientConfig["db"]) =>
+  D1LiveImageStore.layer({
+    key: "workspace-123",
+    maxImageBytes: ByteSize.kibibytes(512)
+  }).pipe(Layer.provide(D1Client.layer({ db })))
+```
+
+**Signature**
+
+```ts
+declare const layer: (
+  options: Options
+) => Layer.Layer<
+  LiveVolume.LiveImageStore,
+  VfsError.ArgumentFailure | VfsError.StoreFailure,
+  D1Client.D1Client | Digest.Digest
+>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/D1LiveImageStore.ts#L124)
+
+Since v0.12.0
+
+## models
+
+### Options (interface)
+
+Stable volume identity and image budget. Supply a native D1Client backed by
+a plain primary-serving D1Database, and run the packaged migration first.
+
+**Example**
+
+```ts
+import type { Options } from "@effect-vfs/persistence/D1LiveImageStore"
+import { ByteSize } from "effect"
+
+const options: Options = {
+  key: "workspace-123",
+  maxImageBytes: ByteSize.kibibytes(512)
+}
+```
+
+**Signature**
+
+```ts
+export interface Options {
+  /** Between 1 and 256 UTF-16 code units, without NUL or unpaired surrogates. */
+  readonly key: string
+  /** Positive and at most 1 MiB, leaving headroom below D1's total row limit. */
+  readonly maxImageBytes: ByteSize.ByteSize
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/D1LiveImageStore.ts#L32)
+
+Since v0.12.0

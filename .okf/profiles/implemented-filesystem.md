@@ -1,7 +1,7 @@
 ---
 type: Implementation Profile
 title: Implemented filesystem
-description: Summarizes the current public core, Effect adapter, snapshot, overlay, delta, NFS export, build-consumer, and named-checkpoint capabilities without reproducing detailed contracts.
+description: Summarizes the current public core, Effect adapter, snapshot, overlay, delta, NFS export, build-consumer, named-checkpoint, and live-image capabilities without reproducing detailed contracts.
 status: stable
 tags: [profile, implementation, filesystem]
 sources:
@@ -26,7 +26,16 @@ sources:
   - id: nfs-source
     resource: ../../packages/nfs/src/NfsServer.ts
     title: NFS server public implementation
-generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
+  - id: r2-live-store
+    resource: ../../packages/persistence/src/R2LiveImageStore.ts
+    title: Injected R2 transport and conditional whole-image writes
+  - id: pg-live-store
+    resource: ../../packages/persistence/src/PgLiveImageStore.ts
+    title: Dedicated supplied PostgreSQL client
+  - id: d1-live-store
+    resource: ../../packages/persistence/src/D1LiveImageStore.ts
+    title: Supplied primary D1 client and owner-scoped drainage
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # Implemented filesystem
@@ -51,7 +60,9 @@ The core can also create, inspect, Schema-encode, decode, and apply [portable sn
 
 `@effect-vfs/persistence` adds named, create-only SQLite checkpoints over encoded snapshots. Applications supply the SQLite client and run the migration explicitly. Loading returns an opaque snapshot for restoration into a fresh volume. This implements the [checkpoint persistence decision](../decisions/named-checkpoint-persistence.md "implements") and is specified by the [checkpoint persistence contract](../contracts/checkpoint-persistence.md "refined by").
 
-The package also exports a scoped SQLite live-image store built on an application-supplied Effect `SqlClient`. It commits bounded whole images under exclusive ownership and passes process-restart tests. A repeatable UTM gate now checks guest OS hard stops against a recorded Debian/ext4 virtual disk configuration. Physical power-loss behavior, lost or reordered storage writes, and temporary journal-space bounds remain unqualified, so volumes opened through it still report `memory-only`. The [live durable volume proposal](../research/live-durable-volume.md "qualified by") records the remaining storage qualification.
+The package also exports SQLite, R2, PostgreSQL and D1 live-image stores. Each requires an application-supplied client and shares the generation, digest, bounds, initialization and freeze protocol recorded in the [persistence ownership decision](../decisions/persistence-store-helpers.md "refined by"). PostgreSQL reserves a dedicated single-connection client per owner. D1 accepts a plain primary-serving binding through its native Effect client, caps images at 1 MiB and drains pending statements within each store's scope. R2 consumes a supplied conditional-write capability; its existing explicit deployment qualification remains separate from other adapters. PostgreSQL and D1 report `memory-only`, and hosted Cloudflare D1 qualification is still required before release.
+
+The SQLite store is built on an application-supplied Effect `SqlClient`. It commits bounded whole images under exclusive ownership and passes process-restart tests. A repeatable UTM gate now checks guest OS hard stops against a recorded Debian/ext4 virtual disk configuration. Physical power-loss behavior, lost or reordered storage writes, and temporary journal-space bounds remain unqualified, so volumes opened through it still report `memory-only`. The [live durable volume proposal](../research/live-durable-volume.md "qualified by") records the remaining storage qualification.
 
 `@effect-vfs/nfs` exports one live volume to NFSv4.1 clients. The [NFS read-only-local profile](nfs/nfs-read-only-local.md "refined by") serves loopback TCP or a UNIX-domain socket and is interoperable with Linux and macOS kernel clients. The [NFS read-only-networked profile](nfs/nfs-read-only-networked.md "refined by") maps trusted credentials and peers to VFS callers and permits non-loopback binding behind policy and explicit opt-in. The experimental `writable: true` profile requires a volume that reports `survives-power-loss` and an explicit policy restricted to one mapped identity. The [R2 test app](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/demo-r2-nfs/README.md) exercises it against a real bucket; the gateway still requires one external owner and clients must remount after restart. These profiles are not fully NFSv4.1 conformant.
 

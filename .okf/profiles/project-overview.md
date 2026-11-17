@@ -13,12 +13,15 @@ sources:
     title: Generated API page registry
   - resource: ../../apps/docs/package.json
     title: Documentation application manifest
-generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
+  - id: persistence-readme
+    resource: ../../packages/persistence/README.md
+    title: Supplied-client storage adapters and qualification limits
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # Project knowledge overview
 
-Effect Virtual FS provides a runtime-neutral core with snapshots, overlays, portable deltas, and adapters for Effect and Node. The [direct Node provider](../contracts/node-provider.md "implemented by") and [mounted Node contract](../contracts/node-mounted.md "implemented by") describe the two Node entry points. Persistence supplies named SQLite checkpoints and live-image stores. The [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "described by") records which native clients, storage guarantees, and restart behavior each export supports. The virtual-build application exercises package consumption. The documentation site publishes generated API references for core, memory, persistence, and NFS.
+Effect Virtual FS provides a runtime-neutral core with snapshots, overlays, portable deltas, and adapters for Effect and Node. The [direct Node provider](../contracts/node-provider.md "implemented by") and [mounted Node contract](../contracts/node-mounted.md "implemented by") describe the two Node entry points. Persistence supplies named SQLite checkpoints and live-image stores for SQLite, R2, PostgreSQL and D1. Applications supply their backend clients. PostgreSQL and D1 remain `memory-only`, with hosted D1 release qualification pending; the [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by") records client and scope obligations. The [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "described by") records which native clients, storage guarantees, and restart behavior each export supports. The virtual-build application exercises package consumption. The documentation site publishes generated API references for core, memory, persistence, and NFS.
 
 Start with the [system boundaries](../architecture/system-boundaries.md "described by") to understand ownership, then use the [implemented filesystem profile](implemented-filesystem.md "implemented by") to reach current behavior. Work outside that contract is listed under [deferred capabilities](deferred-capabilities.md "excludes") and must remain distinguishable from implemented support.
 

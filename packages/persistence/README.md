@@ -71,7 +71,7 @@ Applications with an existing startup sequence can instead yield `CheckpointStor
 
 ## Live image commits
 
-`SqliteLiveImageStore`, `PgLiveImageStore` and `R2LiveImageStore` implement core's `LiveImageStore` service. `LiveVolume.open` commits a
+`SqliteLiveImageStore`, `PgLiveImageStore`, `D1LiveImageStore` and `R2LiveImageStore` implement core's `LiveImageStore` service. `LiveVolume.open` commits a
 complete image on each mutation. A confirmed storage rejection leaves the volume unchanged. An uncertain commit
 outcome makes the volume unavailable until reopen.
 
@@ -84,6 +84,38 @@ loss. [Power-loss testing](POWER_LOSS_TESTING.md) describes the qualification wo
 
 R2 has no ownership lease. Applications must enforce one gateway per image. Set `durability: "survives-power-loss"`
 only when relying on Cloudflare R2's documented durable-write contract and verifying the actual R2 endpoint.
+
+Every live-image layer requires a supplied client. Provide each client directly to its store with `Layer.provide`
+before composing application layers. PostgreSQL and D1 client layers also provide generic `SqlClient`; merging
+all drivers at one level can give SQLite the wrong client. One store-layer instance represents one owner.
+Create separate store-layer instances and scopes for independent owners.
+
+R2 callers now provide the existing capability through `R2LiveImageStore.Client`:
+
+```ts
+import { S3Client } from "@aws-sdk/client-s3"
+import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+import { ByteSize, Layer } from "effect"
+
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
+  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
+})
+const R2ClientLayer = Layer.succeed(
+  R2LiveImageStore.Client,
+  R2LiveImageStore.fromS3(s3, "workspace-images")
+)
+const Store = R2LiveImageStore.layer({
+  key: "workspace-123",
+  maxImageBytes: ByteSize.mebibytes(4)
+}).pipe(Layer.provide(R2ClientLayer))
+```
+
+The AWS SDK creates `s3`; `fromS3` adapts its R2-compatible operations into the supplied Effect service.
+The application owns the SDK client and closes it after all stores using it have closed. Closing a store does not
+destroy that client. SQLite continues to require a dedicated `SqlClient` for its verified filename, plus
+`FileSystem`, `Path` and `Digest`.
 
 ## Checkpoint contract
 
@@ -183,10 +215,74 @@ cached reads. There is no lease or automatic takeover. Query failures, lost repl
 interruption after a write attempt freeze the owner. Reopen through a fresh client and owner after closing the complete old composition.
 
 This v1 reports `memory-only`. It persists and reopens images but exposes no stronger-durability assertion and
-does not qualify writable NFS. D1 remains a separate investigation.
+does not qualify writable NFS.
 
 For integration tests, use a disposable PostgreSQL database with the migration already applied. The tests temporarily
 alter the fixed table to verify schema rejection. Set `VFS_PG_TEST_URL` and run `bun run test:pg` from this package.
 The explicit command fails when the URL is absent. Ordinary tests skip PostgreSQL when it is absent. CI runs
 PostgreSQL 18.3 with Bun 1.4.4 in its own job. `VFS_PG_PROXY_PORT` optionally supplies the first proxy port on
 hosts whose ephemeral listener range is exhausted.
+
+## D1 live images
+
+Install the optional `@effect/sql-d1@~4.1.4` peer for the D1 subpath. Other adapters do not require it.
+Apply `migrations/d1/001_live_images.sql` from the published package through your explicit D1 migration system
+before opening a store. The adapter validates the fixed `effect_vfs_live_images` and
+`effect_vfs_live_images_schema` tables. Opening never creates, repairs or silently upgrades them.
+Keep their published v1 table declarations, binary key collation and version row unchanged. Startup permits
+whitespace, keyword case and ordinary double-quoted identifier spelling differences. Extra constraints, foreign
+keys and other schema clauses are rejected, as are triggers and indexes. Coordinate schema changes while owners
+are stopped.
+
+```ts
+import * as D1LiveImageStore from "@effect-vfs/persistence/D1LiveImageStore"
+import * as D1Client from "@effect/sql-d1/D1Client"
+import { ByteSize, Layer } from "effect"
+
+const makeStore = (db: D1Client.D1ClientConfig["db"]) =>
+  D1LiveImageStore.layer({ key: "workspace-123", maxImageBytes: ByteSize.kibibytes(512) }).pipe(
+    Layer.provide(D1Client.layer({ db }))
+  )
+```
+
+Supply the native `D1Client` layer using a plain `env.DB` binding, plus the application's `Digest` service.
+Different store keys may share this client while each store retains its own pending-query scope. The adapter uses
+one conditional statement per mutation, without BEGIN or generic transactions. D1 Sessions
+are excluded. Cloudflare documents that the [plain binding executes on the primary](https://developers.cloudflare.com/d1/best-practices/read-replication/).
+
+Keys contain 1 to 256 UTF-16 code units without NUL or unpaired surrogates. Well-formed Unicode, including paired
+surrogates, remains supported. Invalid UTF-16 is rejected before querying D1 so different keys cannot collapse
+to the same UTF-8 identity. The configurable image limit must be positive and at most 1 MiB. This leaves metadata headroom under D1's [2,000,000-byte complete-row limit](https://developers.cloudflare.com/d1/platform/limits/).
+Oversized stored images are withheld by the SQL projection. BLOB byte arrays are validated before conversion.
+The 1 MiB cap is an admission limit. Worker CPU, memory and request-query budgets still need workload qualification.
+
+Enforce one application-controlled owner for each database and key. Independent Worker instances must not open
+cached volumes for the same key. A Durable Object can be part of an ownership design, but this adapter does not
+provide its routing, eviction or takeover lifecycle. A per-process registry does not coordinate different isolates.
+The release guarantee is `memory-only`, with no stronger-durability override or writable NFS qualification.
+
+Uncertain queries and interruption after a write attempt freeze the owner. D1 Promise cancellation does not prove
+that the database stopped executing. Caller interruption remains responsive, while the owner scope retains pending
+statements. Close the entire old volume owner's scope and wait for it to finish before reopening. Scope closure
+waits for pending statements to settle and can therefore wait for a slow or unresponsive binding. The borrowed D1
+binding is never destroyed. The adapter does not retry uncertain writes.
+
+Run `bun run test:d1` from this package for the pinned Miniflare/workerd contracts and bundled Worker smoke.
+The launcher uses Node for workerd integration. Ordinary Bun tests skip this suite, and a dedicated CI job runs it.
+Local cases cover interruption, late completion, lost replies, corruption, primary-serving metadata and fresh-owner
+recovery. Local emulation does not establish hosted Cloudflare behavior or power-loss durability.
+
+### Qualify against hosted D1
+
+Hosted qualification is still required before releasing this adapter. From this package directory:
+
+1. Authenticate Wrangler and create a disposable D1 database with `bunx wrangler d1 create effect-vfs-d1-qualification`.
+2. Set both database IDs in `test/fixtures/d1.wrangler.jsonc` to that disposable database's ID.
+3. Run `bunx wrangler d1 migrations apply DB --remote --config test/fixtures/d1.wrangler.jsonc`.
+4. Run `bun run test:d1:remote`, then request the local URL printed by Wrangler.
+5. Require HTTP 200 and a JSON report with `status: "passed"` and `primary: true`. Stop Wrangler and delete the disposable database afterward.
+
+The qualification Worker uses a fresh key for every request, checks conditional writes and empty/binary/1 MiB
+images across fresh owners, and deletes its image row afterward. It is a test harness, not an application ownership
+example. Repeat cancellation and lost-reply qualification in the intended deployment before treating a workload as
+supported. Do not use the qualification configuration with a production database.

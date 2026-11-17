@@ -2,6 +2,14 @@
 
 ## 2026-11-17
 
+- Extend the feature map with PostgreSQL, D1, supplied clients, the shared image protocol and keyed live-volume ownership. Align architecture, capability profiles, registry composition and release guidance; mark the Cloudflare RC survey as historical and retain hosted qualification and remote-service work as open.
+
+- Require supplied clients across live-image store layers. Record PostgreSQL dedicated-client and receive-budget obligations, native client startup errors, borrowed-client lifetimes, per-store D1 drainage and local provider composition. Remove the R2 client option in favor of an injected capability service.
+
+- Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
+
+- Add the bounded D1 adapter and explicit STRICT migration. Record primary-only bindings, externally controlled ownership and pending-statement drainage before handoff. Add workerd contracts and a hosted qualification harness, with hosted release qualification still pending.
+
 - Add PostgreSQL live-image persistence with explicit migrations, one application-controlled owner, private scoped sessions and a memory-only release guarantee. Reuse adapter contracts and add a real PostgreSQL CI job. Defer writable NFS and D1 implementation.
 
 - **Shared Effect diagnostic policy**: Pin tsgo 0.70.0 and derive Oxlint and standalone checks from the compiler preset, retaining narrow preview/synchronous exceptions and preserving separate source and compatibility work.

@@ -77,6 +77,7 @@ export const liveImageStoreContract = (options: {
     VfsError.VfsError | PlatformError.PlatformError,
     FileSystem.FileSystem | Path.Path | Scope.Scope
   >
+  readonly pendingWritesCompleteOnClose?: boolean
   readonly rollback?: boolean
   readonly concurrentAcknowledgements?: boolean
   readonly fractionalGeneration?: boolean
@@ -333,7 +334,7 @@ export const liveImageStoreContract = (options: {
             yield* owner.close
             assert.deepStrictEqual(
               yield* (yield* f.open()).store.loadOrCreate(initial),
-              phase === "ack" ? next : initial
+              phase === "ack" || options.pendingWritesCompleteOnClose === true ? next : initial
             )
           }))
       }

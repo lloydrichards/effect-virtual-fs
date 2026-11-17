@@ -23,7 +23,7 @@ sources:
   - id: nfs-package
     resource: ../../packages/nfs/package.json
     title: NFS package manifest
-generated: { by: codex/okf, at: 2026-11-16T21:12:32+00:00 }
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # Package dependency model
@@ -39,7 +39,7 @@ applications and build integrations
 └── @effect-vfs/core ────────┘
 ```
 
-Core depends on the private `@effect-vfs/effect-preview` engine and Effect. Core is the runtime-neutral behavioral authority. Memory depends on core and exposes an Effect `FileSystem` adapter; persistence depends on core and owns checkpoint storage I/O; nfs depends on core and serves one volume to NFSv4.1 clients over an application-provided `SocketServer`. Node depends on core and exposes a synchronous-memory-backed Node VirtualProvider. Memory, Node, persistence, and nfs do not depend on one another. Applications provide platform layers such as the SQLite client or the socket server and decide how packages are composed.
+Core depends on the private `@effect-vfs/effect-preview` engine and Effect. Core is the runtime-neutral behavioral authority. Memory depends on core and exposes an Effect `FileSystem` adapter; persistence depends on core and owns checkpoint and live-image storage I/O; nfs depends on core and serves one volume to NFSv4.1 clients over an application-provided `SocketServer`. Node depends on core and exposes a synchronous-memory-backed Node VirtualProvider. Memory, Node, persistence, and nfs do not depend on one another. Applications provide platform layers such as storage clients or the socket server and decide how packages are composed. PostgreSQL and D1 drivers are optional peers imported only by their adapter subpaths; the root persistence entrypoint remains checkpoint-only. SQLite consumes the generic SQL service, PostgreSQL and D1 consume their native driver services, and R2 consumes its narrow capability service. Provide each client locally to its owning store before composing the application, because native SQL layers may also publish the generic SQL service. The [persistence ownership decision](../decisions/persistence-store-helpers.md "constrained by") specifies dedicated PostgreSQL clients and borrowed transport lifetimes.
 
 Core must remain usable without either adapter and without host filesystem access. This direction is [established by the package boundary decision](../decisions/package-boundaries.md "implements") and extended by [named checkpoint persistence](../decisions/named-checkpoint-persistence.md "implements") and the [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "implements"). See [system boundaries](system-boundaries.md "refined by") for responsibility ownership.
 
