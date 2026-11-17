@@ -18,6 +18,7 @@ import {
   failure,
   growsFile,
   growthWritePrefix,
+  invalidateSnapshot,
   metadata,
   type runtimeOf,
   target
@@ -41,7 +42,7 @@ const run = <A>(runtime: Runtime, operation: string, action: () => A): A => {
   runtime.busy = true
   runtime.time.active = true
   runtime.time.value = undefined
-  runtime.snapshotEpoch++
+  invalidateSnapshot(runtime, operation)
 
   try {
     return action()
