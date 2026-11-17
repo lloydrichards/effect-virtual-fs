@@ -1,4 +1,4 @@
-/* eslint-disable effecttsgo/global-console, effecttsgo/global-date, effecttsgo/node-builtin-import -- Native process APIs keep measurement and JSON output outside the measured Effect workload. */
+/* eslint-disable effecttsgo/global-date -- Native process APIs keep measurement and JSON output outside the measured Effect workload. */
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Deferred, Effect, Fiber, Result, Stream } from "effect"
 import assert from "node:assert/strict"

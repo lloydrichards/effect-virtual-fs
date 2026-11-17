@@ -11,6 +11,8 @@
 
 - Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
 
+- Reject unused Oxlint disable directives and verify that production, test, tooling, and generated paths participate according to root policy.
+
 - Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
 
 - Expose the scoped NFS listener's termination to serving programs and distinguish typed socket failures from normal shutdown.

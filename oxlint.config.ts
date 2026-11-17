@@ -22,7 +22,8 @@ export default defineConfig({
     effectNative
   ],
   "options": {
-    "denyWarnings": true
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error"
   },
   "jsPlugins": [
     {
