@@ -9,6 +9,7 @@
 
 - [Node VFS interoperability](node-vfs-interoperability.md) compares verified Node 26.12 provider composition with snapshot overlays.
 - [Effect VFS lessons from the Node comparison](node-vfs-snapshot-bridge.md) separates comparative evidence from Effect-native follow-up work.
+- [Trusted program execution with virtual workspaces](virtual-workspace-execution.md) compares the browser playground, mounted Node workbench, and Code Mode evidence.
 
 - [Snapshot search and glob research](search-and-glob.md) records fixture recipe limitations, current search tests, and native-regex execution boundaries.
 
