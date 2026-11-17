@@ -83,13 +83,14 @@ pinned `@opencode/codemode@2.1.1` interpreter with the repository's Effect `4.0.
 by the server. The upstream package declares Effect `4.0.1`; this example qualifies only the overridden `4.0.0`
 combination. Repeat its tests and type-check when upgrading either dependency.
 
-The server exposes three MCP tools:
+The server exposes these MCP tools:
 
-| Tool           | Arguments                                             | Result                                                                   |
-| -------------- | ----------------------------------------------------- | ------------------------------------------------------------------------ |
-| `execute`      | `{ code }`                                            | `{ runId, execution, changes }` from a fresh overlay of the seeded base. |
-| `inspect_run`  | `{ runId, path, action: "read" \| "list" \| "stat" }` | Saved run result and changes, plus the inspected `entry`.                |
-| `inspect_base` | `{ path, action: "read" \| "list" \| "stat" }`        | Original file content, listing, or metadata.                             |
+| Tool           | Arguments                                             | Result                                                                                |
+| -------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `execute`      | `{ code }`                                            | `{ runId, execution, changes }` from a fresh overlay of the seeded base.              |
+| `inspect_run`  | `{ runId, path, action: "read" \| "list" \| "stat" }` | Saved run result and changes, plus the inspected `entry`.                             |
+| `inspect_base` | `{ path, action: "read" \| "list" \| "stat" }`        | Original file content, listing, or metadata.                                          |
+| `combine_runs` | `{ ours, theirs, take? }`                             | Release handoff result, version 1 snapshot delta, conflict, and path-only comparison. |
 
 The host connects the components in this order:
 
@@ -97,7 +98,7 @@ The host connects the components in this order:
 McpServer execute handler
   fresh VFS overlay from the base snapshot
   caller rooted at /projects/release
-  OpenCode interpreter with four caller-bound Effect tools
+  OpenCode interpreter with caller-bound Effect tools
   await execution and scoped cleanup
   capture snapshot + final changes, retain by run ID
 ```
@@ -110,6 +111,7 @@ Inside `execute`, the model can use only these workspace tools and the interpret
 ```js
 tools.workspace.read_file({ path })
 tools.workspace.write_file({ path, content })
+tools.workspace.rename({ from, to })
 tools.workspace.list_directory({ path })
 tools.workspace.stat({ path })
 ```
@@ -146,6 +148,42 @@ Send that to `inspect_run`. Send `{ "path": "plans/draft.md", "action": "read" }
 draft. A second `execute` starts from that original draft and cannot see the first run's `report.txt`. Previous runs
 remain inspectable. Changes describe final file differences, not the history of tool calls, and omit timestamp-only
 differences.
+
+### Combine two runs for a release handoff
+
+Use `combine_runs` to bring the release manager's renamed plan and QA's edits together. Run these programs separately
+with `execute` in the same Code Mode session and save both run IDs.
+
+The release manager gives the draft its release filename:
+
+```js
+return await tools.workspace.rename({ from: "plans/draft.md", to: "plans/friday-release.md" })
+```
+
+QA adds the smoke test and rollback threshold to the draft in a separate run:
+
+```js
+return await tools.workspace.write_file({
+  path: "plans/draft.md",
+  content:
+    "# Friday release plan\n\nSmoke-test checkout before rollout. Roll back if the error rate stays above 1% for five minutes.\n"
+})
+```
+
+Call `combine_runs` with the release manager's run ID as `ours` and QA's run ID as `theirs`. Use the returned
+`entry` for the handoff. It contains the QA text at `plans/friday-release.md` with no conflict. The `baseline` shows
+what the current path-only merge would do with the same inputs: add the renamed file and report `ChangedRemoved` at the
+draft path. The returned `delta` is version 1 snapshot delta JSON for the common base.
+
+If the rollback reviewer renames the draft to `plans/rollback-ready.md` in a separate run, combine that run with
+the release manager's rename run. The tool reports one conflict showing both destinations and keeps the original
+draft while unresolved. Call again with `take: "ours"` to keep the Friday path, `take: "theirs"` to keep the rollback
+path, or `take: "base"` to keep the draft. Each choice leaves one plan. The path-only baseline adds both
+destinations without a conflict.
+
+Each run can make one clean rename or content edit of the seeded `plans/draft.md`. Use new paths for rename
+destinations. The original runs and base remain available for inspection. This workflow is part of the private Code
+Mode demo. The public merge API remains on hold in [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271).
 
 Program diagnostics use `execution.ok: false` inside a successful MCP response. Expected filesystem failures appear
 inside the workspace tool's outcome. Invalid outer requests and inspection failures are MCP tool errors. A failed

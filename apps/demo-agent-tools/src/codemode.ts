@@ -1,9 +1,10 @@
-import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { BytePath, SnapshotDelta, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CodeMode, Tool as CodeTool } from "@opencode/codemode"
 import { ByteSize, Cause, Context, Effect, Predicate, Schema, Semaphore } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import * as Digest from "effect/crypto/Digest"
 import * as SecureRandom from "effect/crypto/SecureRandom"
+import { combineRuns } from "./combine-runs.js"
 import { handlersFor, ToolFailure, VolumeTools } from "./tools.js"
 import { makeBaseSnapshot, projectRoot } from "./workspace.js"
 
@@ -73,6 +74,12 @@ const guestTools = (caller: Vfs.Caller) => {
         output: outcome(VolumeTools.tools.write_file.successSchema),
         execute: (input) => workspaceOutcome("write_file", handlers.write_file(input))
       }),
+      rename: CodeTool.make({
+        description: "Rename a project-relative entry inside this run. The combine pilot accepts a clean draft rename.",
+        input: VolumeTools.tools.rename.parametersSchema,
+        output: outcome(VolumeTools.tools.rename.successSchema),
+        execute: (input) => workspaceOutcome("rename", handlers.rename(input))
+      }),
       list_directory: CodeTool.make({
         description: "List at most 200 project-relative entries. Use '.' for the root.",
         input: VolumeTools.tools.list_directory.parametersSchema,
@@ -118,7 +125,7 @@ const Execute = Tool.make("execute", {
     `Tools return { ok: true, value } or { ok: false, error }. Program diagnostics are execution.ok=false, not MCP ` +
     `transport errors. Results and changes remain inspectable by runId. Source limit: 8 KiB. ` +
     `Use tools.workspace.read_file({path}) for value {path,content}, write_file({path,content}) for ` +
-    `value {path,message}, list_directory({path}) for value {path,entries:[{name,kind}]}, and stat({path}) ` +
+    `value {path,message}, rename({from,to}), list_directory({path}) for value {path,entries:[{name,kind}]}, and stat({path}) ` +
     `for value {path,kind,size,mode,mtimeNs}. Paths are project-relative; '.' is the root. ` +
     `search({query}) discovers their exact signatures.`,
   parameters: Schema.Struct({ code: Schema.String }),
@@ -143,7 +150,32 @@ const InspectBase = Tool.make("inspect_base", {
   failureMode: "return"
 }).annotate(Tool.Readonly, true).annotate(Tool.Destructive, false).annotate(Tool.OpenWorld, false)
 
-export const CodeModeTools = Toolkit.make(Execute, InspectRun, InspectBase)
+const CombineRuns = Tool.make("combine_runs", {
+  description: "Pilot: combine two retained runs that renamed or edited plans/draft.md. " +
+    "When competing renames conflict, call again with take: ours, theirs, or base. " +
+    "Returns a snapshot delta and the existing path-only merge comparison.",
+  parameters: Schema.Struct({
+    ours: Schema.String,
+    theirs: Schema.String,
+    take: Schema.optionalKey(Schema.Literals(["ours", "theirs", "base"]))
+  }),
+  success: Schema.Struct({
+    entry: VolumeTools.tools.read_file.successSchema,
+    conflict: Schema.NullOr(Schema.Struct({ source: Schema.String, ours: Schema.String, theirs: Schema.String })),
+    delta: Schema.String,
+    baseline: Schema.Struct({
+      changes: Schema.Array(Schema.Struct({
+        kind: Schema.Literals(["Added", "Removed", "Updated"]),
+        path: Schema.String
+      })),
+      conflicts: Schema.Array(Schema.Struct({ reason: SnapshotDelta.MergeConflictReason, path: Schema.String }))
+    })
+  }),
+  failure: ToolFailure,
+  failureMode: "return"
+}).annotate(Tool.Readonly, true).annotate(Tool.Destructive, false).annotate(Tool.OpenWorld, false)
+
+export const CodeModeTools = Toolkit.make(Execute, InspectRun, InspectBase, CombineRuns)
 
 const summarize = Effect.fnUntraced(function*(changes: ReadonlyArray<Vfs.OverlayChange>) {
   const relative = Effect.fnUntraced(function*(path: BytePath.BytePath) {
@@ -192,7 +224,7 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
   )
 
   const gate = yield* Semaphore.make(1)
-  const runs = new Map<string, { readonly snapshot: Vfs.Snapshot; readonly result: typeof RunResult.Type }>()
+  const runs = new Map<string, { readonly capture: Vfs.OverlayCapture; readonly result: typeof RunResult.Type }>()
   let sequence = 0
 
   return CodeModeTools.of({
@@ -231,7 +263,7 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
         const execution = boundDiagnostic(yield* runtime.execute(code))
         const captured = yield* overlay.capture()
         const result = { runId: String(++sequence), execution, changes: yield* summarize(captured.changes) }
-        runs.set(result.runId, { snapshot: captured.snapshot, result })
+        runs.set(result.runId, { capture: captured, result })
 
         return result
       }))).pipe(Effect.catchTag("VfsError", infrastructureFailure))
@@ -243,7 +275,41 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
         return yield* Effect.fail({ code: "RunNotFound", operation: "inspect_run", message: "Unknown run ID." })
       }
 
-      return { ...run.result, entry: yield* inspect(run.snapshot, request) }
+      return { ...run.result, entry: yield* inspect(run.capture.snapshot, request) }
+    }, Effect.provideContext(cryptography)),
+    combine_runs: Effect.fn("CodeMode.combineRuns")(function*({ ours, take, theirs }) {
+      const left = runs.get(ours)
+      const right = runs.get(theirs)
+
+      if (left === undefined || right === undefined) {
+        return yield* Effect.fail({ code: "RunNotFound", operation: "combine_runs", message: "Unknown run ID." })
+      }
+
+      if (ours === theirs || !left.result.execution.ok || !right.result.execution.ok) {
+        return yield* Effect.fail({
+          code: "UnsupportedRunCombination",
+          operation: "combine_runs",
+          message: "Choose two distinct successful runs."
+        })
+      }
+
+      return yield* gate.withPermit(Effect.scoped(combineRuns(base, left.capture, right.capture, take))).pipe(
+        Effect.catchTag("VfsError", infrastructureFailure),
+        Effect.catchTags({
+          PlatformError: () =>
+            Effect.fail({
+              code: "InternalToolError",
+              operation: "combine_runs",
+              message: "Could not compute the snapshot delta."
+            }),
+          SchemaError: () =>
+            Effect.fail({
+              code: "InternalToolError",
+              operation: "combine_runs",
+              message: "Could not encode the snapshot delta."
+            })
+        })
+      )
     }, Effect.provideContext(cryptography)),
     inspect_base: Effect.fn("CodeMode.inspectBase")((request) =>
       inspect(base, request).pipe(Effect.provideContext(cryptography))
