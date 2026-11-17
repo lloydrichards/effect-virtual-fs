@@ -1,0 +1,181 @@
+# R2Store.ts overview
+
+Transport-independent image storage for one externally owned R2 object.
+
+Since v0.12.0
+
+---
+
+## layers
+
+### layer
+
+A single-key experimental store. It passes the image limit to the transport's
+`readBounded` operation when one is supplied. With a legacy client, the
+store checks the limit after `read` returns.
+
+The application must ensure one live owner;
+ETag conditions detect stale writes but cannot prevent stale reads.
+
+A store scope waits for pending transport operations to settle before
+releasing ownership. A caller can stop waiting without aborting a transport
+request. If a write fails with an uncertain remote outcome, keep the key
+offline until reconciliation establishes that the request cannot still
+change the object and confirms the stored image.
+
+**Example**
+
+```ts
+import { Client, layer, type R2Client } from "@effect-vfs/persistence/R2Store"
+import { ByteSize, Layer } from "effect"
+
+const makeStore = (client: R2Client) =>
+  layer({
+    key: "workspace-123",
+    maxImageBytes: ByteSize.mebibytes(4)
+  }).pipe(Layer.provide(Layer.succeed(Client, client)))
+```
+
+**Signature**
+
+```ts
+declare const layer: (
+  options: Options
+) => Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Client | Digest.Digest>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2Store.ts#L143)
+
+Since v0.5.0
+
+## models
+
+### ObjectRecord (interface)
+
+A complete R2 image plus the metadata needed to validate and fence it.
+
+**Example**
+
+```ts
+import type { ObjectRecord } from "@effect-vfs/persistence/R2Store"
+
+const record: ObjectRecord = {
+  bytes: new Uint8Array(),
+  etag: '"version-1"',
+  generation: "0",
+  digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+**Signature**
+
+```ts
+export interface ObjectRecord {
+  readonly bytes: Uint8Array
+  readonly etag: string
+  readonly generation: string | undefined
+  readonly digest: string | undefined
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2Store.ts#L30)
+
+Since v0.5.0
+
+### Options (interface)
+
+Configuration for one experimental R2-backed image.
+
+**Example**
+
+```ts
+import type { Options } from "@effect-vfs/persistence/R2Store"
+import { ByteSize } from "effect"
+
+const options: Options = {
+  key: "effect-vfs-nfs-test/live-image",
+  maxImageBytes: ByteSize.mebibytes(16)
+}
+```
+
+**Signature**
+
+```ts
+export interface Options {
+  readonly key: string
+  readonly maxImageBytes: ByteSize.ByteSize
+  /** Assert R2's documented synchronous durable-write contract for a verified R2 endpoint and single owner. */
+  readonly durability?: "survives-power-loss"
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2Store.ts#L107)
+
+Since v0.5.0
+
+### R2Client (interface)
+
+Transport operations required by the live-image adapter.
+
+**Example**
+
+```ts
+import type { R2Client } from "@effect-vfs/persistence/R2Store"
+
+type ReadObject = R2Client["read"]
+```
+
+**Signature**
+
+```ts
+export interface R2Client {
+  /** Materializes an object without a transport limit. Prefer readBounded when available. */
+  readonly read: (key: string) => Effect.Effect<ObjectRecord | null, Vfs.VfsError>
+  /**
+   * Optional transport limit. Count bytes as they arrive and fail with
+   * `CorruptStore` after releasing an oversized body.
+   */
+  readonly readBounded?: (
+    key: string,
+    maxImageBytes: ByteSize.ByteSize
+  ) => Effect.Effect<ObjectRecord | null, Vfs.VfsError>
+  readonly write: (
+    key: string,
+    bytes: Uint8Array,
+    generation: string,
+    digest: string,
+    condition: { readonly ifMatch: string } | { readonly ifNoneMatch: "*" }
+  ) => Effect.Effect<{ readonly etag: string } | null, Vfs.VfsError>
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2Store.ts#L49)
+
+Since v0.5.0
+
+## services
+
+### Client (class)
+
+Supplies the borrowed R2 transport used by live-image stores. Share a client
+across distinct object keys while keeping each store owner separately scoped.
+The store does not close the supplied transport.
+
+**Example**
+
+```ts
+import { Client, type R2Client } from "@effect-vfs/persistence/R2Store"
+import { Layer } from "effect"
+
+const provideClient = (client: R2Client) => Layer.succeed(Client, client)
+```
+
+**Signature**
+
+```ts
+declare class Client
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2Store.ts#L85)
+
+Since v0.12.0

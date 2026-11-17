@@ -1,5 +1,7 @@
 # Evidence
 
+- [Large-file content storage comparison](large-file-content-models.md) measures write and export costs for dense buffers and immutable pages.
+
 - [Effect HashMap collection tradeoffs](collection-reuse.md) records the accepted CPU and retained-heap costs of replacing the integer trie.
 
 - [Measured core and memory workloads](workload-envelope.md) records reproducible workload qualification and its memory limits.

@@ -15,6 +15,7 @@
 - [Bounded POSIX requirements](posix-requirements.md) records the standards frame used to define and test the core without claiming full POSIX conformance.
 - [Overlay filesystem direction](overlay-filesystem.md) retains the alternatives considered for overlay v1 and the parity cases a future harness should cover.
 - [Snapshot delta representation research](overlay-changes.md) retains the open delta questions: alternative encodings, checkpoint storage, profiling, and rebasing onto a different base. The [snapshot delta merge decision](../decisions/overlay/snapshot-delta-merge.md) covers merging two deltas from the same base.
+- [Rename-aware overlay merge proposal](overlay-rename-merge.md) describes trusted capture inputs, file move conflicts, and group resolutions for issue #271.
 - [Live durable volume proposal](live-durable-volume.md) records the staged core mutation boundary and proposes a bounded storage provider, with crash recovery and NFS replay prerequisites.
 - [Live-volume registry retention qualification](live-volume-registry-qualification.md) records the consumer prerequisite and backend measurement plan.
 - [Cloudflare Durable Object live image store](cloudflare-durable-object-live-image.md) examines the storage adapter, native NFS gateway, and durability evidence needed for a Cloudflare-backed volume.

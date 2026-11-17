@@ -67,7 +67,7 @@ The operation lives in `VirtualFileSystem.ts` beside `diffSnapshots` and `applyS
 
 ## Follow-up
 
-A rename-aware merge that accepts overlay captures, whose `Renamed` records carry lineage, so edits follow renames and rename/rename conflicts are reported, is tracked as rename-aware merge input.
+The [rename-aware overlay merge proposal](../../research/overlay-rename-merge.md) describes a separate capture-based input for following file moves and reporting competing destinations.
 
 [^issue]: The issue's decisions comment of 2026-10-02 lists the thirteen decisions and the follow-up.
 

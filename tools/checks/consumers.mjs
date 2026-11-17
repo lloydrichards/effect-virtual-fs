@@ -88,8 +88,14 @@ export async function checkConsumers() {
       }
     ]
 
-    for (const workspace of published) {
-      const consumer = path.join(temporary, workspace.manifest.name.replaceAll("/", "-"))
+    const plans = published.map((workspace) => ({ workspace, sdkFree: false }))
+    const persistence = published.find(({ manifest }) => manifest.name === "@effect-vfs/persistence")
+
+    if (persistence) plans.push({ workspace: persistence, sdkFree: true })
+
+    for (const { workspace, sdkFree } of plans) {
+      const name = workspace.manifest.name.replaceAll("/", "-")
+      const consumer = path.join(temporary, sdkFree ? name + "-r2-store" : name)
       const modules = path.join(consumer, "node_modules")
       const staged = new Set()
 
@@ -109,6 +115,8 @@ export async function checkConsumers() {
         const dependencies = { ...current.manifest.dependencies, ...current.manifest.peerDependencies }
 
         for (const name of Object.keys(dependencies)) {
+          if (sdkFree && current === workspace && name !== "effect" && !byName.has(name)) continue
+
           if (byName.has(name)) await stage(byName.get(name))
           else {
             const target = path.join(modules, name)
@@ -123,7 +131,7 @@ export async function checkConsumers() {
       await stage(workspace)
       // The native provider and persistence's public AWS client types require
       // Node types. Neutral packages must resolve without ambient Node types.
-      const native = ["@effect-vfs/node", "@effect-vfs/persistence"].includes(workspace.manifest.name)
+      const native = !sdkFree && ["@effect-vfs/node", "@effect-vfs/persistence"].includes(workspace.manifest.name)
 
       if (native) {
         const destination = path.join(modules, "@types/node")
@@ -132,7 +140,7 @@ export async function checkConsumers() {
       }
 
       await writeFile(path.join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }))
-      const entries = publicEntries(workspace)
+      const entries = publicEntries(workspace).filter((entry) => !sdkFree || entry.subpath === "./R2Store")
 
       const source = entries.map((entry, index) => {
         const specifier = workspace.manifest.name + (entry.subpath === "." ? "" : entry.subpath.slice(1))
@@ -143,12 +151,11 @@ export async function checkConsumers() {
       await writeFile(path.join(consumer, "index.ts"), `${source}\n`)
       const contracts = []
 
-      for (
-        const relative of [
-          "compatibility/node-next/index.ts",
-          "compatibility/index.ts"
-        ]
-      ) {
+      const fixtures = sdkFree
+        ? ["compatibility/node-next/r2-store.ts"]
+        : ["compatibility/node-next/index.ts", "compatibility/index.ts"]
+
+      for (const relative of fixtures) {
         const content = await readFile(path.join(root, workspace.directory, relative), "utf8").catch((error) => {
           if (error.code === "ENOENT") return undefined
           throw error
@@ -179,10 +186,23 @@ export async function checkConsumers() {
         })
       )
 
+      if (sdkFree) {
+        run("node", [
+          "--input-type=module",
+          "--eval",
+          "import assert from \"node:assert/strict\";" +
+          "import { Client, layer } from \"@effect-vfs/persistence/R2Store\";" +
+          "assert.ok(Client && typeof layer === \"function\");" +
+          "await assert.rejects(import(\"@aws-sdk/client-s3\"), { code: \"ERR_MODULE_NOT_FOUND\" });"
+        ], { cwd: consumer })
+      }
+
       for (const compiler of compilers) {
         run(process.execPath, [compiler.binary, "--project", path.join(consumer, "tsconfig.json")], { cwd: consumer })
         console.log(
-          `${workspace.manifest.name}: ${entries.length} packed entrypoints passed TypeScript ${compiler.version}.`
+          `${workspace.manifest.name}${
+            sdkFree ? "/R2Store (SDK-free)" : ""
+          }: ${entries.length} packed entrypoints passed TypeScript ${compiler.version}.`
         )
       }
     }
