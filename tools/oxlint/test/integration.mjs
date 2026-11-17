@@ -100,7 +100,7 @@ export const payload = { _tag: "Missing", reason: "example" }
       path.join(directory, "tags.ts"),
       `import { Effect } from "effect"
 
-export const recovered = Effect.catch(task, (error) => error._tag === "Missing" ? fallback : Effect.fail(error))
+export const recovered = Effect.catch(task, (error) => error.reason._tag === "Missing" ? fallback : failed)
 
 export const missing = value._tag === "Missing"
 `
@@ -108,7 +108,7 @@ export const missing = value._tag === "Missing"
     assert.deepEqual(
       lint(["tags.ts"]),
       ["anti-slop-effect(no-manual-effect-error-tag)", "anti-slop-effect(no-manual-tag-comparison)"],
-      "The broad catch comparison gets the handler diagnostic and the standalone comparison gets the general diagnostic"
+      "The caught reason gets the handler diagnostic and the standalone comparison gets the general diagnostic"
     )
 
     await writeConfig({ "anti-slop/require-readable-spacing": "error" })
