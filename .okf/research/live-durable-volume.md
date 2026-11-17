@@ -38,6 +38,9 @@ sources:
   - id: physical-power-kit
     resource: ../../packages/persistence/POWER_LOSS_TESTING.md
     title: Physical power-cut contributor test kit
+  - id: sqlite-hosted-gate
+    resource: ../../.github/workflows/sqlite-crash-gate.yml
+    title: Opt-in Linux recovery matrix and pinned runtime
   - id: sqlite-write-order
     resource: ../../packages/persistence/scripts/linux-write-order-gate.sh
     title: SQLite successful-sync write-loss and reorder fault gate
@@ -251,6 +254,50 @@ The smallest convincing test set exercises observable boundaries, not only injec
 The test-only SQLite VFS now has `lost-write` and `reorder-write` modes. The first reports `SQLITE_OK` while omitting one selected main-file write. The second defers that write until after the next write to the same file. Both leave `xSync` to the underlying VFS and log successful sync calls. This is a deterministic model of a device or filesystem that does not honor the order or persistence SQLite expects; it is not a physical power-cut simulation. The bounded Linux matrix uses the existing live-volume worker, acknowledgement output, reopen check, and `PRAGMA integrity_check`.[^sqlite-live-store]
 
 One exploratory matrix on Debian 12, Linux 6.1 arm64, ext4 on a QEMU VirtIO disk, Bun 1.2.21, `@effect/sql-sqlite-bun` 4.0.0-rc.114, and SQLite 3.50.4 covered twelve cases. The six acknowledged cases injected the first, second, or third matching main-file write. All six writers reported `committed` after successful sync calls. The three lost-write cases failed to reopen and failed `PRAGMA integrity_check`; the first had an invalid page reference. The three reordered-write cases reopened the complete new image and passed integrity checking. In the six unacknowledged cases, both fault modes recovered the old image after UPDATE and before COMMIT, and the complete new image after COMMIT. All six passed integrity checking. The commit connection reported DELETE journaling, `synchronous=3` (`EXTRA`), `fullfsync=1`, and exclusive locking. These results show that the provider cannot promise acknowledged durability when the storage stack lies about writes and syncs. They do not establish a supported power-loss configuration. The gate returns failure for an invariant breach. Its fault placement and results must be rerun for any proposed driver or storage configuration.
+
+### Current Linux replay and qualification limits
+
+At revision `e9d83d5836b06223a2582e94f2e0feb1f38eabe8`, a one-iteration replay used Bun 1.4.4, SQLite 3.53.4 and the
+application-supplied `@effect/sql-sqlite-bun` 4.1.4 client. The databases were disposable files on Linux x86-64
+(Omarchy, kernel 7.2.15-1-omarchy), on btrfs over device-mapper and NVMe. The measured connection reported DELETE
+journaling, `synchronous=3`, `fullfsync=1`, exclusive locking, `temp_store=2`, `cache_spill=0`,
+`journal_size_limit=0`, and a 4,096-byte page size. The fixture supplied the directory-sync callback.
+
+| Gate                         | Observed result                                                                                                                                                                                                              |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process death                | All four phases reopened with the expected complete image, matching digest, and SQLite integrity.                                                                                                                            |
+| Returned VFS errors          | Five journal/main write or sync cases, including a persistent main-write fault, returned `OutcomeUnknown` and recovered the old image.                                                                                       |
+| Physical-power rehearsal     | All four prepare/verify phases completed with `REHEARSAL` on the same boot.                                                                                                                                                  |
+| Successful-sync write faults | Three acknowledged lost-write cases failed reopen, and the gate exited nonzero. Three acknowledged reorder cases recovered the new image. Both modes recovered the expected complete images in the six unacknowledged cases. |
+
+Reproduce these process-level checks with the pinned runtime and a frozen install. Use a fresh output directory
+for each run and keep the per-case recovery records. The order gate's nonzero exit is evidence of the simulated
+acknowledgment breach, subject to confirming that the injections reached the intended writes and syncs.
+
+```sh
+bun install --frozen-lockfile
+bun run build --filter=@effect-vfs/persistence
+evidence_dir="$(mktemp -d)"
+GATE_ITERATIONS=1 GATE_OUTPUT_DIR="$evidence_dir/process" bash packages/persistence/scripts/linux-crash-gate.sh
+GATE_FAULT_ITERATIONS=1 GATE_OUTPUT_DIR="$evidence_dir/fault" bash packages/persistence/scripts/linux-fault-gate.sh
+GATE_OUTPUT_DIR="$evidence_dir/rehearsal" bash packages/persistence/scripts/linux-physical-power-rehearsal.sh
+GATE_ORDER_ITERATIONS=1 GATE_OUTPUT_DIR="$evidence_dir/order" bash packages/persistence/scripts/linux-write-order-gate.sh
+```
+
+The label-gated Ubuntu 24.04 workflow pins Bun 1.4.4 and runs ten process iterations, a rehearsal, a disposable
+disk-full test, and three returned-fault iterations. The write-order model runs separately. The UTM crash script
+still pins Bun 1.2.21, and the UTM fault script uses the guest's staged Bun binary. The old guest panic result
+does not establish recovery on the present Linux build, and the failed forced-stop boots remain failed cases.
+
+For a stronger claim, first select the driver, runtime, filesystem, mount and storage stack to support. Record
+the VFS sector size, device and cache settings, and the directory callback on that exact stack. Repeat the
+process, returned-fault and OS-crash matrices there and retain failed boots and incomplete cases. Verify the
+production filesystem reservation near the intended database and journal cap, including allocation and directory
+overhead and any other SQL temporary files. A physical tier also requires evidence that the flush path reaches the
+device and that independent power-loss tests on the selected disposable hardware preserve acknowledged images.
+This replay measured no production reservation, reboot, or physical flush guarantee. Keep SQLite
+`memory-only` and leave public SQLite-backed NFS `FILE_SYNC4` unqualified.
+
 The open performance question is the maximum useful volume size with full-image commits; relatime took durable atime reads out of it. Measure it before choosing defaults. If the bound is too small for the intended workload, change the persistence representation to transactional rows while retaining the same staging, failure, and publication contract.
 
 [^engine]: `coordinated`, `replaceContent`, `fileHandle`, `releaseFile`, `captureSnapshot`, and the returned `volume` in the engine source.

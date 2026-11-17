@@ -10,7 +10,7 @@ Use a machine and storage device that you can lose. The power cut affects the wh
 
 Keep a second machine or controller powered throughout the test. It must record the `READY` line outside the machine under test, then cut power without asking the operating system to shut down. Do not use `sync`, `shutdown`, or a clean VM stop after `READY`. Reboot with the same disk and mount it at the same path before verification.
 
-Clone a tagged revision of this repository on the machine under test. Record the tag and commit in the report. Install Bun 1.2.21, then build from that revision:
+Clone a tagged revision of this repository on the machine under test. Record the tag and commit in the report. Use the Bun version pinned by that revision's `packageManager` field. The current hosted Linux process gate uses Bun 1.4.4. Build from the recorded revision:
 
 ```sh
 bun install --frozen-lockfile
@@ -61,6 +61,6 @@ The verifier also requires a changed Linux boot ID, a successful directory sync 
 
 For every case, send the complete case directory and the independent controller's `READY` transcript. Include the repository tag and commit, Bun and SQLite versions, `@effect/sql-sqlite-bun` version, Linux kernel, filesystem and mount options, drive and controller models, cache and flush settings, the power-cut method, the number of repetitions, and any failed boots. The script records much of the software environment in `environment.txt`; add the physical storage path and controller details yourself.
 
-Record the production admission rule separately: database size limit, page size, rollback-journal allowance, and how the filesystem reserves enough space for both database and journal. See the [temporary-space policy](README.md#temporary-space-policy). The test fixture's small size does not prove that a larger production image fits.
+Record the production admission rule separately: database size limit, page size, rollback-journal allowance, and how the filesystem reserves enough space for both database and journal. See the [SQLite live-volume space policy](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/content/guides/sqlite-live-volume.mdx#handle-rejected-and-uncertain-commits). The test fixture's small size does not prove that a larger production image fits.
 
 Open or update [issue #144](https://github.com/lloydrichards/effect-virtual-fs/issues/144) with the configuration, results, and a link to the evidence. The maintainers will decide whether that exact SQLite setup supports a stronger durability tier. Until then, SQLite-backed volumes report `memory-only` and cannot support public NFS `FILE_SYNC4`.
