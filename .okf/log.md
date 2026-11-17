@@ -42,6 +42,8 @@
 - Consolidate validation under one local/CI sequence, keep Git hooks fast and read-only beyond staged formatting, and place
   tests and fixtures with their owning tooling. Remove superseded launchers and reuse existing consumer contracts.
 
+- Record the NFS unused-export pilot. The test-inclusive report confirms two orphan declarations and distinguishes private exports with test consumers. Keep detection report-only.
+
 - Record Effect-aligned repository validation: complete workspace and export classification, public documentation and
   type contracts, checked lint tooling, dependency direction, generated ownership, and selected packed-consumer compilers.
 
