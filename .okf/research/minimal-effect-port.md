@@ -11,8 +11,22 @@ sources:
     title: Effect engine ownership and acceptance
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/309
     title: Effect FileSystem adaptation
-  - resource: ../../packages/core/src/internal/model.ts
-    title: Current shared engine and Caller-derived operation contract
+  - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/303
+    title: BytePath ownership and upstream acceptance
+  - resource: https://github.com/lloydrichards/effect-virtual-fs/pull/319
+    title: Completed local contract ownership refactor
+  - resource: https://github.com/Effect-TS/effect/pull/9960
+    title: Upstream proposal carrying BytePath and VirtualFileSystem
+  - resource: ../../packages/effect-preview/upstream/manifest.json
+    title: Revision and checksums for the private preview used by core
+  - resource: ../../packages/core/package.json
+    title: Current core Effect peer range and development pin
+  - resource: ../../packages/memory/package.json
+    title: Current memory Effect peer range and development pin
+  - resource: core-memory-v1-policy.md
+    title: Proposed community support and migration policy
+  - resource: ../workflows/release-readiness.md
+    title: Release gates and evidence still required
   - resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Current community contracts and construction
   - resource: ../../packages/core/src/SynchronousAdapter.ts
@@ -21,16 +35,42 @@ sources:
     title: Snapshot checkpoint consumer
   - resource: ../../packages/nfs/src/internal/export.ts
     title: Portable reference dependency blocking unchanged NFS migration
-generated: { by: codex/okf, at: "2026-10-22T12:23:00+02:00" }
+generated: { by: codex/okf, at: "2026-11-17T23:01:38+01:00" }
 ---
 
 # Staged Effect filesystem implementation plan
 
-The implementation comparisons below predate the preview. See the [current volume architecture](../architecture/volume-caller-handle-model.md).
+The agreed direction is to port the filesystem engine and memory provider to Effect and move retained
+community features to supported downstream interfaces. Community core remains the supported implementation
+for its current consumers until the migration and retirement gates pass. The
+[current volume architecture](../architecture/volume-caller-handle-model.md) describes the implementation
+that those consumers use today.
 
-Retire `@effect-vfs/core` in stages. Effect owns `VirtualFileSystem` and `MemoryFileSystem`; retained community packages use supported Effect exports. Preserve one filesystem implementation during migration. The first refactor changes contract ownership only.
+## Current evidence and decisions
 
-The user agreed this direction during the architecture review on 22 October 2026. The module names are the requested destination, not evidence of upstream acceptance. This plan supersedes the earlier proposal to keep community core permanently and exclude the caller model from Effect. It does not change current runtime contracts or update external issues.
+The local collection, private engine, copy, and synchronous preparation are complete for their reviewed
+scope. [#319](https://github.com/lloydrichards/effect-virtual-fs/pull/319) completed the stage 1 ownership
+refactor. The [stage 2 contract draft](effect-filesystem-contracts.md) records local agreement through
+Q54. Its Effect 4.0.5 declaration check used a BytePath stand-in. Core now uses the private Effect preview,
+whose source revision and checksums are recorded in its upstream manifest. The current community core and
+memory manifests declare Effect `~4.1.4`, with `4.1.4` pinned for development and qualification.
+
+The standalone [BytePath proposal](https://github.com/Effect-TS/effect/pull/9730) closed without merging.
+BytePath is carried by the open [VirtualFileSystem proposal](https://github.com/Effect-TS/effect/pull/9960).
+[#303](https://github.com/lloydrichards/effect-virtual-fs/issues/303) tracks its accepted API and ownership.
+The original #273 issue body records an earlier draft, dependency pin, and preparation stack.
+
+| Decision still required                                                                                                         | Tracking and evidence                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Select the exact Effect source revision for implementation and agree on BytePath and the engine exports.                        | #303 and #308. Recheck the declared contracts and qualification against the agreed source revision.   |
+| Settle the initial Effect FileSystem profile, including the unsupported watch result, and qualify the member and option matrix. | #309 depends on #308. The local stage 2 draft supplies the proposed behavior.                         |
+| Select the stable community export list and published dependency minimum for v1.                                                | #273, #278, and #279. The [community policy proposal](core-memory-v1-policy.md) lists the candidates. |
+| Select downstream package names, migration paths, and the last supported release for deferred consumers.                        | Stages 5–8. Qualify existing persisted formats and public imports before removing community core.     |
+
+Use the [release workflow](../workflows/release-readiness.md) for #274 and #279. The merged
+[packed candidate check](https://github.com/lloydrichards/effect-virtual-fs/pull/408) exercises
+candidate tarballs. Separate runs remain due for the exact published baseline, the selected Effect port,
+and the post-publication installation.
 
 ## Fix the ownership target
 
@@ -75,9 +115,12 @@ Stages 4, 5 and 6 can proceed in parallel after their contracts are accepted. St
 
 ## Stage 1: Make the local engine own its contracts
 
-Local implementation now defines the capability contracts in engine.ts and retains explicit public declarations as compatibility views. Type/runtime import audits and compile-only previous-shape checks qualify ownership. This is local preparation, not upstream adoption or completion of later stages.
+[#319](https://github.com/lloydrichards/effect-virtual-fs/pull/319) completed this stage in the earlier local engine.
+It defined capability contracts in the engine and retained explicit public declarations as compatibility views.
+Type and runtime import audits and compile-only previous-shape checks qualified that refactor. The current private
+preview carries the runtime role described in the volume architecture.
 
-Deliver one behavior-preserving local refactor.
+The historical refactor had this scope.
 
 1. Inventory engine-owned operations, context, handles, targets/references, metadata, errors and limits against the existing community declarations.
 2. Replace `EngineOperations = Omit<Caller, ...>` and other upward dependencies with engine-owned definitions. Keep those definitions private in this stage.
@@ -207,13 +250,11 @@ Acceptance requires clean installs, builds and appropriate runtime suites for th
 
 Map implementation work to existing tracking before creating new tasks:
 
-- #273 remains the umbrella; its older permanent-community-core and caller-exclusion scope needs reconciliation with this agreed direction.
+- #273 remains the umbrella. Use the stage 2 draft for the locally agreed caller and engine scope.
 - #308 owns the Effect VirtualFileSystem proposal and acceptance, including callers, capture/restore and the checked binding.
 - #309 owns MemoryFileSystem adaptation and the selected FileSystem contract.
 - #302 owns the execution/reentry/cleanup proof; #310 and #311 own the Node adapter and mounted qualification.
-- #303 owns BytePath. Recheck its current upstream state and selected release before port implementation.
+- #303 owns BytePath acceptance. Confirm the module and API against the maintainer-selected source before engine qualification.
 - #274, #275 and #278 retain consumer, runtime and migration/release work; align their scope when updating tracking.
 
-The prior local extraction and collection/copy work are starting points, not new tasks to repeat. Exact PR splits for downstream relocation and core retirement can be created after Stage 1 establishes ownership.
-
-This document records the plan only. It does not claim the new contracts, upstream port, downstream packages or native qualification are complete. Existing runtime documentation continues to describe the current implementation until each stage lands.
+Create the downstream relocation and retirement tasks when their interfaces and consumer dispositions are concrete. Use the implemented profiles and linked qualification evidence for current runtime support.
