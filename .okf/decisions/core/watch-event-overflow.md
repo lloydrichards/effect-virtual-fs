@@ -27,7 +27,7 @@ sources:
     resource: ../../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter overflow test
   - id: pubsub
-    resource: ../../../packages/core/node_modules/effect/src/PubSub.ts
+    resource: https://github.com/Effect-TS/effect/blob/effect%404.1.4/packages/effect/src/PubSub.ts
     title: Effect PubSub publishUnsafe implementation
 generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
