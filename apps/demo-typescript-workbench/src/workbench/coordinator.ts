@@ -1,5 +1,4 @@
 // Native worker creation is the Node boundary. Scope, RPC and command lifetimes are owned by Effect.
-/* eslint-disable effecttsgo/node-builtin-import */
 import * as NodeWorker from "@effect/platform-node/NodeWorker"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"

@@ -6,6 +6,7 @@ import path from "node:path"
 import policy from "../../../oxlint.config.ts"
 
 import { lintRootFixtures } from "./root-fixtures.mjs"
+import { checkSuppressionIntegration } from "./suppressions.mjs"
 
 const root = path.resolve(import.meta.dirname, "../../..")
 
@@ -167,6 +168,8 @@ export const result = read(1)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+
+  await checkSuppressionIntegration()
 
   console.log("Custom lint integration passed: root scope, combined tag diagnostics, and spacing fixes.")
 }

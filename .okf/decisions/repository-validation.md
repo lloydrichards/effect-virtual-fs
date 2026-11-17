@@ -25,6 +25,8 @@ sources:
     title: Array and reflection semantics that constrain lint advice
   - resource: ../../apps/docs/scripts/check-public-docs.ts
     title: Public declaration documentation checks
+  - resource: ../../tools/oxlint/test/suppressions.mjs
+    title: Root lint suppression and file participation fixtures
   - resource: ../../apps/docs/scripts/check-examples.ts
     title: Public example compiler and output checks
   - resource: ../../tools/oxlint/anti-slop/UPSTREAM.md
@@ -87,6 +89,10 @@ array seed and its receiver resolves to an array literal. Native lint covers acc
 measurements warrant it. A rewrite must preserve sparse slots, callback order, callback indexes and the input array passed to
 each callback. Use `Reflect.get` when the operation needs an explicit receiver, such as a proxy forwarding to an accessor.
 These transformations require code review and have no automatic fixes.
+
+Root Oxlint rejects unused disable directives. Keep suppressions scoped to the rules that report a diagnostic on that code.
+Remove stale rule names when an override already allows the operation. The suppression fixtures exercise the root
+configuration on library, test, tooling, and generated paths, including whether lint processes each file.
 
 ## Share Effect diagnostic configuration
 
