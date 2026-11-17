@@ -14,11 +14,14 @@ import {
   CallerId,
   MkdirOptions,
   ObjectReferenceId,
+  OpenEntryOptions as EntryOpenSchema,
+  OpenOptions as OpenSchema,
   RemoveOptions,
   RootCallerOptions,
   SetattrOptions,
   SymlinkOptions,
-  WalkOptions
+  WalkOptions,
+  WriteFileOptions as WriteSchema
 } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId } from "../FileHandle.js"
 import { type Metadata, Mode, OwnerUpdate, type Times, Times as TimesSchema, Timestamp } from "../Metadata.js"
@@ -34,16 +37,7 @@ import { imageFailure } from "./errors.js"
 import { hmacSha256, sameTag } from "./hmac.js"
 import * as Image from "./image.js"
 import type * as LiveImage from "./liveImage.js"
-import {
-  type CommitProvider,
-  Errors,
-  OpenEntryOptions as EntryOpenSchema,
-  OpenOptions as OpenSchema,
-  Paths,
-  State,
-  VolumeTestSeams,
-  WriteFileOptions as WriteSchema
-} from "./model.js"
+import { type CommitProvider, Errors, Paths, State, VolumeTestSeams } from "./model.js"
 import * as Limits from "./volumeLimits.js"
 import { assemble, type NodeSpec, reachableValue } from "./volumeState.js"
 import * as VolumeWatch from "./volumeWatch.js"
