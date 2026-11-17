@@ -11,6 +11,8 @@
 
 - Enforce R2 image limits during S3 body reads through an optional bounded transport operation.
 
+- Separate SDK-independent R2 store imports from the S3 adapter. Preserve the legacy entrypoint and package dependency policy.
+
 - Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
 
 - Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
