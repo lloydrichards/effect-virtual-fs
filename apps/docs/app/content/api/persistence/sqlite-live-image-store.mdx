@@ -11,7 +11,9 @@ Since v0.4.0
 ### layer
 
 Reserve one SQLite connection and its exclusive lock for the Layer scope.
-The application supplies `SqlClient`, `FileSystem`, `Path`, and `Crypto`.
+The application supplies a dedicated `SqlClient`, `FileSystem`, `Path`, and `Digest`.
+Close the store before its client. The store releases its reservation and
+exclusive lock without closing the borrowed client.
 
 **Example**
 
@@ -38,7 +40,7 @@ declare const layer: (
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L81)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L82)
 
 Since v0.4.0
 
@@ -79,6 +81,6 @@ export interface Options {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L31)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L32)
 
 Since v0.4.0

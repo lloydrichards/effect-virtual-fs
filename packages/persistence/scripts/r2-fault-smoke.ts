@@ -38,7 +38,8 @@ const pause = () => new Promise((resolve) => setTimeout(resolve, 1200))
 
 const makeStore = (key: string, client: R2LiveImageStore.R2Client = remote) =>
   Effect.runPromise(LiveVolume.LiveImageStore.pipe(Effect.provide(
-    R2LiveImageStore.layer({ client, key, maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+    R2LiveImageStore.layer({ key, maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+      Layer.provide(Layer.succeed(R2LiveImageStore.Client, client)),
       Layer.provide(NodeCrypto.layer)
     )
   )))

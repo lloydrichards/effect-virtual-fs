@@ -5,7 +5,21 @@ import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Cause, Data, Effect, Exit, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect"
+import {
+  ByteSize,
+  Cause,
+  Context,
+  Data,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  Schema,
+  Scope,
+  Stream
+} from "effect"
 import * as Digest from "effect/crypto/Digest"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { SqlClient } from "effect/sql/SqlClient"
@@ -43,6 +57,38 @@ const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
 
 // The restart tests poll and kill child processes on real time, so the suite runs without the test clock.
 it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it) => {
+  it.effect("releases ownership while the supplied SQLite client remains alive", () =>
+    Effect.gen(function*() {
+      const { filename } = yield* temporaryDatabase
+      const clientContext = yield* Layer.build(SqliteClient.layer({ filename, disableWAL: true, busyTimeout: 0 }))
+      const client = Context.get(clientContext, SqlClient)
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+
+      const owner = yield* Layer.buildWithScope(
+        SqliteLiveImageStore.layer({
+          filename,
+          maxImageBytes: options.maxImageBytes,
+          maxDatabaseBytes: ByteSize.megabytes(2)
+        }).pipe(
+          Layer.provide(Layer.succeed(SqlClient, client))
+        ),
+        scope
+      )
+
+      yield* Context.get(owner, LiveVolume.LiveImageStore).loadOrCreate(new Uint8Array([1, 2]))
+      yield* Scope.close(scope, Exit.void)
+      assert.deepStrictEqual(yield* client.unsafe("SELECT image FROM effect_vfs_live_image WHERE id = 1"), [{
+        image: new Uint8Array([1, 2])
+      }])
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const replacement = yield* LiveVolume.LiveImageStore
+          assert.deepStrictEqual(yield* replacement.loadOrCreate(new Uint8Array()), new Uint8Array([1, 2]))
+        }).pipe(Effect.provide(store(filename)))
+      )
+    }))
+
   for (const synchronousThrow of [false, true]) {
     it.effect(`should preserve pre-write digest ${synchronousThrow ? "throws" : "defects"} without changing SQLite or disabling the volume`, () =>
       Effect.gen(function*() {
@@ -414,6 +460,32 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
 
       assert.strictEqual(damaged.code, "CorruptStore")
     })))
+
+  for (
+    const statement of [
+      "DELETE FROM effect_vfs_live_image WHERE id = 1",
+      "UPDATE effect_vfs_live_image SET image = 'not a blob' WHERE id = 1"
+    ]
+  ) {
+    it.effect(`should preserve corruption instead of recreating an image after ${statement}`, () =>
+      Effect.gen(function*() {
+        const { filename } = yield* temporaryDatabase
+
+        const load = Effect.gen(function*() {
+          return yield* (yield* LiveVolume.LiveImageStore).loadOrCreate(new Uint8Array([1]))
+        })
+
+        yield* Effect.scoped(load.pipe(Effect.provide(store(filename))))
+        yield* Effect.gen(function*() {
+          yield* (yield* SqlClient).unsafe(statement)
+        }).pipe(Effect.provide(SqliteClient.layer({ filename, disableWAL: true })))
+        const error = yield* Effect.flip(Effect.scoped(load.pipe(Effect.provide(store(filename)))))
+
+        if (Schema.is(SqlError)(error)) return assert.fail("Expected a VFS store failure")
+
+        assert.deepStrictEqual([error.code, error.operation], ["CorruptStore", "SqliteLiveImageStore.loadOrCreate"])
+      }))
+  }
 
   it.effect("should reject extra schema objects when a database reopens", () =>
     Effect.scoped(Effect.gen(function*() {

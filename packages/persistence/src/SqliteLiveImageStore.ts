@@ -4,10 +4,11 @@
  * @since 0.4.0
  */
 import { LiveVolume, type VfsError } from "@effect-vfs/core"
-import { ByteSize, Effect, Exit, FileSystem, Layer, Path, Ref, Schema } from "effect"
+import { ByteSize, Cause, Effect, Exit, FileSystem, Layer, Path, Predicate, Schema } from "effect"
 import type * as Digest from "effect/crypto/Digest"
 import { SqlClient } from "effect/sql/SqlClient"
-import { makeDigest, type StoreFailures, storeFailures } from "./internal/storeSupport.js"
+import * as Protocol from "./internal/liveImageProtocol.js"
+import { type StoreFailures, storeFailures } from "./internal/storeSupport.js"
 
 /**
  * Limits and the local database path used to verify the supplied SQL client.
@@ -41,27 +42,27 @@ export interface Options {
   readonly syncDatabaseDirectory?: ((directory: string) => Effect.Effect<void, Error>) | undefined
 }
 
+interface Revision {
+  readonly generation: unknown
+}
+
 const StoreRow = Schema.Struct({
-  generation: Schema.Finite,
+  generation: Schema.Unknown,
   kind: Schema.String,
   size: Schema.Finite,
   image: Schema.NullOr(Schema.Uint8Array),
-  digest: Schema.String
+  digest: Schema.Unknown
 })
 
 const opening = storeFailures("SqliteLiveImageStore.layer")
 
 const loading = storeFailures("SqliteLiveImageStore.loadOrCreate")
 
-// The generation this owner last read or wrote, and whether an unconfirmed commit has frozen it.
-interface Ownership {
-  readonly generation: number | undefined
-  readonly available: boolean
-}
-
 /**
  * Reserve one SQLite connection and its exclusive lock for the Layer scope.
- * The application supplies `SqlClient`, `FileSystem`, `Path`, and `Crypto`.
+ * The application supplies a dedicated `SqlClient`, `FileSystem`, `Path`, and `Digest`.
+ * Close the store before its client. The store releases its reservation and
+ * exclusive lock without closing the borrowed client.
  *
  * @example
  * ```ts
@@ -88,15 +89,12 @@ export const layer = (options: Options): Layer.Layer<
     Effect.gen(function*() {
       const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const digest = yield* makeDigest
       const sql = yield* SqlClient
-      const maxImage = ByteSize.toBigInt(options.maxImageBytes)
+      const maxImage = yield* Protocol.imageLimit(options.maxImageBytes, opening)
       const maxDatabase = ByteSize.toBigInt(options.maxDatabaseBytes)
       const timeout = options.busyTimeoutMs ?? 0
 
       if (!path.isAbsolute(options.filename)) return yield* opening.invalid("filename")
-
-      if (maxImage <= 0n || maxImage > BigInt(Number.MAX_SAFE_INTEGER)) return yield* opening.invalid("maxImageBytes")
 
       if (maxDatabase <= 0n) return yield* opening.invalid("maxDatabaseBytes")
 
@@ -138,7 +136,14 @@ export const layer = (options: Options): Layer.Layer<
 
       if (Exit.isFailure(lock)) return yield* opening.fail("Ownership", lock.cause)
 
-      const ownership = yield* Ref.make<Ownership>({ generation: undefined, available: true })
+      const protocol = yield* Protocol.make<Revision>({
+        maxImage,
+        loading,
+        storage: {
+          read: Effect.suspend(() => read()),
+          compareAndSwap: (expected, next) => compareAndSwap(expected, next)
+        }
+      })
 
       // Release exclusive ownership before closing the client. Older Bun clients
       // can retain prepared statements, delaying the physical close until GC.
@@ -150,7 +155,7 @@ export const layer = (options: Options): Layer.Layer<
           // A frozen connection can still fail I/O during the unlock read. Preserve its
           // unknown outcome and allow the reserved connection and client to finalize.
           Effect.catch((error) =>
-            Effect.flatMap(Ref.get(ownership), ({ available }) => available ? Effect.die(error) : Effect.void)
+            Effect.flatMap(protocol.isAvailable, (available) => available ? Effect.die(error) : Effect.void)
           )
         )
       )
@@ -263,117 +268,87 @@ export const layer = (options: Options): Layer.Layer<
         Effect.mapError((cause) => opening.fail("Storage", cause))
       )
 
-      const freeze = Ref.update(ownership, (state) => ({ ...state, available: false }))
-
       const select =
         "SELECT generation, typeof(image) AS kind, length(image) AS size, CASE WHEN typeof(image) = 'blob' AND length(image) <= ? THEN image ELSE NULL END AS image, digest FROM effect_vfs_live_image WHERE id = 1"
 
-      return LiveVolume.LiveImageStore.of({
-        loadOrCreate: Effect.fnUntraced(function*(initial: Uint8Array) {
-          const { available, generation } = yield* Ref.get(ownership)
+      const read = Effect.fnUntraced(function*() {
+        const rows = yield* queryRow(StoreRow, select, [Number(maxImage)])
+        const row = rows[0]
 
-          if (!available) return yield* loading.fail("Storage")
+        if (row === undefined) {
+          const current = (yield* queryRow(Schema.Struct({ user_version: Schema.Finite }), "PRAGMA user_version"))[0]
 
-          if (generation !== undefined) return yield* loading.fail("Ownership")
+          if (current?.user_version !== 0) return yield* loading.fail("CorruptStore")
 
-          let decoded = yield* queryRow(StoreRow, select, [Number(maxImage)])
+          return null
+        }
 
-          if (decoded.length === 0) {
-            if (version.user_version === 1 || BigInt(initial.length) > maxImage) {
-              return yield* loading.fail("CorruptStore")
-            }
+        // The bounded projection withholds non-BLOB and oversized values.
+        if (row.kind !== "blob" || row.image === null) return yield* loading.fail("CorruptStore")
 
-            const hash = yield* digest(initial)
-            yield* run("BEGIN IMMEDIATE").pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
+        return {
+          image: row.image,
+          generation: row.generation,
+          digest: row.digest,
+          token: { generation: row.generation }
+        }
+      })
 
-            const initialized = yield* Effect.exit(Effect.gen(function*() {
-              yield* run("INSERT INTO effect_vfs_live_image (id, generation, image, digest) VALUES (1, 0, ?, ?)", [
-                initial,
-                hash
-              ])
-              yield* run("PRAGMA user_version=1")
-              yield* run("COMMIT")
-            }))
+      const compareAndSwap = Effect.fnUntraced(function*(expected: Revision | undefined, next: Protocol.Image) {
+        return yield* Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function*() {
+            const began = yield* Effect.exit(restore(run("BEGIN IMMEDIATE")))
 
-            if (Exit.isFailure(initialized)) {
+            if (Exit.isFailure(began)) {
               yield* Effect.exit(run("ROLLBACK"))
 
-              return yield* loading.fail("Storage", initialized.cause)
+              if (Cause.hasInterrupts(began.cause)) return yield* Effect.failCause(began.cause).pipe(Effect.orDie)
+
+              return Protocol.WriteResult.Unknown({ cause: began.cause })
             }
 
-            decoded = yield* queryRow(StoreRow, select, [Number(maxImage)])
-          }
+            let attemptedCommit = false
 
-          const row = decoded[0]
+            const written = yield* Effect.exit(restore(Effect.gen(function*() {
+              if (expected === undefined) {
+                yield* run("INSERT INTO effect_vfs_live_image (id, generation, image, digest) VALUES (1, ?, ?, ?)", [
+                  next.generation,
+                  next.image,
+                  next.digest
+                ])
+                yield* run("PRAGMA user_version=1")
+              } else {
+                const updated = yield* queryRow(
+                  Schema.Struct({ generation: Schema.Unknown }),
+                  "UPDATE effect_vfs_live_image SET generation = ?, image = ?, digest = ? WHERE id = 1 AND generation = ? RETURNING generation",
+                  [next.generation, next.image, next.digest, expected.generation]
+                )
 
-          if (
-            row === undefined || !Number.isSafeInteger(row.generation) || row.generation < 0 ||
-            row.kind !== "blob" || !Number.isSafeInteger(row.size) || BigInt(row.size) > maxImage ||
-            row.image === null || !/^[0-9a-f]{64}$/.test(row.digest)
-          ) return yield* loading.fail("CorruptStore")
+                if (updated.length !== 1) return Protocol.WriteResult.Conflict()
+              }
 
-          const actual = yield* digest(row.image)
+              attemptedCommit = true
+              yield* run("COMMIT")
 
-          if (actual !== row.digest) return yield* loading.fail("CorruptStore")
+              return Protocol.WriteResult.Written({ token: { generation: next.generation } })
+            })))
 
-          yield* Ref.update(ownership, (state) => ({ ...state, generation: row.generation }))
-
-          return new Uint8Array(row.image)
-        }),
-        commit: Effect.fnUntraced(function*(image: Uint8Array) {
-          const { available, generation } = yield* Ref.get(ownership)
-
-          if (!available || generation === undefined) return "unknown" as const
-
-          if (BigInt(image.length) > maxImage) return "rejected" as const
-
-          if (generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
-
-          const hashing = yield* Effect.exit(digest(image))
-
-          if (Exit.isFailure(hashing)) return { _tag: "Rejected" as const, cause: hashing.cause }
-          const hash = hashing.value
-
-          const began = yield* Effect.exit(run("BEGIN IMMEDIATE"))
-
-          if (Exit.isFailure(began)) return "unknown" as const
-
-          const updated = yield* Effect.exit(queryRow(
-            Schema.Struct({ generation: Schema.Finite }),
-            "UPDATE effect_vfs_live_image SET generation = ?, image = ?, digest = ? WHERE id = 1 AND generation = ? RETURNING generation",
-            [generation + 1, image, hash, generation]
-          ))
-
-          if (Exit.isFailure(updated)) {
+            if (Exit.isSuccess(written) && Predicate.isTagged(written.value, "Written")) return written.value
             const rolledBack = yield* Effect.exit(run("ROLLBACK"))
 
-            if (Exit.isSuccess(rolledBack)) return "rejected" as const
-            yield* freeze
+            if (Exit.isFailure(written)) {
+              if (Cause.hasInterrupts(written.cause)) return yield* Effect.failCause(written.cause).pipe(Effect.orDie)
 
-            return "unknown" as const
-          }
+              return !attemptedCommit && Exit.isSuccess(rolledBack)
+                ? Protocol.WriteResult.Rejected({ cause: written.cause })
+                : Protocol.WriteResult.Unknown({ cause: written.cause })
+            }
 
-          if (updated.value.length !== 1) {
-            yield* freeze
-            yield* Effect.exit(run("ROLLBACK"))
-
-            return "unknown" as const
-          }
-
-          const committed = yield* Effect.exit(run("COMMIT"))
-
-          if (Exit.isFailure(committed)) {
-            yield* freeze
-            yield* Effect.exit(run("ROLLBACK"))
-
-            return "unknown" as const
-          }
-
-          // Keep any freeze another commit set while this one was in flight.
-          yield* Ref.update(ownership, (state) => ({ ...state, generation: generation + 1 }))
-
-          return "committed" as const
-        })
+            return Exit.isSuccess(rolledBack) ? written.value : Protocol.WriteResult.Unknown({})
+          })
+        )
       })
+
+      return protocol.store
     })
   )

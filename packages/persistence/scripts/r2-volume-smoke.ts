@@ -44,10 +44,12 @@ const text = (value: Uint8Array) => new TextDecoder().decode(value)
 
 const runChild = async (mode: string, key: string) => {
   const layer = R2LiveImageStore.layer({
-    client: R2LiveImageStore.fromS3(s3, bucket),
     key,
     maxImageBytes: options.maxImageBytes
-  }).pipe(Layer.provide(NodeCrypto.layer))
+  }).pipe(
+    Layer.provide(Layer.succeed(R2LiveImageStore.Client, R2LiveImageStore.fromS3(s3, bucket))),
+    Layer.provide(NodeCrypto.layer)
+  )
 
   await Effect.runPromise(
     Effect.scoped(Effect.gen(function*() {

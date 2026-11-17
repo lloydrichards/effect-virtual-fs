@@ -3,6 +3,7 @@ import { NfsServer } from "@effect-vfs/nfs/NfsServer"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as NodeSocket from "@effect/platform-node-shared/NodeSocket"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import type { R2DemoConfig } from "./config.js"
 import { makeR2Client } from "./r2-client.js"
@@ -23,12 +24,11 @@ export const gateway = Effect.fn("R2Demo.gateway")(function*(config: R2DemoConfi
   const client = yield* makeR2Client(config)
 
   const store = R2LiveImageStore.layer({
-    client,
     key: config.imageKey,
     maxImageBytes: config.imageLimit,
     // This assertion relies on Cloudflare's successful-write contract for the verified endpoint.
     durability: "survives-power-loss"
-  })
+  }).pipe(Layer.provide(Layer.succeed(R2LiveImageStore.Client, client)))
 
   const volume = yield* LiveVolume.open(config.volumeOptions).pipe(Effect.provide(store))
 

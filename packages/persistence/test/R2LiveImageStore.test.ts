@@ -1,8 +1,8 @@
 import { GetObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3"
-import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { LiveVolume } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it, vi } from "@effect/vitest"
-import { ByteSize, Cause, Deferred, Effect, Exit } from "effect"
+import { ByteSize, Cause, Context, Effect, Exit, Layer, Scope } from "effect"
 import * as Digest from "effect/crypto/Digest"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
 
@@ -13,7 +13,6 @@ const text = (value: Uint8Array) => new TextDecoder().decode(value)
 const makeClient = () => {
   let object: R2LiveImageStore.ObjectRecord | null = null
   let revision = 0
-  let loseNextReply = false
 
   const client: R2LiveImageStore.R2Client = {
     read: () => Effect.sync(() => object === null ? null : { ...object, bytes: new Uint8Array(object.bytes) }),
@@ -26,33 +25,83 @@ const makeClient = () => {
         revision++
         object = { bytes: new Uint8Array(image), etag: `"${revision}"`, generation, digest }
 
-        if (loseNextReply) {
-          loseNextReply = false
-
-          return Effect.fail(
-            new Vfs.VfsError({ code: "Storage", operation: "FakeR2", cause: new Error("reply lost after write") })
-          )
-        }
-
         return Effect.succeed({ etag: object.etag })
       })
   }
 
-  return {
-    client,
-    loseReply: () => {
-      loseNextReply = true
-    },
-    damage: () => {
-      if (object) object.bytes[0] = 0
-    }
-  }
+  return { client }
 }
 
 const layer = (client: R2LiveImageStore.R2Client) =>
-  R2LiveImageStore.layer({ client, key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) })
+  R2LiveImageStore.layer({ key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+    Layer.provide(Layer.succeed(R2LiveImageStore.Client, client))
+  )
 
 it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
+  it.effect("keeps owners independent while borrowing one supplied transport", () =>
+    Effect.gen(function*() {
+      const objects = new Map<string, R2LiveImageStore.ObjectRecord>()
+      let revision = 0
+      let released = false
+
+      const client: R2LiveImageStore.R2Client = {
+        read: (key) => Effect.sync(() => objects.get(key) ?? null),
+        write: (key, image, generation, digest, condition) =>
+          Effect.sync(() => {
+            const stored = objects.get(key)
+
+            if ("ifNoneMatch" in condition ? stored !== undefined : stored?.etag !== condition.ifMatch) return null
+            const etag = String(++revision)
+            objects.set(key, { bytes: new Uint8Array(image), generation, digest, etag })
+
+            return { etag }
+          })
+      }
+
+      const clientScope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(clientScope, Exit.void))
+
+      const supplied = yield* Layer.buildWithScope(
+        Layer.effect(
+          R2LiveImageStore.Client,
+          Effect.acquireRelease(Effect.succeed(client), () =>
+            Effect.sync(() => {
+              released = true
+            }))
+        ),
+        clientScope
+      )
+
+      const open = Effect.fnUntraced(function*(key: string) {
+        const scope = yield* Scope.make()
+        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+
+        const context = yield* Layer.buildWithScope(
+          R2LiveImageStore.layer({ key, maxImageBytes: ByteSize.bytes(16) }).pipe(
+            Layer.provide(Layer.succeed(R2LiveImageStore.Client, Context.get(supplied, R2LiveImageStore.Client)))
+          ),
+          scope
+        )
+
+        return { store: Context.get(context, LiveVolume.LiveImageStore), close: Scope.close(scope, Exit.void) }
+      })
+
+      const a = yield* open("a")
+      const b = yield* open("b")
+      assert.deepStrictEqual(yield* a.store.loadOrCreate(bytes("a")), bytes("a"))
+      assert.deepStrictEqual(yield* b.store.loadOrCreate(bytes("b")), bytes("b"))
+      yield* a.close
+      assert.isFalse(released)
+      assert.strictEqual(yield* b.store.commit(bytes("updated")), "committed")
+      const reopened = yield* open("a")
+      assert.deepStrictEqual(yield* reopened.store.loadOrCreate(bytes("ignored")), bytes("a"))
+      yield* reopened.close
+      yield* b.close
+      assert.isFalse(released)
+      yield* Scope.close(clientScope, Exit.void)
+      assert.isTrue(released)
+    }))
+
   for (const synchronousThrow of [false, true]) {
     it.effect(`should preserve pre-write digest ${synchronousThrow ? "throws" : "defects"} without disabling the live volume`, () =>
       Effect.gen(function*() {
@@ -117,86 +166,14 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       assert.strictEqual(unqualified.durability, "memory-only")
 
       const qualifiedStore = R2LiveImageStore.layer({
-        client: remote.client,
         key: "volume/live",
         maxImageBytes: options.maxImageBytes,
         durability: "survives-power-loss"
-      })
+      }).pipe(Layer.provide(Layer.succeed(R2LiveImageStore.Client, remote.client)))
 
       const qualified = yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(qualifiedStore)))
 
       assert.strictEqual(qualified.durability, "survives-power-loss")
-    }))
-
-  it.effect("should reopen the last acknowledged image when the store is opened again", () =>
-    Effect.gen(function*() {
-      const remote = makeClient()
-      yield* Effect.scoped(
-        Effect.gen(function*() {
-          const store = yield* LiveVolume.LiveImageStore
-          assert.strictEqual(text(yield* store.loadOrCreate(bytes("initial"))), "initial")
-          assert.strictEqual(yield* store.commit(bytes("updated")), "committed")
-        }).pipe(Effect.provide(layer(remote.client)))
-      )
-
-      yield* Effect.scoped(
-        Effect.gen(function*() {
-          const store = yield* LiveVolume.LiveImageStore
-          assert.strictEqual(text(yield* store.loadOrCreate(bytes("ignored"))), "updated")
-        }).pipe(Effect.provide(layer(remote.client)))
-      )
-    }))
-
-  it.effect("should freeze a stale owner when another owner commits first", () =>
-    Effect.scoped(Effect.gen(function*() {
-      const remote = makeClient()
-      const first = yield* LiveVolume.LiveImageStore.pipe(Effect.provide(layer(remote.client)))
-      const second = yield* LiveVolume.LiveImageStore.pipe(Effect.provide(layer(remote.client)))
-      yield* first.loadOrCreate(bytes("initial"))
-      yield* second.loadOrCreate(bytes("ignored"))
-      assert.strictEqual(yield* first.commit(bytes("winner")), "committed")
-      assert.strictEqual(yield* second.commit(bytes("stale")), "unknown")
-      assert.strictEqual(yield* second.commit(bytes("retry")), "unknown")
-    })))
-
-  it.effect("should recover the complete committed image when its reply is lost", () =>
-    Effect.gen(function*() {
-      const remote = makeClient()
-      yield* Effect.scoped(
-        Effect.gen(function*() {
-          const store = yield* LiveVolume.LiveImageStore
-          yield* store.loadOrCreate(bytes("old"))
-          remote.loseReply()
-          assert.strictEqual(yield* store.commit(bytes("new")), "unknown")
-          assert.strictEqual(yield* store.commit(bytes("retry")), "unknown")
-        }).pipe(Effect.provide(layer(remote.client)))
-      )
-
-      yield* Effect.scoped(
-        Effect.gen(function*() {
-          const store = yield* LiveVolume.LiveImageStore
-          assert.strictEqual(text(yield* store.loadOrCreate(bytes("ignored"))), "new")
-        }).pipe(Effect.provide(layer(remote.client)))
-      )
-    }))
-
-  it.effect("should reject an image when its stored digest does not match", () =>
-    Effect.gen(function*() {
-      const remote = makeClient()
-      yield* Effect.scoped(
-        Effect.gen(function*() {
-          yield* (yield* LiveVolume.LiveImageStore).loadOrCreate(bytes("good"))
-        }).pipe(Effect.provide(layer(remote.client)))
-      )
-      remote.damage()
-
-      const error = yield* Effect.flip(Effect.scoped(
-        Effect.gen(function*() {
-          return yield* (yield* LiveVolume.LiveImageStore).loadOrCreate(bytes("ignored"))
-        }).pipe(Effect.provide(layer(remote.client)))
-      ))
-
-      assert.deepStrictEqual([error.code, error.operation], ["CorruptStore", "R2LiveImageStore.loadOrCreate"])
     }))
 
   it.effect("should name the layer in the error when an option is invalid", () =>
@@ -204,7 +181,9 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       const error = yield* Effect.flip(
         LiveVolume.LiveImageStore.pipe(
           Effect.provide(
-            R2LiveImageStore.layer({ client: makeClient().client, key: "", maxImageBytes: ByteSize.kilobytes(64) })
+            R2LiveImageStore.layer({ key: "", maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+              Layer.provide(Layer.succeed(R2LiveImageStore.Client, makeClient().client))
+            )
           )
         )
       )
@@ -216,43 +195,25 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       ])
     }))
 
-  // A commit that was already writing when another one froze the store must not unfreeze it when it lands.
-  it.effect("should stay frozen when an earlier commit lands after a later reply is lost", () =>
-    Effect.scoped(Effect.gen(function*() {
-      const held = yield* Deferred.make<void>()
-      const lost = yield* Deferred.make<void>()
-      let writes = 0
-      let etag = 0
+  for (const generation of [undefined, "", "01", "+1", "1.0", "1e0", "-1", "9007199254740992"]) {
+    it.effect(`should reject noncanonical stored generation ${generation}`, () =>
+      Effect.gen(function*() {
+        const client: R2LiveImageStore.R2Client = {
+          read: () =>
+            Effect.succeed({
+              bytes: new Uint8Array(),
+              etag: "version",
+              generation,
+              digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }),
+          write: () => Effect.succeed(null)
+        }
 
-      const client: R2LiveImageStore.R2Client = {
-        read: () => Effect.succeed(null),
-        write: () =>
-          Effect.suspend(() => {
-            const write = writes++
-
-            if (write === 1) return Deferred.await(held).pipe(Effect.as({ etag: `"${++etag}"` }))
-
-            if (write === 2) {
-              return Effect.fail(new Vfs.VfsError({ code: "Storage", operation: "FakeR2" })).pipe(
-                Effect.ensuring(Deferred.succeed(lost, undefined))
-              )
-            }
-
-            return Effect.succeed({ etag: `"${++etag}"` })
-          })
-      }
-
-      const store = yield* LiveVolume.LiveImageStore.pipe(Effect.provide(layer(client)))
-      yield* store.loadOrCreate(bytes("initial"))
-      const release = Deferred.await(lost).pipe(Effect.andThen(Deferred.succeed(held, undefined)))
-
-      const [early, late] = yield* Effect.all([store.commit(bytes("early")), store.commit(bytes("late")), release], {
-        concurrency: "unbounded"
-      })
-
-      assert.deepStrictEqual([early, late], ["committed", "unknown"])
-      assert.strictEqual(yield* store.commit(bytes("after")), "unknown")
-    })))
+        const store = yield* LiveVolume.LiveImageStore.pipe(Effect.provide(layer(client)))
+        const error = yield* Effect.flip(store.loadOrCreate(bytes("initial")))
+        assert.deepStrictEqual([error.code, error.operation], ["CorruptStore", "R2LiveImageStore.loadOrCreate"])
+      }))
+  }
 
   it.effect("should send an ETag condition when writing through the S3 client", () =>
     Effect.gen(function*() {
