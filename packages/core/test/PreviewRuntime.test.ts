@@ -45,7 +45,7 @@ describe("preview ownership", () => {
         for (const name of names) yield* core.writeFile("/" + name, bytes, create)
         assert.deepStrictEqual(entryNames(yield* core.readDirectory("/")), names)
 
-        const prior = runtime.orders.get(root)!
+        const prior = runtime.compatibility.orders.get(root)!
         let reads = 0
         prior.forEach((name, index) => {
           Object.defineProperty(prior, index, {
@@ -66,6 +66,100 @@ describe("preview ownership", () => {
         const expected = [...names.slice(2), "a", "z"]
         assert.deepStrictEqual(entryNames(yield* core.readDirectory("/")), expected)
         assert.deepStrictEqual(entryNames(yield* core.readDirectory("/")), expected)
+      }))
+
+    it.effect("reclaims compatibility entries as objects and scoped handles retire", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make({ maxEntries: 2 })
+        const caller = yield* volume.caller()
+        const compatibility = runtimeOf(volume)!.compatibility
+        const root = yield* caller.root
+        const other = yield* (yield* Vfs.make()).caller()
+
+        for (let i = 0; i < 100; i++) {
+          const link = yield* caller.symlink("/target", "/link")
+          yield* caller.link("/link", "/alias")
+          yield* caller.unlink("/link")
+          assert.strictEqual(compatibility.links.size, 1)
+          assert.deepStrictEqual(yield* caller.readLink(link.reference), new TextEncoder().encode("/target"))
+          yield* caller.unlink("/alias")
+          assert.strictEqual((yield* Effect.flip(caller.stat(link.reference))).code, "StaleReference")
+
+          yield* caller.mkdir("/directory")
+          yield* caller.readDirectory("/directory")
+          yield* Effect.scoped(Effect.gen(function*() {
+            const directory = yield* caller.openDirectory("/directory")
+
+            if (i % 2 === 0) yield* directory.close
+          }))
+          yield* caller.rmdir("/directory")
+
+          const retired = yield* Effect.scoped(Effect.gen(function*() {
+            const handle = yield* caller.open("/file", { ...create, append: true })
+            yield* handle.write(bytes)
+            const reference = (yield* caller.readDirectory("/")).value[0]!.reference
+            const key = yield* volume.referenceKey(reference)
+
+            yield* caller.rename("/file", "/renamed")
+            yield* caller.link("/renamed", "/alias")
+            const aliases = (yield* caller.readDirectory("/")).value
+            assert.deepStrictEqual(aliases.map((entry) => new TextDecoder().decode(entry.name)), ["renamed", "alias"])
+
+            for (const entry of aliases) assert.strictEqual(entry.reference, reference)
+            yield* caller.unlink("/renamed")
+            yield* caller.unlink("/alias")
+            assert.strictEqual(yield* volume.resolveReferenceKey(key), reference)
+            assert.strictEqual((yield* caller.stat(reference)).size, 3n)
+
+            if (i % 2 === 0) {
+              yield* handle.close
+              assert.strictEqual((yield* Effect.flip(volume.resolveReferenceKey(key))).code, "StaleReference")
+            }
+
+            return reference
+          }))
+
+          assert.strictEqual((yield* Effect.flip(caller.stat(retired))).code, "StaleReference")
+          assert.strictEqual((yield* Effect.flip(other.stat(retired))).code, "ForeignReference")
+          assert.deepStrictEqual(yield* volume.usage, { entries: 0, usedBytes: 0n })
+          assert.deepStrictEqual([...compatibility.tokens.values()].map((token) => token.core), [root])
+          assert.strictEqual(compatibility.orders.size, 1)
+          assert.strictEqual([...compatibility.links.values()].reduce((sum, link) => sum + link.byteLength, 0), 0)
+          assert.strictEqual(compatibility.retained.size, 0)
+          assert.strictEqual(compatibility.activeGrants.size, 0)
+        }
+      }))
+
+    it.effect("retires synchronous pins after explicit and scoped close", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make({ execution: "sync" })
+        const caller = yield* volume.caller()
+        const compatibility = runtimeOf(volume)!.compatibility
+
+        yield* Effect.scoped(Effect.gen(function*() {
+          const native = yield* SynchronousAdapter.bind(volume)
+          const explicit = native.open("/explicit", create, false, false)
+          native.mkdir("/scoped")
+          const scoped = native.open("/scoped", { access: "read" }, false, true)
+          const explicitId = explicit.stat().ino
+          const scopedId = scoped.stat().ino
+          native.unlink("/explicit")
+          native.rmdir("/scoped")
+
+          assert.strictEqual(compatibility.retained.size, 2)
+          explicit.close()
+          assert.isFalse(compatibility.tokens.has(explicitId))
+          assert.isTrue(compatibility.tokens.has(scopedId))
+
+          native.symlink("/root", "/link")
+          assert.strictEqual(compatibility.links.size, 1)
+          native.unlink("/link")
+          assert.strictEqual(compatibility.links.size, 0)
+        }))
+
+        assert.strictEqual(compatibility.retained.size, 0)
+        assert.strictEqual(compatibility.tokens.size, 0)
+        assert.strictEqual((yield* Effect.flip(caller.stat("/scoped"))).code, "NotFound")
       }))
 
     it.effect("overwrites existing bytes through both handle bindings without querying volume usage", () =>

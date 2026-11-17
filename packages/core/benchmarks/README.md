@@ -56,3 +56,18 @@ the suite. These measurements do not quantify allocation or storage performance.
 Re-measure both revisions after changing runners. Earlier manual-runner medians
 and Vitest callback timings have different runtime boundaries. CI runs only a
 small correctness smoke; it does not impose speed thresholds.
+
+## Closed-handle churn
+
+Run the rename benchmark on a built checkout:
+
+```sh
+bun run --cwd packages/core benchmark -- benchmarks/compatibilityRetirement.bench.ts
+```
+
+The benchmark compares two memory volumes with the same two names and one live
+confined file handle. Setup opens and closes either zero or 1,000 extra handles
+and keeps their public wrapper objects reachable. A timed callback renames the
+file there and back, then stats it through the live handle. Compare on the same
+runtime and host. The timings include the runtime and reference checks and
+have no CI speed threshold.

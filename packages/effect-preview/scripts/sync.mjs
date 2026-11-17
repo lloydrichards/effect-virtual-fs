@@ -110,6 +110,29 @@ for (const [path, patch] of patches) {
   put(destination, rewrite(additions(path), destination, path))
 }
 
+const handlesPath = "src/virtual-file-system/internal/handles.ts"
+
+const handleAnchor = "const synchronous = new WeakMap<E.FileState, M.SyncFileHandle>()"
+
+const handles = generated.get(handlesPath)
+
+if (handles.split(handleAnchor).length !== 2) throw new Error("Expected one preview handle-release anchor")
+
+generated.set(
+  handlesPath,
+  handles.replace(
+    handleAnchor,
+    `// The core compatibility indexes retire alongside engine pins.
+export const onHandleRelease = (handle: M.FileHandle | M.DirectoryHandle, release: (id: bigint) => void) => {
+  const state = states.get(handle) ?? E.directoryHandleState(handle)
+  if (state === undefined) return undefined
+  const registered = state.resource.releaseWithResult(() => release(state.id))
+  return Result.isSuccess(registered) ? state.id : undefined
+}
+${handleAnchor}`
+  )
+)
+
 // Only the core snapshot adapter owns immutable image records suitable for this handoff.
 put(
   "src/internal/ownedCapture.ts",
@@ -119,7 +142,7 @@ put(
 put(
   "src/internal/durableStorage.ts",
   "export { installStorage, resumeAllocator } from \"../virtual-file-system/internal/engine.js\"\n" +
-    "export { cleanupError } from \"../virtual-file-system/internal/handles.js\"\n"
+    "export { cleanupError, onHandleRelease } from \"../virtual-file-system/internal/handles.js\"\n"
 )
 
 put(
