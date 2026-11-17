@@ -1,0 +1,90 @@
+# PgLiveImageStore.ts overview
+
+PostgreSQL whole-image persistence with application-controlled ownership.
+
+Since v0.12.0
+
+---
+
+## layers
+
+### layer
+
+Reserves the supplied client's connection for this store's scope. Supply one
+fresh single-connection client per owner; do not share it with another store,
+application queries, transactions, streams or listeners. Closing the store
+releases its reservation but does not close the client. After uncertainty,
+close the complete store/client scope and reopen with a fresh client.
+
+Use default PostgreSQL type decoding, no acquisition hooks, and a receive
+limit of at least max(16 MiB, maxImageBytes + 90). Do not mutate the client's
+configuration after construction. The guarantee remains memory-only.
+
+**Example**
+
+```ts
+import * as PgLiveImageStore from "@effect-vfs/persistence/PgLiveImageStore"
+import * as PgClient from "@effect/sql-pg/PgClient"
+import { ByteSize, Layer, Redacted } from "effect"
+
+const Client = PgClient.layerFrom(
+  PgClient.makeClient({
+    url: Redacted.make("postgresql://user:password@localhost/app"),
+    multiplex: false
+  })
+)
+const store = PgLiveImageStore.layer({
+  key: "workspace-123",
+  maxImageBytes: ByteSize.mebibytes(4)
+}).pipe(Layer.provide(Client))
+```
+
+**Signature**
+
+```ts
+declare const layer: (
+  options: Options
+) => Layer.Layer<
+  LiveVolume.LiveImageStore,
+  VfsError.ArgumentFailure | VfsError.StoreFailure,
+  PgClient.PgClient | Digest.Digest
+>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/PgLiveImageStore.ts#L85)
+
+Since v0.12.0
+
+## models
+
+### Options (interface)
+
+Store identity and image budget. Supply a dedicated single-connection
+PostgreSQL client and run the packaged migration before opening.
+
+**Example**
+
+```ts
+import type { Options } from "@effect-vfs/persistence/PgLiveImageStore"
+import { ByteSize } from "effect"
+
+const options: Options = {
+  key: "workspace-123",
+  maxImageBytes: ByteSize.mebibytes(4)
+}
+```
+
+**Signature**
+
+```ts
+export interface Options {
+  /** Well-formed Unicode identity, from 1 to 256 UTF-16 code units, without NUL. */
+  readonly key: string
+  /** Positive byte limit below PostgreSQL's 1 GiB value limit. */
+  readonly maxImageBytes: ByteSize.ByteSize
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/PgLiveImageStore.ts#L32)
+
+Since v0.12.0

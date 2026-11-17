@@ -6,7 +6,8 @@
     "noEmit": true,
     "skipLibCheck": false,
     "strict": true,
-    "target": "ESNext"
+    "target": "ESNext",
+    "types": ["node"]
   },
   "include": ["index.ts"]
 }
