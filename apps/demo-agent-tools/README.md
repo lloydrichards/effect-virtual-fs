@@ -85,12 +85,12 @@ combination. Repeat its tests and type-check when upgrading either dependency.
 
 The server exposes these MCP tools:
 
-| Tool           | Arguments                                             | Result                                                                      |
-| -------------- | ----------------------------------------------------- | --------------------------------------------------------------------------- |
-| `execute`      | `{ code }`                                            | `{ runId, execution, changes }` from a fresh overlay of the seeded base.    |
-| `inspect_run`  | `{ runId, path, action: "read" \| "list" \| "stat" }` | Saved run result and changes, plus the inspected `entry`.                   |
-| `inspect_base` | `{ path, action: "read" \| "list" \| "stat" }`        | Original file content, listing, or metadata.                                |
-| `combine_runs` | `{ ours, theirs, take? }`                             | Pilot result, version 1 snapshot delta, conflict, and path-only comparison. |
+| Tool           | Arguments                                             | Result                                                                                |
+| -------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `execute`      | `{ code }`                                            | `{ runId, execution, changes }` from a fresh overlay of the seeded base.              |
+| `inspect_run`  | `{ runId, path, action: "read" \| "list" \| "stat" }` | Saved run result and changes, plus the inspected `entry`.                             |
+| `inspect_base` | `{ path, action: "read" \| "list" \| "stat" }`        | Original file content, listing, or metadata.                                          |
+| `combine_runs` | `{ ours, theirs, take? }`                             | Release handoff result, version 1 snapshot delta, conflict, and path-only comparison. |
 
 The host connects the components in this order:
 
@@ -149,30 +149,41 @@ draft. A second `execute` starts from that original draft and cannot see the fir
 remain inspectable. Changes describe final file differences, not the history of tool calls, and omit timestamp-only
 differences.
 
-### Combine two runs pilot
+### Combine two runs for a release handoff
 
-Call `execute` twice in the same Code Mode session. Run these programs separately and note their run IDs:
+Use `combine_runs` to bring the release manager's renamed plan and QA's edits together. Run these programs separately
+with `execute` in the same Code Mode session and save both run IDs.
+
+The release manager gives the draft its release filename:
 
 ```js
-return await tools.workspace.rename({ from: "plans/draft.md", to: "plans/moved.md" })
+return await tools.workspace.rename({ from: "plans/draft.md", to: "plans/friday-release.md" })
 ```
+
+QA adds the smoke test and rollback threshold to the draft in a separate run:
 
 ```js
-return await tools.workspace.write_file({ path: "plans/draft.md", content: "Edited release plan." })
+return await tools.workspace.write_file({
+  path: "plans/draft.md",
+  content:
+    "# Friday release plan\n\nSmoke-test checkout before rollout. Roll back if the error rate stays above 1% for five minutes.\n"
+})
 ```
 
-Call `combine_runs` with the rename run ID as `ours` and the edit run ID as `theirs`. The pilot reports the edited text at
-`plans/moved.md` with no conflict. Its `baseline` shows how the existing delta-only merge handles the same inputs.
-The returned `delta` is version 1 snapshot delta JSON for the common base.
+Call `combine_runs` with the release manager's run ID as `ours` and QA's run ID as `theirs`. Use the returned
+`entry` for the handoff. It contains the QA text at `plans/friday-release.md` with no conflict. The `baseline` shows
+what the current path-only merge would do with the same inputs: add the renamed file and report `ChangedRemoved` at the
+draft path. The returned `delta` is version 1 snapshot delta JSON for the common base.
 
-For competing renames, run the rename program twice with different destinations, then combine those two IDs. The
-conflict reports both destinations, and the unresolved result keeps the draft at its original path. Call again with
-`take: "ours"`, `"theirs"`, or `"base"` to pick the resulting file. Combining leaves the original runs available for
-inspection.
+If the rollback reviewer renames the draft to `plans/rollback-ready.md` in a separate run, combine that run with
+the release manager's rename run. The tool reports one conflict showing both destinations and keeps the original
+draft while unresolved. Call again with `take: "ours"` to keep the Friday path, `take: "theirs"` to keep the rollback
+path, or `take: "base"` to keep the draft. Each choice leaves one plan. The path-only baseline adds both
+destinations without a conflict.
 
-The pilot accepts a single clean rename or content edit of the seeded `plans/draft.md` per run. Rename destinations
-must be new paths. The demo owner still needs to confirm whether combining runs solves a real handoff problem.
-The public merge API remains on hold in [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271).
+Each run can make one clean rename or content edit of the seeded `plans/draft.md`. Use new paths for rename
+destinations. The original runs and base remain available for inspection. This workflow is part of the private Code
+Mode demo. The public merge API remains on hold in [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271).
 
 Program diagnostics use `execution.ok: false` inside a successful MCP response. Expected filesystem failures appear
 inside the workspace tool's outcome. Invalid outer requests and inspection failures are MCP tool errors. A failed
