@@ -4,7 +4,11 @@ title: Deferred capabilities
 description: Lists capabilities intentionally outside the current filesystem contract so future exploration is not mistaken for implemented support.
 status: draft
 tags: [profile, roadmap, deferred]
-generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
+sources:
+  - id: persistence-policy
+    resource: ../decisions/persistence-store-helpers.md
+    title: Adapter ownership and release qualification boundaries
+generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
 ---
 
 # Deferred capabilities
@@ -19,6 +23,7 @@ The current profile does not include:
 - advisory locks in the core caller API or descriptor duplication (the NFS server owns its protocol locks);
 - sparse allocation or copy-on-write storage optimization;
 - qualified local-device operating-system crash or power-loss durability for SQLite live writes, or host `fsync` semantics (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") publishes the durability vocabulary; the R2 profile relies on Cloudflare's remote durable-write contract, while SQLite still reports `memory-only`);
+- stronger durability or writable NFS qualification for PostgreSQL and D1, hosted D1 release qualification, and a Durable Object live-image provider or remote shared-workspace service;
 - Node releases and loader configurations beyond the [pinned mounted qualification](../contracts/node-mounted.md "narrowed by"), plus arbitrary-byte Node routing;
 - complete Node package resolution, dependency installation, or HMR inside the virtual build integration.
 

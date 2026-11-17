@@ -157,3 +157,19 @@ jobs:
           psql "$VFS_PG_TEST_URL" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_cert_file = '/tmp/vfs-pg.crt'" -c "ALTER SYSTEM SET ssl_key_file = '/tmp/vfs-pg.key'" -c 'ALTER SYSTEM SET ssl = on' -c 'SELECT pg_reload_conf()'
       - name: Run PostgreSQL contracts including verified TLS
         run: VFS_PG_TEST_CA="$(cat "$RUNNER_TEMP/vfs-pg.crt")" bun run --cwd packages/persistence test:pg
+
+  d1-live-images:
+    name: D1 workerd contracts, Node 24.21.0 / Bun 1.4.4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      - run: bun install --frozen-lockfile
+      - run: bun run build --filter=@effect-vfs/persistence
+      - run: bun run --cwd packages/persistence test:d1

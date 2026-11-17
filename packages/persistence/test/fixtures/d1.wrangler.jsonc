@@ -1,0 +1,12 @@
+{
+  "name": "effect-vfs-d1-qualification",
+  "main": "./d1-worker.ts",
+  "compatibility_date": "2026-11-09",
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "effect-vfs-d1-qualification",
+    "database_id": "00000000-0000-0000-0000-000000000000",
+    "preview_database_id": "00000000-0000-0000-0000-000000000000",
+    "migrations_dir": "../../migrations/d1"
+  }]
+}
