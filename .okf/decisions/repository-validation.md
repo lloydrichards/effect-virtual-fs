@@ -19,6 +19,8 @@ sources:
     title: Packed consumer compiler checks
   - resource: ../../tools/oxlint/test/run.mjs
     title: Isolated custom lint fixtures
+  - resource: ../../tools/oxlint/test/performance-semantics.test.mjs
+    title: Array and reflection semantics that constrain lint advice
   - resource: ../../apps/docs/scripts/check-public-docs.ts
     title: Public declaration documentation checks
   - resource: ../../apps/docs/scripts/check-examples.ts
@@ -27,7 +29,7 @@ sources:
     title: Custom rule provenance and local contract
   - resource: ../../packages/effect-preview/upstream/manifest.json
     title: Imported engine provenance
-generated: { by: codex/okf, at: "2026-11-17T12:29:07+00:00" }
+generated: { by: codex/okf, at: "2026-11-17T20:15:02+00:00" }
 ---
 
 # Repository validation policy
@@ -64,6 +66,12 @@ Custom lint rules have isolated accepted and rejected fixtures and a checked Typ
 tooling may use host filesystem APIs and process output. Native Node methods, Schema inputs, opaque identity and protocol
 boundaries justify narrow exceptions when a general restriction would conflict with their contracts. A safety comment
 explains an assertion; it does not prove it.
+
+The array accumulator copy rule reports direct returns of a potentially growing concatenation when the reducer uses a fresh
+array seed and its receiver resolves to an array literal. Native lint covers accumulating spreads. Review array fusion where
+measurements warrant it. A rewrite must preserve sparse slots, callback order, callback indexes and the input array passed to
+each callback. Use `Reflect.get` when the operation needs an explicit receiver, such as a proxy forwarding to an accessor.
+These transformations require code review and have no automatic fixes.
 
 ## Share Effect diagnostic configuration
 

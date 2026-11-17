@@ -1,15 +1,22 @@
 /** Each case runs with only its owning rule enabled, so unrelated diagnostics cannot hide a false positive. */
 export const ruleCases = {
-  "anti-slop/no-array-filter-map": {
-    valid: [
-      "const result = [1, 2].flatMap(value => value > 1 ? [value * 2] : [])",
-      "const result = values.values().filter(Boolean).map(String).toArray()"
-    ],
-    invalid: ["const result = [1, 2].filter(Boolean).map(String)"]
-  },
   "anti-slop/no-reduce-accumulator-copy": {
-    valid: ["const result = [1, 2].reduce((acc, value) => { acc.push(value); return acc }, [])"],
-    invalid: ["const result = [1, 2].reduce((acc, value) => acc.concat(value), [])"]
+    valid: [
+      "const result = [1, 2].reduce((acc, value) => { acc.push(value); return acc }, [])",
+      "const result = [1, 2, 3].reduce((acc, value) => acc.slice(-1).concat(value), [])",
+      "const result = [1, 2, 3].reduce((acc, value) => acc.concat(value).slice(-2), [])",
+      "const result = source.reduce((acc, value) => acc.concat(value), [])",
+      "declare const source: Array<number>; source.reduce((acc, value) => acc.concat(value), [])",
+      "const source = { reduce: (step, initial) => step(initial, 1) }; source.reduce((acc, value) => acc.concat(value), [])",
+      "const result = [1, 2].reduce((acc) => acc.concat(), [])",
+      "const result = [1, 2].reduce((acc) => acc.concat([]), [])",
+      "const result = [1, 2].reduce((acc, value) => acc.concat(...values), [])",
+      "const result = [1, 2].reduce((acc, value) => acc.concat(value), shared)"
+    ],
+    invalid: [
+      "const result = [1, 2].reduce((acc, value) => acc.concat(value), [])",
+      "const source: ReadonlyArray<number> = [1, 2]; source.reduceRight((acc, value) => { return acc['concat']([value]) }, [])"
+    ]
   },
   "anti-slop/no-chained-type-assertions": {
     valid: ["const result = value as Result", "const result = { value: 1 } as const"],
@@ -91,10 +98,6 @@ export const ruleCases = {
   "anti-slop/no-reflect-apply": {
     valid: ["const result = operation(value)", "const Reflect = { apply: () => 1 }; Reflect.apply()"],
     invalid: ["Reflect.apply(operation, null, [value])"]
-  },
-  "anti-slop/no-reflect-get": {
-    valid: ["const value = item.id", "const Reflect = { get: () => 1 }; Reflect.get()"],
-    invalid: ["Reflect.get(item, 'id')"]
   },
   "anti-slop/no-runtime-typeof": {
     valid: ["const absent = typeof optionalBinding === 'undefined'", "type Value = typeof binding"],

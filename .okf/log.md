@@ -14,6 +14,8 @@
 
 - **Shared Effect diagnostic policy**: Pin tsgo 0.70.0 and derive Oxlint and standalone checks from the compiler preset, retaining narrow preview/synchronous exceptions and preserving separate source and compatibility work.
 
+- Limit reducer accumulator copy lint to direct growing array concatenations and record semantic constraints for array fusion and reflection.
+
 - Consolidate validation under one local/CI sequence, keep Git hooks fast and read-only beyond staged formatting, and place
   tests and fixtures with their owning tooling. Remove superseded launchers and reuse existing consumer contracts.
 
