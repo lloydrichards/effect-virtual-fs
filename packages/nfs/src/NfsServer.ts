@@ -10,6 +10,7 @@
  */
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import type * as Digest from "effect/crypto/Digest"
 import * as SecureRandom from "effect/crypto/SecureRandom"
@@ -17,6 +18,8 @@ import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
+import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
@@ -749,21 +752,27 @@ const make = (
       callerFor === undefined ? handlerOptions : { ...handlerOptions, callerFor }
     ).pipe(Effect.mapError((cause) => new NfsServerError({ cause })))
 
-    yield* startServer(
+    const listener = yield* startServer(
       socketServer,
       networked ? { limits, peer: options.peer } : { limits },
       handler
-    ).pipe(
-      Effect.mapError(
-        (cause: SocketServer.SocketServerError) => new NfsServerError({ cause })
-      )
     )
 
-    return { address }
+    const awaitTermination = Fiber.await(listener).pipe(
+      Effect.flatMap((exit) => Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause) ? Effect.void : exit),
+      Effect.mapError((cause) => new NfsServerError({ cause }))
+    )
+
+    return { address, awaitTermination }
   })
 
 /**
- * The running NFS server, exposing the address it bound to.
+ * The running NFS server and its bound address.
+ *
+ * Successful construction starts the scoped listener. Wait on
+ * `awaitTermination` while the scope is open to observe a listener failure as
+ * `NfsServerError`. The wait returns normally after scope shutdown interrupts
+ * the listener. Interrupting a wait leaves the listener running.
  *
  * @example
  * ```ts
@@ -774,8 +783,8 @@ const make = (
  * const serve = Effect.scoped(Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
  *   const caller = yield* volume.caller()
- *   yield* NfsServer.make({ volume, caller })
- *   yield* Effect.never
+ *   const server = yield* NfsServer.make({ volume, caller })
+ *   yield* server.awaitTermination
  * }))
  * ```
  *
@@ -784,6 +793,7 @@ const make = (
  */
 export class NfsServer extends Context.Service<NfsServer, {
   readonly address: NfsServerAddress
+  readonly awaitTermination: Effect.Effect<void, NfsServerError>
 }>()(
   "@effect-vfs/nfs/NfsServer"
 ) {

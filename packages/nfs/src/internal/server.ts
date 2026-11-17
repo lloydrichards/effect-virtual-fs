@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect"
+import type * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
@@ -112,14 +113,15 @@ export const startServer = (
   options: ServerOptions,
   handlers: RpcHandlers
 ): Effect.Effect<
-  void,
-  SocketServer.SocketServerError,
+  Fiber.Fiber<never, SocketServer.SocketServerError>,
+  never,
   Scope.Scope
 > =>
   Effect.gen(function*() {
     const connections = yield* Semaphore.make(options.limits.maxConnections)
     let connectionSerial = 0
-    yield* server.run((socket) =>
+
+    return yield* server.run((socket) =>
       Semaphore.withPermitsIfAvailable(
         connections,
         1,

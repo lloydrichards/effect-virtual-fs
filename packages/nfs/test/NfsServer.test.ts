@@ -7,9 +7,11 @@ import * as ByteSize from "effect/ByteSize"
 import type * as Digest from "effect/crypto/Digest"
 import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Data from "effect/Data"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as NetAddress from "effect/net/NetAddress"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -32,6 +34,7 @@ import {
   type NfsServerAddress,
   NfsServerConfig,
   NfsServerConfigOverrides,
+  NfsServerError,
   NfsServerLimitOverrides,
   NfsServerLimits,
   type NfsServerOptions
@@ -495,6 +498,50 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       assert.deepStrictEqual(server.address, { path: "/tmp/effect-vfs-nfs.sock" })
     }).pipe(Effect.scoped, Effect.provide(Testing.layer())))
 
+  for (const delayed of [false, true]) {
+    it.effect(`reports ${delayed ? "a later" : "an immediate"} listener failure through awaitTermination`, () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
+        const address = NetAddress.inetAddressUnsafe(NetAddress.ipv4Loopback, 2049)
+
+        const socketError = new SocketServer.SocketServerError({
+          reason: new SocketServer.SocketServerUnknownError({ cause: "listener failed" })
+        })
+
+        const started = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+
+        const socketServer = SocketServer.SocketServer.of({
+          address,
+          run: () =>
+            delayed
+              ? Deferred.succeed(started, undefined).pipe(
+                Effect.andThen(Deferred.await(release)),
+                Effect.andThen(Effect.fail(socketError))
+              )
+              : Effect.fail(socketError)
+        })
+
+        const server = yield* NfsServer.make(options(volume, caller)).pipe(
+          Effect.provideService(SocketServer.SocketServer, socketServer)
+        )
+
+        assert.deepStrictEqual(server.address, { host: "127.0.0.1", port: 2049 })
+
+        if (delayed) {
+          yield* Deferred.await(started)
+          const waiting = yield* Effect.forkChild(server.awaitTermination, { startImmediately: true })
+          yield* Fiber.interrupt(waiting)
+          yield* Deferred.succeed(release, undefined)
+        }
+
+        const failure = yield* Effect.flip(server.awaitTermination)
+        assert.instanceOf(failure, NfsServerError)
+        assert.strictEqual(failure.cause, socketError)
+      }).pipe(Effect.provide(Testing.layer())))
+  }
+
   it.effect("should reject a socket server that is not bound to loopback TCP when the socket server is bound beyond loopback TCP", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.Volume
@@ -890,6 +937,7 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         })
       )
 
+      yield* server.awaitTermination
       yield* held.close
     }).pipe(Effect.provide(Testing.layer())))
 

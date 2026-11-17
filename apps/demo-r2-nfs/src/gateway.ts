@@ -19,7 +19,7 @@ const peer = Effect.map(
   })
 )
 
-/** Opens the R2 image and listens until the owning Effect scope closes. */
+/** Opens the R2 image and starts a scoped NFS listener. */
 export const gateway = Effect.fn("R2Demo.gateway")(function*(config: R2DemoConfig) {
   const client = yield* makeR2Client(config)
 
@@ -32,7 +32,7 @@ export const gateway = Effect.fn("R2Demo.gateway")(function*(config: R2DemoConfi
 
   const volume = yield* LiveVolume.open(config.volumeOptions).pipe(Effect.provide(store))
 
-  yield* NfsServer.make({
+  const server = yield* NfsServer.make({
     volume,
     writable: true,
     limits: config.limits,
@@ -59,4 +59,6 @@ export const gateway = Effect.fn("R2Demo.gateway")(function*(config: R2DemoConfi
       `Test fault armed: skip ${config.httpFaultSkipWrites} successful conditional R2 writes, then lose one HTTP reply`
     )
   }
+
+  return server
 })
