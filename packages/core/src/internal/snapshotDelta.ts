@@ -944,16 +944,23 @@ export const diffSnapshots = Effect.fnUntraced(function*(base: Snapshot, target:
   const targetValue = yield* Image.valueOf(target)
   const before = side(baseValue, yield* Merkle.identify(baseValue, baseBudget(limits)))
   const after = side(targetValue, yield* Merkle.identify(targetValue, targetBudget(limits)))
+  const document = yield* Effect.fromResult(diffIdentified(before, after, limits))
+
+  return SnapshotDeltaModel.make(document)
+})
+
+/** @internal */
+export const diffIdentified = (before: Side, after: Side, limits: DeltaBudget) => {
   const changes = compare(before, after)
 
   if (changes.length > limits.records) {
-    return yield* imageFailure(OPERATION, "LimitExceeded", { field: "deltaRecords" })
+    return Result.fail(imageFailure(OPERATION, "LimitExceeded", { field: "deltaRecords" }))
   }
 
   const written = changes.filter((change) => !Change.guards.Removed(change) && !DeltaNode.guards.link(change.node))
-  yield* Effect.fromResult(
-    outputIssue(limits, { ...after.identity, entries: targetValue.entries, written: written.length })
-  )
+  const output = outputIssue(limits, { ...after.identity, entries: after.value.entries, written: written.length })
+
+  if (Result.isFailure(output)) return Result.fail(output.failure)
 
   const document: Document = {
     format: FORMAT,
@@ -963,10 +970,8 @@ export const diffSnapshots = Effect.fnUntraced(function*(base: Snapshot, target:
     changes
   }
 
-  yield* Effect.fromResult(validate(document, limits))
-
-  return SnapshotDeltaModel.make(document)
-})
+  return Result.map(validate(document, limits), () => document)
+}
 
 const [AddedSummary, RemovedSummary, UpdatedSummary] = SnapshotChange.members
 

@@ -163,6 +163,34 @@ const publicChange = (change: RawOverlayChange): OverlayChange =>
 const publicChanges = (changes: ReadonlyArray<RawOverlayChange>): ReadonlyArray<OverlayChange> =>
   Object.freeze(changes.map(publicChange))
 
+declare const MergeCaptureBrand: unique symbol
+
+/** @internal */
+export interface MergeCapture {
+  readonly [MergeCaptureBrand]: true
+}
+
+interface MergeCaptureState {
+  readonly base: Snapshot
+  readonly target: Snapshot
+}
+
+const mergeCaptures = new WeakMap<MergeCapture, MergeCaptureState>()
+
+const mergeObservers = new WeakMap<OverlayVolume, Effect.Effect<MergeCapture, VfsError>>()
+
+/** @internal */
+export const captureOverlayForMerge = Effect.fnUntraced(function*(overlay: OverlayVolume) {
+  const capture = mergeObservers.get(overlay)
+
+  if (capture === undefined) return yield* argumentFailure("captureOverlayForMerge", "overlay")
+
+  return yield* capture
+})
+
+/** @internal */
+export const getMergeCapture = (capture: MergeCapture) => mergeCaptures.get(capture)
+
 const changeOptions = (options?: OverlayChangesOptions) => {
   return Effect.fromResult(
     Errors.decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options, "changes")
@@ -202,6 +230,19 @@ export const makeOverlay = Effect.fnUntraced(function*(base: Snapshot, options?:
       )
     })
   }))
+
+  mergeObservers.set(
+    overlay,
+    observeSnapshot((target) =>
+      Effect.sync(() => {
+        // SAFETY: The private registry supplies the new token's authority before it can escape.
+        const capture = Object.freeze({}) as MergeCapture
+        mergeCaptures.set(capture, { base, target })
+
+        return capture
+      })
+    )
+  )
 
   return overlay
 })
