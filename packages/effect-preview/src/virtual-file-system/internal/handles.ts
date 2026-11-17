@@ -29,6 +29,13 @@ const effects = new WeakMap<E.FileState, M.FileHandle>()
 const states = new WeakMap<object, E.FileState>()
 export const cleanupError = (handle: M.FileHandle | M.DirectoryHandle) =>
   (states.get(handle) ?? E.directoryHandleState(handle))?.resource.cleanupError
+// The core compatibility indexes retire alongside engine pins.
+export const onHandleRelease = (handle: M.FileHandle | M.DirectoryHandle, release: (id: bigint) => void) => {
+  const state = states.get(handle) ?? E.directoryHandleState(handle)
+  if (state === undefined) return undefined
+  const registered = state.resource.releaseWithResult(() => release(state.id))
+  return Result.isSuccess(registered) ? state.id : undefined
+}
 const synchronous = new WeakMap<E.FileState, M.SyncFileHandle>()
 
 interface DirectoryState {
