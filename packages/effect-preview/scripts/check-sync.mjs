@@ -2,7 +2,7 @@
 /* eslint-disable effecttsgo/node-builtin-import */
 import { strict as assert } from "node:assert"
 import { spawnSync } from "node:child_process"
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -16,7 +16,8 @@ try {
   await cp(join(root, "scripts/sync.mjs"), join(temporary, "scripts/sync.mjs"))
   await cp(join(root, "upstream"), join(temporary, "upstream"), { recursive: true })
 
-  const run = (...args) => spawnSync(process.execPath, [join(temporary, "scripts/sync.mjs"), ...args], { encoding: "utf8" })
+  const run = (...args) =>
+    spawnSync(process.execPath, [join(temporary, "scripts/sync.mjs"), ...args], { encoding: "utf8" })
 
   const generated = run()
   assert.equal(generated.status, 0, generated.stderr)
@@ -25,7 +26,11 @@ try {
   for (const directory of ["src", "test", "typetest"]) {
     for (const path of await readdir(join(temporary, directory), { recursive: true })) {
       if (!path.endsWith(".ts")) continue
-      assert.equal(await readFile(join(temporary, directory, path), "utf8"), await readFile(join(root, directory, path), "utf8"), path)
+      assert.equal(
+        await readFile(join(temporary, directory, path), "utf8"),
+        await readFile(join(root, directory, path), "utf8"),
+        path
+      )
     }
   }
 
@@ -44,7 +49,9 @@ try {
   snapshot.files[0].patch += "\n"
   await writeFile(snapshotPath, JSON.stringify(snapshot))
   assert.notEqual(run().status, 0, "A corrupted snapshot must fail regeneration")
-  process.stdout.write("Offline regeneration, generated-file drift, unexpected files, and snapshot corruption checks passed.\n")
+  process.stdout.write(
+    "Offline regeneration, generated-file drift, unexpected files, and snapshot corruption checks passed.\n"
+  )
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }

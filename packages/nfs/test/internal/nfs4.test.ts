@@ -215,50 +215,49 @@ describe("Backchannel", () => {
      * An RPC accepted-reply carrying an all-OK CB_SEQUENCE result, echoing the session, sequence and
      * slot it was sent, exactly as a working client answers.
      */
-    const callbackReplyFor = (request: Uint8Array, session: Uint8Array) =>
-      Effect.gen(function*() {
-        const sent = yield* make.openReader(request, limits)
-        const xid = yield* sent.read(XdrCodec.uint32)
+    const callbackReplyFor = Effect.fnUntraced(function*(request: Uint8Array, session: Uint8Array) {
+      const sent = yield* make.openReader(request, limits)
+      const xid = yield* sent.read(XdrCodec.uint32)
 
-        // RPC call header: msgtype, rpcvers, prog, vers, proc, then credential and verifier.
-        for (let field = 0; field < 5; field++) yield* sent.read(XdrCodec.uint32)
-        yield* sent.read(XdrCodec.uint32)
-        yield* sent.read(XdrCodec.opaque())
-        yield* sent.read(XdrCodec.uint32)
-        yield* sent.read(XdrCodec.opaque())
+      // RPC call header: msgtype, rpcvers, prog, vers, proc, then credential and verifier.
+      for (let field = 0; field < 5; field++) yield* sent.read(XdrCodec.uint32)
+      yield* sent.read(XdrCodec.uint32)
+      yield* sent.read(XdrCodec.opaque())
+      yield* sent.read(XdrCodec.uint32)
+      yield* sent.read(XdrCodec.opaque())
 
-        // CB_COMPOUND args: tag, minorversion, callback_ident, argarray count, then CB_SEQUENCE.
-        yield* sent.read(XdrCodec.string())
-        yield* sent.read(XdrCodec.uint32)
-        yield* sent.read(XdrCodec.uint32)
-        yield* sent.read(XdrCodec.uint32)
-        yield* sent.read(XdrCodec.uint32)
-        yield* sent.read(XdrCodec.fixedOpaque(16))
-        const sequence = yield* sent.read(XdrCodec.uint32)
-        const slot = yield* sent.read(XdrCodec.uint32)
+      // CB_COMPOUND args: tag, minorversion, callback_ident, argarray count, then CB_SEQUENCE.
+      yield* sent.read(XdrCodec.string())
+      yield* sent.read(XdrCodec.uint32)
+      yield* sent.read(XdrCodec.uint32)
+      yield* sent.read(XdrCodec.uint32)
+      yield* sent.read(XdrCodec.uint32)
+      yield* sent.read(XdrCodec.fixedOpaque(16))
+      const sequence = yield* sent.read(XdrCodec.uint32)
+      const slot = yield* sent.read(XdrCodec.uint32)
 
-        return yield* Effect.gen(function*() {
-          const xdrWriter = yield* make.openWriter(limits, 4294967295)
-          yield* xdrWriter.write(XdrCodec.uint32, xid)
-          yield* xdrWriter.write(XdrCodec.uint32, 1)
-          yield* xdrWriter.write(XdrCodec.uint32, 0)
-          yield* xdrWriter.write(XdrCodec.uint32, 0)
-          yield* xdrWriter.write(XdrCodec.opaque(), new Uint8Array())
-          yield* xdrWriter.write(XdrCodec.uint32, 0)
-          yield* xdrWriter.write(XdrCodec.uint32, Status.OK)
-          yield* xdrWriter.write(XdrCodec.string(), "probe")
-          yield* xdrWriter.write(XdrCodec.uint32, 1)
-          yield* xdrWriter.write(XdrCodec.uint32, 11)
-          yield* xdrWriter.write(XdrCodec.uint32, Status.OK)
-          yield* xdrWriter.write(XdrCodec.fixedOpaque(session.length), session)
-          yield* xdrWriter.write(XdrCodec.uint32, sequence)
-          yield* xdrWriter.write(XdrCodec.uint32, slot)
-          yield* xdrWriter.write(XdrCodec.uint32, slot)
-          yield* xdrWriter.write(XdrCodec.uint32, slot)
+      return yield* Effect.gen(function*() {
+        const xdrWriter = yield* make.openWriter(limits, 4294967295)
+        yield* xdrWriter.write(XdrCodec.uint32, xid)
+        yield* xdrWriter.write(XdrCodec.uint32, 1)
+        yield* xdrWriter.write(XdrCodec.uint32, 0)
+        yield* xdrWriter.write(XdrCodec.uint32, 0)
+        yield* xdrWriter.write(XdrCodec.opaque(), new Uint8Array())
+        yield* xdrWriter.write(XdrCodec.uint32, 0)
+        yield* xdrWriter.write(XdrCodec.uint32, Status.OK)
+        yield* xdrWriter.write(XdrCodec.string(), "probe")
+        yield* xdrWriter.write(XdrCodec.uint32, 1)
+        yield* xdrWriter.write(XdrCodec.uint32, 11)
+        yield* xdrWriter.write(XdrCodec.uint32, Status.OK)
+        yield* xdrWriter.write(XdrCodec.fixedOpaque(session.length), session)
+        yield* xdrWriter.write(XdrCodec.uint32, sequence)
+        yield* xdrWriter.write(XdrCodec.uint32, slot)
+        yield* xdrWriter.write(XdrCodec.uint32, slot)
+        yield* xdrWriter.write(XdrCodec.uint32, slot)
 
-          return yield* xdrWriter.bytes
-        })
+        return yield* xdrWriter.bytes
       })
+    })
 
     /** The reply a client's RPC layer sends when it serves no such program. */
     const programUnavailableFor = (request: Uint8Array) => {
@@ -383,26 +382,25 @@ describe("Backchannel", () => {
         const first = connection(1)
         const second = connection(2)
 
-        const identify = (on: typeof first) =>
-          Effect.gen(function*() {
-            const reply = yield* make.openReader(
-              yield* handler.compound(yield* call([exchangeId("trunked")], "probe", on)),
-              limits
-            )
+        const identify = Effect.fnUntraced(function*(on: typeof first) {
+          const reply = yield* make.openReader(
+            yield* handler.compound(yield* call([exchangeId("trunked")], "probe", on)),
+            limits
+          )
 
-            assert.strictEqual(yield* reply.read(XdrCodec.uint32), Status.OK)
-            yield* reply.read(XdrCodec.string())
-            yield* reply.read(XdrCodec.uint32)
-            yield* reply.read(XdrCodec.uint32)
-            yield* reply.read(XdrCodec.uint32)
-            const id = yield* reply.read(XdrCodec.uint64)
-            yield* reply.read(XdrCodec.uint32)
+          assert.strictEqual(yield* reply.read(XdrCodec.uint32), Status.OK)
+          yield* reply.read(XdrCodec.string())
+          yield* reply.read(XdrCodec.uint32)
+          yield* reply.read(XdrCodec.uint32)
+          yield* reply.read(XdrCodec.uint32)
+          const id = yield* reply.read(XdrCodec.uint64)
+          yield* reply.read(XdrCodec.uint32)
 
-            return {
-              id,
-              flags: yield* reply.read(XdrCodec.uint32)
-            }
-          })
+          return {
+            id,
+            flags: yield* reply.read(XdrCodec.uint32)
+          }
+        })
 
         // Section 18.35.4 case 4: a second EXCHANGE_ID against an UNCONFIRMED record replaces it
         // and issues a new client ID, so trunking cannot be detected until the record is confirmed.
@@ -716,26 +714,25 @@ describe("Backchannel", () => {
 
           const client = {
             id: 1,
-            send: (message: Uint8Array) =>
-              Effect.gen(function*() {
-                const reader = yield* make.openReader(message, limits)
+            send: Effect.fnUntraced(function*(message: Uint8Array) {
+              const reader = yield* make.openReader(message, limits)
 
-                // xid, msgtype, rpcvers, prog, vers, proc, then credential and verifier.
-                for (let field = 0; field < 6; field++) yield* reader.read(XdrCodec.uint32)
-                yield* reader.read(XdrCodec.uint32)
-                yield* reader.read(XdrCodec.opaque())
-                yield* reader.read(XdrCodec.uint32)
-                yield* reader.read(XdrCodec.opaque())
+              // xid, msgtype, rpcvers, prog, vers, proc, then credential and verifier.
+              for (let field = 0; field < 6; field++) yield* reader.read(XdrCodec.uint32)
+              yield* reader.read(XdrCodec.uint32)
+              yield* reader.read(XdrCodec.opaque())
+              yield* reader.read(XdrCodec.uint32)
+              yield* reader.read(XdrCodec.opaque())
 
-                // tag, minorversion, callback_ident, argarray count, opcode, then csa_sessionid.
-                yield* reader.read(XdrCodec.string())
+              // tag, minorversion, callback_ident, argarray count, opcode, then csa_sessionid.
+              yield* reader.read(XdrCodec.string())
 
-                for (let field = 0; field < 4; field++) yield* reader.read(XdrCodec.uint32)
-                yield* reader.read(XdrCodec.fixedOpaque(16))
-                seen.push(yield* reader.read(XdrCodec.uint32))
+              for (let field = 0; field < 4; field++) yield* reader.read(XdrCodec.uint32)
+              yield* reader.read(XdrCodec.fixedOpaque(16))
+              seen.push(yield* reader.read(XdrCodec.uint32))
 
-                return answer
-              }).pipe(Effect.orDie)
+              return answer
+            }, Effect.orDie)
           }
 
           const {
@@ -754,24 +751,22 @@ describe("Backchannel", () => {
     )
 
     /** An AUTH_SYS callback credential too large for RFC 5531's 400-byte opaque_auth body. */
-    const oversizedAuthSys = (writer: EncoderSession) =>
-      Effect.gen(function*() {
-        yield* writer.write(XdrCodec.uint32, 1)
-        yield* writer.write(XdrCodec.uint32, 0)
-        yield* writer.write(XdrCodec.string(), "m".repeat(500))
-        yield* writer.write(XdrCodec.uint32, 0)
-        yield* writer.write(XdrCodec.uint32, 0)
-        yield* writer.write(XdrCodec.uint32, 0)
-      })
+    const oversizedAuthSys = Effect.fnUntraced(function*(writer: EncoderSession) {
+      yield* writer.write(XdrCodec.uint32, 1)
+      yield* writer.write(XdrCodec.uint32, 0)
+      yield* writer.write(XdrCodec.string(), "m".repeat(500))
+      yield* writer.write(XdrCodec.uint32, 0)
+      yield* writer.write(XdrCodec.uint32, 0)
+      yield* writer.write(XdrCodec.uint32, 0)
+    })
 
-    const credentialFlavorOf = (message: Uint8Array) =>
-      Effect.gen(function*() {
-        const reader = yield* make.openReader(message, limits)
+    const credentialFlavorOf = Effect.fnUntraced(function*(message: Uint8Array) {
+      const reader = yield* make.openReader(message, limits)
 
-        for (let field = 0; field < 6; field++) yield* reader.read(XdrCodec.uint32)
+      for (let field = 0; field < 6; field++) yield* reader.read(XdrCodec.uint32)
 
-        return yield* reader.read(XdrCodec.uint32)
-      })
+      return yield* reader.read(XdrCodec.uint32)
+    })
 
     it.effect("should prefer an offered AUTH_NONE over an offered AUTH_SYS callback credential when AUTH_NONE and AUTH_SYS are both offered for callbacks", () =>
       Effect.gen(function*() {
@@ -1336,15 +1331,14 @@ describe("Backchannel", () => {
 
         const observer = {
           id: 2,
-          send: (message: Uint8Array) =>
-            Effect.gen(function*() {
-              const reader = yield* make.openReader(message, limits)
+          send: Effect.fnUntraced(function*(message: Uint8Array) {
+            const reader = yield* make.openReader(message, limits)
 
-              for (let field = 0; field < 3; field++) yield* reader.read(XdrCodec.uint32)
-              program = yield* reader.read(XdrCodec.uint32)
+            for (let field = 0; field < 3; field++) yield* reader.read(XdrCodec.uint32)
+            program = yield* reader.read(XdrCodec.uint32)
 
-              return true
-            }).pipe(Effect.orDie)
+            return true
+          }, Effect.orDie)
         }
 
         yield* handler.compound(
@@ -1382,8 +1376,8 @@ describe("Backchannel", () => {
           } = yield* startSession(handler, "malformed", {}, new Uint8Array(8), client, 2)
 
           /** Builds a reply whose CB_SEQUENCE result is deliberately malformed in one way. */
-          const malformed = (request: Uint8Array, results: number, defect: "truncated" | "complete" | "trailing") =>
-            Effect.gen(function*() {
+          const malformed = Effect.fnUntraced(
+            function*(request: Uint8Array, results: number, defect: "truncated" | "complete" | "trailing") {
               const xid = new DataView(request.buffer, request.byteOffset, request.byteLength).getUint32(0)
 
               const writer = yield* Effect.gen(function*() {
@@ -1419,10 +1413,11 @@ describe("Backchannel", () => {
               }
 
               return yield* writer.bytes
-            })
+            }
+          )
 
-          const probeWith = (build: (request: Uint8Array) => Effect.Effect<Uint8Array, XdrEncodeError>) =>
-            Effect.gen(function*() {
+          const probeWith = Effect.fnUntraced(
+            function*(build: (request: Uint8Array) => Effect.Effect<Uint8Array, XdrEncodeError>) {
               sent = undefined
               const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
               yield* Effect.yieldNow
@@ -1430,7 +1425,8 @@ describe("Backchannel", () => {
               yield* handler.callbackReply(client, yield* build(sent))
 
               return yield* Fiber.join(probe)
-            })
+            }
+          )
 
           // A count that does not match the single result the server asked for.
           assert.isFalse(yield* probeWith((request) => malformed(request, 2, "complete")), "wrong result count")
@@ -1563,26 +1559,29 @@ describe("CompoundBasics", () => {
           sys(2000)
         )
 
-        const check = (session: Uint8Array, on: typeof ownerConnection, uid: number) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call(
-                [sequence(session, 1, true), (writer) =>
-                  writer.write(XdrCodec.uint32, Operation.PUTROOTFH), (writer) =>
+        const check = Effect.fnUntraced(function*(session: Uint8Array, on: typeof ownerConnection, uid: number) {
+          return yield* handler.compound(
+            yield* call(
+              [
+                sequence(session, 1, true),
+                (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+                (writer) =>
                   Effect.gen(function*() {
                     yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
                     yield* writer.write(XdrCodec.string(), "secret")
-                  }), (writer) =>
+                  }),
+                (writer) =>
                   Effect.gen(function*() {
                     yield* writer.write(XdrCodec.uint32, Operation.ACCESS)
                     yield* writer.write(XdrCodec.uint32, 1)
-                  })],
-                "mapped-access",
-                on,
-                sys(uid)
-              )
+                  })
+              ],
+              "mapped-access",
+              on,
+              sys(uid)
             )
-          })
+          )
+        })
 
         const ownerAccess = yield* make.openReader(yield* check(first.session, ownerConnection, 1000), limits)
         const guestAccess = yield* make.openReader(yield* check(second.session, guestConnection, 2000), limits)
@@ -2268,11 +2267,10 @@ describe("CompoundBasics", () => {
         assert.deepStrictEqual(illegal.operations, [{ code: Operation.ILLEGAL, status: Status.OP_ILLEGAL }])
 
         // A LOOKUP whose name length exceeds the remaining bytes never decodes.
-        const truncatedLookup = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
-            yield* writer.write(XdrCodec.uint32, 100)
-          })
+        const truncatedLookup = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+          yield* writer.write(XdrCodec.uint32, 100)
+        })
 
         const beforeSession = yield* run(handler, call([truncatedLookup]))
         assert.deepStrictEqual(beforeSession.operations, [{ code: Operation.LOOKUP, status: Status.BADXDR }])
@@ -2304,28 +2302,26 @@ describe("CompoundBasics", () => {
 describe("Create", () => {
   type Attributes = ReadonlyArray<readonly [number, WriteOperation]>
 
-  const writeBitmap = (writer: EncoderSession, attributes: ReadonlyArray<number>) =>
-    Effect.gen(function*() {
-      const words = Array.from({
-        length: attributes.length === 0 ? 0 : Math.floor(Math.max(...attributes) / 32) + 1
-      }, () => 0)
+  const writeBitmap = Effect.fnUntraced(function*(writer: EncoderSession, attributes: ReadonlyArray<number>) {
+    const words = Array.from({
+      length: attributes.length === 0 ? 0 : Math.floor(Math.max(...attributes) / 32) + 1
+    }, () => 0)
 
-      for (const attribute of attributes) words[Math.floor(attribute / 32)]! |= 1 << attribute % 32
-      yield* writer.write(XdrCodec.uint32, words.length)
+    for (const attribute of attributes) words[Math.floor(attribute / 32)]! |= 1 << attribute % 32
+    yield* writer.write(XdrCodec.uint32, words.length)
 
-      for (const xdrValue of words) {
-        yield* ((item, word) => item.write(XdrCodec.uint32, word >>> 0))(writer, xdrValue)
-      }
-    })
+    for (const xdrValue of words) {
+      yield* ((item, word) => item.write(XdrCodec.uint32, word >>> 0))(writer, xdrValue)
+    }
+  })
 
-  const readBitmap = (reader: DecoderSession) =>
-    Effect.gen(function*() {
-      return (yield* reader.read(XdrCodec.array(XdrCodec.uint32))).flatMap((word, index) =>
-        Array.from({
-          length: 32
-        }, (_, bit) => index * 32 + bit).filter((attribute) => (word & 1 << attribute % 32) !== 0)
-      )
-    })
+  const readBitmap = Effect.fnUntraced(function*(reader: DecoderSession) {
+    return (yield* reader.read(XdrCodec.array(XdrCodec.uint32))).flatMap((word, index) =>
+      Array.from({
+        length: 32
+      }, (_, bit) => index * 32 + bit).filter((attribute) => (word & 1 << attribute % 32) !== 0)
+    )
+  })
 
   const create = (
     client: bigint,
@@ -2382,54 +2378,51 @@ describe("Create", () => {
       (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
     ])
 
-  const responseStatus = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      return yield* (yield* make.openReader(bytes, limits)).read(XdrCodec.uint32)
-    })
+  const responseStatus = Effect.fnUntraced(function*(bytes: Uint8Array) {
+    return yield* (yield* make.openReader(bytes, limits)).read(XdrCodec.uint32)
+  })
 
-  const afterRoot = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      const reader = yield* make.openReader(bytes, limits)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.string())
-      yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.fixedOpaque(16))
+  const afterRoot = Effect.fnUntraced(function*(bytes: Uint8Array) {
+    const reader = yield* make.openReader(bytes, limits)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.string())
+    yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.fixedOpaque(16))
 
-      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
 
-      return reader
-    })
+    return reader
+  })
 
-  const readCreate = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      const reader = yield* afterRoot(bytes)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.OPEN)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      const stateid = yield* reader.read(XdrCodec.fixedOpaque(16))
-      const atomic = yield* reader.read(XdrCodec.boolean)
-      const before = yield* reader.read(XdrCodec.uint64)
-      const after = yield* reader.read(XdrCodec.uint64)
-      yield* reader.read(XdrCodec.uint32)
-      const attrs = yield* readBitmap(reader)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.GETFH)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      const filehandle = yield* reader.read(XdrCodec.opaque())
-      yield* reader.finish
+  const readCreate = Effect.fnUntraced(function*(bytes: Uint8Array) {
+    const reader = yield* afterRoot(bytes)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.OPEN)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    const stateid = yield* reader.read(XdrCodec.fixedOpaque(16))
+    const atomic = yield* reader.read(XdrCodec.boolean)
+    const before = yield* reader.read(XdrCodec.uint64)
+    const after = yield* reader.read(XdrCodec.uint64)
+    yield* reader.read(XdrCodec.uint32)
+    const attrs = yield* readBitmap(reader)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.GETFH)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    const filehandle = yield* reader.read(XdrCodec.opaque())
+    yield* reader.finish
 
-      return {
-        stateid,
-        filehandle,
-        before,
-        after,
-        atomic,
-        attrs
-      }
-    })
+    return {
+      stateid,
+      filehandle,
+      before,
+      after,
+      atomic,
+      attrs
+    }
+  })
 
   const server = (caller: Vfs.Caller, volume: Vfs.Volume, options: {
     readonly maxOpens?: number
@@ -3177,13 +3170,12 @@ describe("Create", () => {
           LiveVolume.LiveImageStore,
           LiveVolume.LiveImageStore.of({
             loadOrCreate: (initial) => Effect.succeed(initial),
-            commit: () =>
-              Effect.gen(function*() {
-                yield* Deferred.succeed(started, undefined)
-                yield* Deferred.await(release)
+            commit: Effect.fnUntraced(function*() {
+              yield* Deferred.succeed(started, undefined)
+              yield* Deferred.await(release)
 
-                return "committed" as const
-              })
+              return "committed" as const
+            })
           })
         )
 
@@ -3219,13 +3211,12 @@ describe("Create", () => {
           LiveVolume.LiveImageStore,
           LiveVolume.LiveImageStore.of({
             loadOrCreate: (initial) => Effect.succeed(initial),
-            commit: () =>
-              Effect.gen(function*() {
-                yield* Deferred.succeed(started, undefined)
-                yield* Deferred.await(release)
+            commit: Effect.fnUntraced(function*() {
+              yield* Deferred.succeed(started, undefined)
+              yield* Deferred.await(release)
 
-                return "committed" as const
-              })
+              return "committed" as const
+            })
           })
         )
 
@@ -3738,46 +3729,44 @@ describe("Filehandles", () => {
     })
 
   // READ of the first bytes under the anonymous stateid.
-  const read: WriteOperation = (writer) =>
-    Effect.gen(function*() {
-      yield* writer.write(XdrCodec.uint32, Operation.READ)
-      yield* writer.write(XdrCodec.fixedOpaque(16), new Uint8Array(16))
-      yield* writer.write(XdrCodec.uint64, 0n)
-      yield* writer.write(XdrCodec.uint32, 16)
-    })
+  const read: WriteOperation = Effect.fnUntraced(function*(writer) {
+    yield* writer.write(XdrCodec.uint32, Operation.READ)
+    yield* writer.write(XdrCodec.fixedOpaque(16), new Uint8Array(16))
+    yield* writer.write(XdrCodec.uint64, 0n)
+    yield* writer.write(XdrCodec.uint32, 16)
+  })
 
   // Each operation's status, reading past the bodies of the operations these tests send.
-  const replyStatuses = (response: Uint8Array) =>
-    Effect.gen(function*() {
-      const reader = yield* make.openReader(response, limits)
-      yield* reader.read(XdrCodec.uint32)
-      yield* reader.read(XdrCodec.string())
-      const count = yield* reader.read(XdrCodec.uint32)
-      const result: Array<number> = []
+  const replyStatuses = Effect.fnUntraced(function*(response: Uint8Array) {
+    const reader = yield* make.openReader(response, limits)
+    yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.string())
+    const count = yield* reader.read(XdrCodec.uint32)
+    const result: Array<number> = []
 
-      for (let index = 0; index < count; index++) {
-        const code = yield* reader.read(XdrCodec.uint32)
-        const status = yield* reader.read(XdrCodec.uint32)
-        result.push(status)
+    for (let index = 0; index < count; index++) {
+      const code = yield* reader.read(XdrCodec.uint32)
+      const status = yield* reader.read(XdrCodec.uint32)
+      result.push(status)
 
-        if (status !== Status.OK) break
+      if (status !== Status.OK) break
 
-        if (code === Operation.SEQUENCE) {
-          yield* reader.read(XdrCodec.fixedOpaque(16))
+      if (code === Operation.SEQUENCE) {
+        yield* reader.read(XdrCodec.fixedOpaque(16))
 
-          for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-        }
-
-        // change_info4: atomic, before, after.
-        if (code === Operation.REMOVE) {
-          yield* reader.read(XdrCodec.boolean)
-          yield* reader.read(XdrCodec.uint64)
-          yield* reader.read(XdrCodec.uint64)
-        }
+        for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
       }
 
-      return result
-    })
+      // change_info4: atomic, before, after.
+      if (code === Operation.REMOVE) {
+        yield* reader.read(XdrCodec.boolean)
+        yield* reader.read(XdrCodec.uint64)
+        yield* reader.read(XdrCodec.uint64)
+      }
+    }
+
+    return result
+  })
 
   // One server over `volume`: its export, handler and a confirmed session. Serving the volume again is a restart.
   const serve = Effect.fnUntraced(function*(volume: Vfs.Volume, owner: string) {
@@ -4866,49 +4855,47 @@ describe("Locks", () => {
         yield* writer.write(XdrCodec.string(), owner)
       })
 
-  const denied = (bytes: Uint8Array, operation: number) =>
-    Effect.gen(function*() {
-      const reader = yield* make.openReader(bytes, limits)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.DENIED)
-      yield* reader.read(XdrCodec.string())
-      yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.fixedOpaque(16))
+  const denied = Effect.fnUntraced(function*(bytes: Uint8Array, operation: number) {
+    const reader = yield* make.openReader(bytes, limits)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.DENIED)
+    yield* reader.read(XdrCodec.string())
+    yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.fixedOpaque(16))
 
-      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTFH)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), operation)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.DENIED)
+    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTFH)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), operation)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.DENIED)
 
-      return {
-        offset: yield* reader.read(XdrCodec.uint64),
-        length: yield* reader.read(XdrCodec.uint64),
-        type: yield* reader.read(XdrCodec.uint32),
-        client: yield* reader.read(XdrCodec.uint64),
-        owner: yield* reader.read(XdrCodec.string())
-      }
-    })
+    return {
+      offset: yield* reader.read(XdrCodec.uint64),
+      length: yield* reader.read(XdrCodec.uint64),
+      type: yield* reader.read(XdrCodec.uint32),
+      client: yield* reader.read(XdrCodec.uint64),
+      owner: yield* reader.read(XdrCodec.string())
+    }
+  })
 
-  const resultStateid = (bytes: Uint8Array, operation: number) =>
-    Effect.gen(function*() {
-      const reader = yield* make.openReader(bytes, limits)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.string())
-      yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.fixedOpaque(16))
+  const resultStateid = Effect.fnUntraced(function*(bytes: Uint8Array, operation: number) {
+    const reader = yield* make.openReader(bytes, limits)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.string())
+    yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.fixedOpaque(16))
 
-      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTFH)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), operation)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTFH)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), operation)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
 
-      return yield* reader.read(XdrCodec.fixedOpaque(16))
-    })
+    return yield* reader.read(XdrCodec.fixedOpaque(16))
+  })
 
   it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
     it.effect("should share one owner's range across separate open stateids when one owner uses separate open stateids", () =>
@@ -4924,42 +4911,40 @@ describe("Locks", () => {
         const first = yield* startSession(handler, "shared-lock-owner")
         const second = yield* startSession(handler, "other-lock-owner")
 
-        const open = (number: number, owner: string) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([
-                sequence(first.session, number),
-                (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
-                (writer) =>
-                  Effect.gen(function*() {
-                    yield* writer.write(XdrCodec.uint32, Operation.OPEN)
-                    yield* writer.write(XdrCodec.uint32, 0)
-                    yield* writer.write(XdrCodec.uint32, 3)
-                    yield* writer.write(XdrCodec.uint32, 0)
-                    yield* writer.write(XdrCodec.uint64, first.client)
-                    yield* writer.write(XdrCodec.string(), owner)
-                    yield* writer.write(XdrCodec.uint32, 0)
-                    yield* writer.write(XdrCodec.uint32, 0)
-                    yield* writer.write(XdrCodec.string(), "file")
-                  }),
-                (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
-              ])
-            )
-          })
+        const open = Effect.fnUntraced(function*(number: number, owner: string) {
+          return yield* handler.compound(
+            yield* call([
+              sequence(first.session, number),
+              (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+              (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(XdrCodec.uint32, Operation.OPEN)
+                  yield* writer.write(XdrCodec.uint32, 0)
+                  yield* writer.write(XdrCodec.uint32, 3)
+                  yield* writer.write(XdrCodec.uint32, 0)
+                  yield* writer.write(XdrCodec.uint64, first.client)
+                  yield* writer.write(XdrCodec.string(), owner)
+                  yield* writer.write(XdrCodec.uint32, 0)
+                  yield* writer.write(XdrCodec.uint32, 0)
+                  yield* writer.write(XdrCodec.string(), "file")
+                }),
+              (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
+            ])
+          )
+        })
 
         const openedA = yield* parseOpen(yield* open(1, "open-a"))
         const openedB = yield* parseOpen(yield* open(2, "open-b"))
 
-        const onFile = (number: number, operation: WriteOperation) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([sequence(first.session, number), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
-                  yield* writer.write(XdrCodec.opaque(), openedA.filehandle)
-                }), operation])
-            )
-          })
+        const onFile = Effect.fnUntraced(function*(number: number, operation: WriteOperation) {
+          return yield* handler.compound(
+            yield* call([sequence(first.session, number), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+                yield* writer.write(XdrCodec.opaque(), openedA.filehandle)
+              }), operation])
+          )
+        })
 
         const heldA = yield* resultStateid(
           yield* onFile(3, lock(openedA.stateid, first.client, "shared", 0n, 100n, 2)),
@@ -5029,31 +5014,29 @@ describe("Locks", () => {
         const a = yield* startSession(handler, "writer-a")
         const b = yield* startSession(handler, "writer-b")
 
-        const open = (client: typeof a) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([
-                sequence(client.session, 1),
-                (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
-                openByName(client.client, "file", 3),
-                (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
-              ])
-            )
-          })
+        const open = Effect.fnUntraced(function*(client: typeof a) {
+          return yield* handler.compound(
+            yield* call([
+              sequence(client.session, 1),
+              (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+              openByName(client.client, "file", 3),
+              (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
+            ])
+          )
+        })
 
         const openedA = yield* parseOpen(yield* open(a))
         const openedB = yield* parseOpen(yield* open(b))
 
-        const onFile = (client: typeof a, number: number, operation: WriteOperation) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([sequence(client.session, number), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
-                  yield* writer.write(XdrCodec.opaque(), openedA.filehandle)
-                }), operation])
-            )
-          })
+        const onFile = Effect.fnUntraced(function*(client: typeof a, number: number, operation: WriteOperation) {
+          return yield* handler.compound(
+            yield* call([sequence(client.session, number), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+                yield* writer.write(XdrCodec.opaque(), openedA.filehandle)
+              }), operation])
+          )
+        })
 
         const held = yield* resultStateid(
           yield* onFile(a, 2, lock(openedA.stateid, a.client, "owner-a", 100n, 100n, 2)),
@@ -5117,16 +5100,15 @@ describe("Locks", () => {
           )
         )
 
-        const onFile = (number: number, operation: WriteOperation) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([sequence(session, number), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
-                  yield* writer.write(XdrCodec.opaque(), opened.filehandle)
-                }), operation])
-            )
-          })
+        const onFile = Effect.fnUntraced(function*(number: number, operation: WriteOperation) {
+          return yield* handler.compound(
+            yield* call([sequence(session, number), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+                yield* writer.write(XdrCodec.opaque(), opened.filehandle)
+              }), operation])
+          )
+        })
 
         const granted = yield* resultStateid(
           yield* onFile(2, lock(opened.stateid, client, "owner", 0n, 2n)),
@@ -5137,30 +5119,29 @@ describe("Locks", () => {
         const extended = yield* resultStateid(yield* onFile(3, lockExisting(granted, 4n, 2n)), Operation.LOCK)
         assert.strictEqual(new DataView(extended.buffer, extended.byteOffset, 4).getUint32(0), 2)
 
-        const testStateids = (response: Uint8Array) =>
-          Effect.gen(function*() {
-            const reader = yield* make.openReader(response, limits)
+        const testStateids = Effect.fnUntraced(function*(response: Uint8Array) {
+          const reader = yield* make.openReader(response, limits)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+          yield* reader.read(XdrCodec.string())
+          yield* reader.read(XdrCodec.uint32)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+          yield* reader.read(XdrCodec.fixedOpaque(16))
+
+          for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+          const next = yield* reader.read(XdrCodec.uint32)
+
+          if (next === Operation.PUTFH) {
             assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-            yield* reader.read(XdrCodec.string())
-            yield* reader.read(XdrCodec.uint32)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-            yield* reader.read(XdrCodec.fixedOpaque(16))
+            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.TEST_STATEID)
+          } else {
+            assert.strictEqual(next, Operation.TEST_STATEID)
+          }
 
-            for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-            const next = yield* reader.read(XdrCodec.uint32)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
 
-            if (next === Operation.PUTFH) {
-              assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-              assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.TEST_STATEID)
-            } else {
-              assert.strictEqual(next, Operation.TEST_STATEID)
-            }
-
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-
-            return yield* reader.read(XdrCodec.array(XdrCodec.uint32))
-          })
+          return yield* reader.read(XdrCodec.array(XdrCodec.uint32))
+        })
 
         const test = (stateids: ReadonlyArray<Uint8Array>): WriteOperation => (writer) =>
           Effect.gen(function*() {
@@ -5250,16 +5231,15 @@ describe("Locks", () => {
           )
         )
 
-        const onFile = (number: number, operation: WriteOperation) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([sequence(session, number), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
-                  yield* writer.write(XdrCodec.opaque(), opened.filehandle)
-                }), operation])
-            )
-          })
+        const onFile = Effect.fnUntraced(function*(number: number, operation: WriteOperation) {
+          return yield* handler.compound(
+            yield* call([sequence(session, number), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+                yield* writer.write(XdrCodec.opaque(), opened.filehandle)
+              }), operation])
+          )
+        })
 
         assert.strictEqual(
           (yield* statuses(yield* onFile(2, lock(opened.stateid, client, "a", 0n, 0n)))).status,
@@ -5332,16 +5312,15 @@ describe("Locks", () => {
         const held = yield* resultStateid(first, Operation.LOCK)
         assert.deepStrictEqual(yield* handler.compound(request), first)
 
-        const onFile = (number: number, operation: WriteOperation) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([sequence(client.session, number), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
-                  yield* writer.write(XdrCodec.opaque(), opened.filehandle)
-                }), operation])
-            )
-          })
+        const onFile = Effect.fnUntraced(function*(number: number, operation: WriteOperation) {
+          return yield* handler.compound(
+            yield* call([sequence(client.session, number), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+                yield* writer.write(XdrCodec.opaque(), opened.filehandle)
+              }), operation])
+          )
+        })
 
         assert.strictEqual((yield* statuses(yield* onFile(3, unlock(held, 4n, 2n)))).status, Status.DELAY)
         const released = yield* resultStateid(yield* onFile(4, unlock(held, 0n, 5n)), Operation.LOCKU)
@@ -5597,24 +5576,22 @@ describe("MetadataReadDir", () => {
         assert.strictEqual(yield* values.read(XdrCodec.string()), "20")
         assert.strictEqual(yield* values.read(XdrCodec.uint64), 3n)
 
-        const readTime = () =>
-          Effect.gen(function*() {
-            const seconds = yield* values.read(XdrCodec.uint64)
-            const nanoseconds = yield* values.read(XdrCodec.uint32)
+        const readTime = Effect.fnUntraced(function*() {
+          const seconds = yield* values.read(XdrCodec.uint64)
+          const nanoseconds = yield* values.read(XdrCodec.uint32)
 
-            return {
-              seconds,
-              nanoseconds
-            }
-          })
+          return {
+            seconds,
+            nanoseconds
+          }
+        })
 
-        const expectTime = (timestamp: bigint) =>
-          Effect.gen(function*() {
-            assert.deepStrictEqual(yield* readTime(), {
-              seconds: timestamp / 1_000_000_000n,
-              nanoseconds: Number(timestamp % 1_000_000_000n)
-            })
+        const expectTime = Effect.fnUntraced(function*(timestamp: bigint) {
+          assert.deepStrictEqual(yield* readTime(), {
+            seconds: timestamp / 1_000_000_000n,
+            nanoseconds: Number(timestamp % 1_000_000_000n)
           })
+        })
 
         yield* expectTime(observation.atimeNs)
         assert.deepStrictEqual(yield* readTime(), {
@@ -5802,33 +5779,32 @@ describe("MetadataReadDir", () => {
 
         const { handler, session } = yield* openSession(caller, "timestamp-bounds")
 
-        const getattr = (sequenceId: number) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([
-                sequence(session, sequenceId),
-                (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
-                (writer) =>
-                  Effect.gen(function*() {
-                    yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
-                    yield* writer.write(XdrCodec.string(), "file")
-                  }),
-                (writer) =>
-                  Effect.gen(function*() {
-                    yield* writer.write(XdrCodec.uint32, Operation.GETATTR)
-                    yield* writer.write(XdrCodec.uint32, [0, 1 << 15].length)
+        const getattr = Effect.fnUntraced(function*(sequenceId: number) {
+          return yield* handler.compound(
+            yield* call([
+              sequence(session, sequenceId),
+              (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+              (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+                  yield* writer.write(XdrCodec.string(), "file")
+                }),
+              (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(XdrCodec.uint32, Operation.GETATTR)
+                  yield* writer.write(XdrCodec.uint32, [0, 1 << 15].length)
 
-                    for (const xdrValue of [0, 1 << 15]) {
-                      yield* ((item, word) =>
-                        Effect.gen(function*() {
-                          const xdrWriter = item
-                          yield* xdrWriter.write(XdrCodec.uint32, word)
-                        }))(writer, xdrValue)
-                    }
-                  })
-              ])
-            )
-          })
+                  for (const xdrValue of [0, 1 << 15]) {
+                    yield* ((item, word) =>
+                      Effect.gen(function*() {
+                        const xdrWriter = item
+                        yield* xdrWriter.write(XdrCodec.uint32, word)
+                      }))(writer, xdrValue)
+                  }
+                })
+            ])
+          )
+        })
 
         const response = yield* make.openReader(yield* getattr(1), limits)
         assert.strictEqual(yield* response.read(XdrCodec.uint32), Status.OK)
@@ -5884,63 +5860,55 @@ describe("MetadataReadDir", () => {
           readonly setup?: WriteOperation
           readonly operation: WriteOperation
         }> = [{
-          setup: (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
-              yield* writer.write(XdrCodec.string(), "file")
-            }),
-          operation: (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.SETATTR)
-              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
-              yield* writer.write(XdrCodec.uint32, 1)
-              yield* writer.write(XdrCodec.uint32, 1 << 12)
-              yield* writer.write(XdrCodec.opaque(), new Uint8Array())
-            })
+          setup: Effect.fnUntraced(function*(writer) {
+            yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+            yield* writer.write(XdrCodec.string(), "file")
+          }),
+          operation: Effect.fnUntraced(function*(writer) {
+            yield* writer.write(XdrCodec.uint32, Operation.SETATTR)
+            yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
+            yield* writer.write(XdrCodec.uint32, 1)
+            yield* writer.write(XdrCodec.uint32, 1 << 12)
+            yield* writer.write(XdrCodec.opaque(), new Uint8Array())
+          })
         }, {
-          setup: (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
-              yield* writer.write(XdrCodec.string(), "file")
-            }),
-          operation: (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.WRITE)
-              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
-              yield* writer.write(XdrCodec.uint64, 0n)
-              yield* writer.write(XdrCodec.uint32, 0)
-              yield* writer.write(XdrCodec.opaque(), new Uint8Array([9]))
-            })
+          setup: Effect.fnUntraced(function*(writer) {
+            yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+            yield* writer.write(XdrCodec.string(), "file")
+          }),
+          operation: Effect.fnUntraced(function*(writer) {
+            yield* writer.write(XdrCodec.uint32, Operation.WRITE)
+            yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
+            yield* writer.write(XdrCodec.uint64, 0n)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.opaque(), new Uint8Array([9]))
+          })
         }, {
-          operation: (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.CREATE)
-              yield* writer.write(XdrCodec.uint32, 2)
-              yield* writer.write(XdrCodec.string(), "created")
-              yield* writer.write(XdrCodec.uint32, 0)
-              yield* writer.write(XdrCodec.opaque(), new Uint8Array())
-            })
+          operation: Effect.fnUntraced(function*(writer) {
+            yield* writer.write(XdrCodec.uint32, Operation.CREATE)
+            yield* writer.write(XdrCodec.uint32, 2)
+            yield* writer.write(XdrCodec.string(), "created")
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.opaque(), new Uint8Array())
+          })
         }, {
-          operation: (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.REMOVE)
-              yield* writer.write(XdrCodec.string(), "file")
-            })
+          operation: Effect.fnUntraced(function*(writer) {
+            yield* writer.write(XdrCodec.uint32, Operation.REMOVE)
+            yield* writer.write(XdrCodec.string(), "file")
+          })
         }, {
           setup: (writer) => writer.write(XdrCodec.uint32, Operation.SAVEFH),
-          operation: (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.RENAME)
-              yield* writer.write(XdrCodec.string(), "file")
-              yield* writer.write(XdrCodec.string(), "renamed")
-            })
+          operation: Effect.fnUntraced(function*(writer) {
+            yield* writer.write(XdrCodec.uint32, Operation.RENAME)
+            yield* writer.write(XdrCodec.string(), "file")
+            yield* writer.write(XdrCodec.string(), "renamed")
+          })
         }, {
           setup: (writer) => writer.write(XdrCodec.uint32, Operation.SAVEFH),
-          operation: (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.LINK)
-              yield* writer.write(XdrCodec.string(), "linked")
-            })
+          operation: Effect.fnUntraced(function*(writer) {
+            yield* writer.write(XdrCodec.uint32, Operation.LINK)
+            yield* writer.write(XdrCodec.string(), "linked")
+          })
         }]
 
         for (let index = 0; index < mutations.length; index++) {
@@ -6016,13 +5984,12 @@ describe("Namespace", () => {
       yield* writer.write(XdrCodec.string(), to)
     })
 
-  const status = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      return yield* (yield* make.openReader(bytes, limits)).read(XdrCodec.uint32)
-    })
+  const status = Effect.fnUntraced(function*(bytes: Uint8Array) {
+    return yield* (yield* make.openReader(bytes, limits)).read(XdrCodec.uint32)
+  })
 
-  const namespaceChange = (bytes: Uint8Array, operation: number, prefix: ReadonlyArray<number>) =>
-    Effect.gen(function*() {
+  const namespaceChange = Effect.fnUntraced(
+    function*(bytes: Uint8Array, operation: number, prefix: ReadonlyArray<number>) {
       const reader = yield* make.openReader(bytes, limits)
       assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
       yield* reader.read(XdrCodec.string())
@@ -6041,18 +6008,17 @@ describe("Namespace", () => {
       assert.strictEqual(yield* reader.read(XdrCodec.uint32), operation)
       assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
 
-      const readChange = () =>
-        Effect.gen(function*() {
-          assert.isTrue(yield* reader.read(XdrCodec.boolean))
-          const before = yield* reader.read(XdrCodec.uint64)
-          const after = yield* reader.read(XdrCodec.uint64)
-          assert.notStrictEqual(before, after)
+      const readChange = Effect.fnUntraced(function*() {
+        assert.isTrue(yield* reader.read(XdrCodec.boolean))
+        const before = yield* reader.read(XdrCodec.uint64)
+        const after = yield* reader.read(XdrCodec.uint64)
+        assert.notStrictEqual(before, after)
 
-          return {
-            before,
-            after
-          }
-        })
+        return {
+          before,
+          after
+        }
+      })
 
       const first = yield* readChange()
       const second = operation === Operation.RENAME ? yield* readChange() : undefined
@@ -6067,7 +6033,8 @@ describe("Namespace", () => {
         first,
         second
       }
-    })
+    }
+  )
 
   it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
     it.effect("should create a directory and symlink, reporting the directory change and retaining the created handle when CREATE makes a directory or symlink", () =>
@@ -6985,58 +6952,56 @@ describe("OpenRead", () => {
 
         const { handler, session } = yield* openSession(caller, "pagination", { limits: constrained })
 
-        const readPage = (sequenceId: number, cookie: bigint, verifier: Uint8Array) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([
-                sequence(session, sequenceId),
-                (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
-                (writer) =>
-                  Effect.gen(function*() {
-                    yield* writer.write(XdrCodec.uint32, Operation.READDIR)
-                    yield* writer.write(XdrCodec.uint64, cookie)
-                    yield* writer.write(XdrCodec.fixedOpaque(verifier.length), verifier)
-                    yield* writer.write(XdrCodec.uint32, 4_096)
-                    yield* writer.write(XdrCodec.uint32, 4_096)
-                    yield* writer.write(XdrCodec.uint32, 1)
-                    yield* writer.write(XdrCodec.uint32, 1 << 1)
-                  })
-              ])
-            )
-          })
+        const readPage = Effect.fnUntraced(function*(sequenceId: number, cookie: bigint, verifier: Uint8Array) {
+          return yield* handler.compound(
+            yield* call([
+              sequence(session, sequenceId),
+              (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+              (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(XdrCodec.uint32, Operation.READDIR)
+                  yield* writer.write(XdrCodec.uint64, cookie)
+                  yield* writer.write(XdrCodec.fixedOpaque(verifier.length), verifier)
+                  yield* writer.write(XdrCodec.uint32, 4_096)
+                  yield* writer.write(XdrCodec.uint32, 4_096)
+                  yield* writer.write(XdrCodec.uint32, 1)
+                  yield* writer.write(XdrCodec.uint32, 1 << 1)
+                })
+            ])
+          )
+        })
 
-        const parsePage = (response: Uint8Array) =>
-          Effect.gen(function*() {
-            const reader = yield* make.openReader(response, constrained)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-            yield* reader.read(XdrCodec.string())
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.fixedOpaque(16))
+        const parsePage = Effect.fnUntraced(function*(response: Uint8Array) {
+          const reader = yield* make.openReader(response, constrained)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+          yield* reader.read(XdrCodec.string())
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.fixedOpaque(16))
 
-            for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.READDIR)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-            const pageVerifier = yield* reader.read(XdrCodec.fixedOpaque(8))
-            assert.isTrue(yield* reader.read(XdrCodec.boolean))
-            const nextCookie = yield* reader.read(XdrCodec.uint64)
-            const name = yield* reader.read(XdrCodec.string())
-            yield* reader.read(XdrCodec.array(XdrCodec.uint32))
-            yield* reader.read(XdrCodec.opaque())
-            assert.isFalse(yield* reader.read(XdrCodec.boolean))
-            const eof = yield* reader.read(XdrCodec.boolean)
-            yield* reader.finish
+          for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.READDIR)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+          const pageVerifier = yield* reader.read(XdrCodec.fixedOpaque(8))
+          assert.isTrue(yield* reader.read(XdrCodec.boolean))
+          const nextCookie = yield* reader.read(XdrCodec.uint64)
+          const name = yield* reader.read(XdrCodec.string())
+          yield* reader.read(XdrCodec.array(XdrCodec.uint32))
+          yield* reader.read(XdrCodec.opaque())
+          assert.isFalse(yield* reader.read(XdrCodec.boolean))
+          const eof = yield* reader.read(XdrCodec.boolean)
+          yield* reader.finish
 
-            return {
-              pageVerifier,
-              nextCookie,
-              name,
-              eof
-            }
-          })
+          return {
+            pageVerifier,
+            nextCookie,
+            name,
+            eof
+          }
+        })
 
         const first = yield* parsePage(yield* readPage(1, 0n, new Uint8Array(8)))
         assert.deepStrictEqual({
@@ -7097,62 +7062,60 @@ describe("OpenRead", () => {
           limits: constrained
         })
 
-        const readPage = (sequenceId: number, cookie: bigint, verifier: Uint8Array) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([
-                sequence(session, sequenceId),
-                (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
-                (writer) =>
-                  Effect.gen(function*() {
-                    yield* writer.write(XdrCodec.uint32, Operation.READDIR)
-                    yield* writer.write(XdrCodec.uint64, cookie)
-                    yield* writer.write(XdrCodec.fixedOpaque(verifier.length), verifier)
-                    yield* writer.write(XdrCodec.uint32, 0)
-                    yield* writer.write(XdrCodec.uint32, 4_096)
-                    yield* writer.write(XdrCodec.uint32, 0)
-                  })
-              ])
-            )
-          })
+        const readPage = Effect.fnUntraced(function*(sequenceId: number, cookie: bigint, verifier: Uint8Array) {
+          return yield* handler.compound(
+            yield* call([
+              sequence(session, sequenceId),
+              (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+              (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(XdrCodec.uint32, Operation.READDIR)
+                  yield* writer.write(XdrCodec.uint64, cookie)
+                  yield* writer.write(XdrCodec.fixedOpaque(verifier.length), verifier)
+                  yield* writer.write(XdrCodec.uint32, 0)
+                  yield* writer.write(XdrCodec.uint32, 4_096)
+                  yield* writer.write(XdrCodec.uint32, 0)
+                })
+            ])
+          )
+        })
 
-        const parsePage = (response: Uint8Array) =>
-          Effect.gen(function*() {
-            assert.isAtMost(response.length + 24, 2_048)
-            const reader = yield* make.openReader(response, constrained)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-            yield* reader.read(XdrCodec.string())
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), 3)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-            yield* reader.read(XdrCodec.fixedOpaque(16))
+        const parsePage = Effect.fnUntraced(function*(response: Uint8Array) {
+          assert.isAtMost(response.length + 24, 2_048)
+          const reader = yield* make.openReader(response, constrained)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+          yield* reader.read(XdrCodec.string())
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), 3)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+          yield* reader.read(XdrCodec.fixedOpaque(16))
 
-            for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.READDIR)
-            assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-            const verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
-            const names: Array<string> = []
-            let cookie = 0n
+          for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.READDIR)
+          assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+          const verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
+          const names: Array<string> = []
+          let cookie = 0n
 
-            while (yield* reader.read(XdrCodec.boolean)) {
-              cookie = yield* reader.read(XdrCodec.uint64)
-              names.push(yield* reader.read(XdrCodec.string()))
-              yield* reader.read(XdrCodec.array(XdrCodec.uint32))
-              yield* reader.read(XdrCodec.opaque())
-            }
+          while (yield* reader.read(XdrCodec.boolean)) {
+            cookie = yield* reader.read(XdrCodec.uint64)
+            names.push(yield* reader.read(XdrCodec.string()))
+            yield* reader.read(XdrCodec.array(XdrCodec.uint32))
+            yield* reader.read(XdrCodec.opaque())
+          }
 
-            const eof = yield* reader.read(XdrCodec.boolean)
-            yield* reader.finish
+          const eof = yield* reader.read(XdrCodec.boolean)
+          yield* reader.finish
 
-            return {
-              verifier,
-              cookie,
-              names,
-              eof
-            }
-          })
+          return {
+            verifier,
+            cookie,
+            names,
+            eof
+          }
+        })
 
         const first = yield* parsePage(yield* readPage(1, 0n, new Uint8Array(8)))
         assert.isAbove(first.names.length, 0)
@@ -7309,26 +7272,25 @@ describe("OpenRead", () => {
         assert.strictEqual(new DataView(second.stateid.buffer, second.stateid.byteOffset, 4).getUint32(0), 2)
         assert.deepStrictEqual(second.stateid.subarray(4), first.stateid.subarray(4))
 
-        const readStatus = (requestSequence: number, stateid: Uint8Array) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([sequence(session, requestSequence), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
-                  yield* writer.write(XdrCodec.opaque(), second.filehandle)
-                }), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.READ)
-                  yield* writer.write(XdrCodec.fixedOpaque(stateid.length), stateid)
-                  yield* writer.write(XdrCodec.uint64, 0n)
-                  yield* writer.write(XdrCodec.uint32, 1)
-                })])
-            ).pipe(Effect.flatMap((response) =>
+        const readStatus = Effect.fnUntraced(function*(requestSequence: number, stateid: Uint8Array) {
+          return yield* handler.compound(
+            yield* call([sequence(session, requestSequence), (writer) =>
               Effect.gen(function*() {
-                return yield* (yield* make.openReader(response, constrained)).read(XdrCodec.uint32)
-              })
-            ))
-          })
+                yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+                yield* writer.write(XdrCodec.opaque(), second.filehandle)
+              }), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.READ)
+                yield* writer.write(XdrCodec.fixedOpaque(stateid.length), stateid)
+                yield* writer.write(XdrCodec.uint64, 0n)
+                yield* writer.write(XdrCodec.uint32, 1)
+              })])
+          ).pipe(Effect.flatMap((response) =>
+            Effect.gen(function*() {
+              return yield* (yield* make.openReader(response, constrained)).read(XdrCodec.uint32)
+            })
+          ))
+        })
 
         assert.strictEqual(yield* readStatus(3, stateidWithSequence(second.stateid, 0)), Status.OK)
         assert.strictEqual(yield* readStatus(4, first.stateid), Status.OLD_STATEID)
@@ -7423,20 +7385,19 @@ describe("OpenRead", () => {
           )
         )
 
-        const bWrite = (slotSequence: number) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([
-                sequence(b.session, slotSequence),
-                (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
-                openByName(b.client, "file", 2)
-              ])
-            ).pipe(Effect.flatMap((reply) =>
-              Effect.gen(function*() {
-                return (yield* statuses(reply)).status
-              })
-            ))
-          })
+        const bWrite = Effect.fnUntraced(function*(slotSequence: number) {
+          return yield* handler.compound(
+            yield* call([
+              sequence(b.session, slotSequence),
+              (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+              openByName(b.client, "file", 2)
+            ])
+          ).pipe(Effect.flatMap((reply) =>
+            Effect.gen(function*() {
+              return (yield* statuses(reply)).status
+            })
+          ))
+        })
 
         assert.strictEqual(yield* bWrite(1), Status.SHARE_DENIED)
         assert.strictEqual(
@@ -7922,53 +7883,51 @@ describe("OpenRead", () => {
           )
         )
 
-        const read = (sequenceId: number, offset: bigint, count: number) =>
-          Effect.gen(function*() {
-            return yield* handler.compound(
-              yield* call([sequence(client.session, sequenceId), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
-                  yield* writer.write(XdrCodec.opaque(), opened.filehandle)
-                }), (writer) =>
-                Effect.gen(function*() {
-                  yield* writer.write(XdrCodec.uint32, Operation.READ)
-                  yield* writer.write(XdrCodec.fixedOpaque(opened.stateid.length), opened.stateid)
-                  yield* writer.write(XdrCodec.uint64, offset)
-                  yield* writer.write(XdrCodec.uint32, count)
-                })])
-            )
-          })
+        const read = Effect.fnUntraced(function*(sequenceId: number, offset: bigint, count: number) {
+          return yield* handler.compound(
+            yield* call([sequence(client.session, sequenceId), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+                yield* writer.write(XdrCodec.opaque(), opened.filehandle)
+              }), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.READ)
+                yield* writer.write(XdrCodec.fixedOpaque(opened.stateid.length), opened.stateid)
+                yield* writer.write(XdrCodec.uint64, offset)
+                yield* writer.write(XdrCodec.uint32, count)
+              })])
+          )
+        })
 
-        const parse = (response: Uint8Array) =>
-          Effect.gen(function*() {
-            const reader = yield* make.openReader(response, constrained)
-            const result = yield* statuses(response)
+        const parse = Effect.fnUntraced(function*(response: Uint8Array) {
+          const reader = yield* make.openReader(response, constrained)
+          const result = yield* statuses(response)
 
-            if (result.status !== Status.OK) {
-              return {
-                status: result.status
-              } as const
-            }
-
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.string())
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.fixedOpaque(16))
-
-            for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-            yield* reader.read(XdrCodec.uint32)
-
+          if (result.status !== Status.OK) {
             return {
-              status: Status.OK,
-              eof: yield* reader.read(XdrCodec.boolean),
-              bytes: yield* reader.read(XdrCodec.opaque())
+              status: result.status
             } as const
-          })
+          }
+
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.string())
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.fixedOpaque(16))
+
+          for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+          yield* reader.read(XdrCodec.uint32)
+
+          return {
+            status: Status.OK,
+            eof: yield* reader.read(XdrCodec.boolean),
+            bytes: yield* reader.read(XdrCodec.opaque())
+          } as const
+        })
 
         assert.deepStrictEqual(yield* parse(yield* read(2, 0n, 3)), {
           status: Status.OK,
@@ -8484,18 +8443,16 @@ describe("ReadOnlyOperations", () => {
             yield* writer.write(XdrCodec.string(), name)
           })
 
-        const rename = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.RENAME)
-            yield* writer.write(XdrCodec.string(), "file")
-            yield* writer.write(XdrCodec.string(), "moved")
-          })
+        const rename = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.RENAME)
+          yield* writer.write(XdrCodec.string(), "file")
+          yield* writer.write(XdrCodec.string(), "moved")
+        })
 
-        const link = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LINK)
-            yield* writer.write(XdrCodec.string(), "linked")
-          })
+        const link = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.LINK)
+          yield* writer.write(XdrCodec.string(), "linked")
+        })
 
         const savefh = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.SAVEFH)
 
@@ -8550,20 +8507,18 @@ describe("ReadOnlyOperations", () => {
 
         const anonymous = new Uint8Array(16)
 
-        const read = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.READ)
-            yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
-            yield* writer.write(XdrCodec.uint64, 0n)
-            yield* writer.write(XdrCodec.uint32, 4)
-          })
+        const read = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.READ)
+          yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint32, 4)
+        })
 
-        const commit = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.COMMIT)
-            yield* writer.write(XdrCodec.uint64, 0n)
-            yield* writer.write(XdrCodec.uint32, 0)
-          })
+        const commit = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.COMMIT)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint32, 0)
+        })
 
         const lock = (lockType: number) => (writer: EncoderSession) =>
           Effect.gen(function*() {
@@ -8595,15 +8550,14 @@ describe("ReadOnlyOperations", () => {
             yield* writer.write(XdrCodec.string(), "lock-owner")
           })
 
-        const locku = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
-            yield* writer.write(XdrCodec.uint32, 1)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
-            yield* writer.write(XdrCodec.uint64, 0n)
-            yield* writer.write(XdrCodec.uint64, 1n)
-          })
+        const locku = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+        })
 
         // Sections 18.16.4 and 18.22.3 name the type; COMMIT lists SYMLINK and WRONG_TYPE, not INVAL.
         assert.strictEqual(yield* status(root, openReadOnly(client, "link")), Status.SYMLINK)
@@ -8725,12 +8679,11 @@ describe("ReadOnlyOperations", () => {
         // SAFETY: OPEN succeeded, so its body is the OPEN result shape.
         const holderStateid = (holder.operations[2]!.value as { readonly stateid: Uint8Array }).stateid
 
-        const close = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.CLOSE)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.fixedOpaque(holderStateid.length), holderStateid)
-          })
+        const close = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.CLOSE)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(holderStateid.length), holderStateid)
+        })
 
         assert.strictEqual(yield* status(root, lookup("file"), close), Status.OK)
         assert.strictEqual(yield* status(root, lookup("file"), read(anonymous)), Status.OK, "reservation released")
@@ -8746,15 +8699,14 @@ describe("ReadOnlyOperations", () => {
         assert.strictEqual(yield* status(root, lookup("link"), readlink), Status.OK)
 
         // LOCKU lists no object-type errors, so a directory is still BAD_STATEID.
-        const locku = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
-            yield* writer.write(XdrCodec.uint32, 1)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
-            yield* writer.write(XdrCodec.uint64, 0n)
-            yield* writer.write(XdrCodec.uint64, 1n)
-          })
+        const locku = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+        })
 
         assert.strictEqual(yield* status(root, locku), Status.BAD_STATEID)
 
@@ -8792,12 +8744,11 @@ describe("ReadOnlyOperations", () => {
               })])
           )
 
-        const ops = (writer: EncoderSession, how: number) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, how)
-            yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
-            yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
-          })
+        const ops = Effect.fnUntraced(function*(writer: EncoderSession, how: number) {
+          yield* writer.write(XdrCodec.uint32, how)
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
+        })
 
         // Section 18.35.3: SP4_MACH_CRED needs RPCSEC_GSS integrity, which AUTH_SYS cannot give.
         const machCred = yield* exchange((writer) => ops(writer, 1))
@@ -9019,63 +8970,58 @@ describe("ReadOnlyState", () => {
             ])
           ).pipe(Effect.map((reply) => reply.status))
 
-        const lock = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LOCK)
-            yield* writer.write(XdrCodec.uint32, 1)
-            yield* writer.write(XdrCodec.boolean, false)
-            yield* writer.write(XdrCodec.uint64, 0n)
-            yield* writer.write(XdrCodec.uint64, 0xffff_ffff_ffff_ffffn)
-            yield* writer.write(XdrCodec.boolean, true)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.uint64, client)
-            yield* writer.write(XdrCodec.string(), "lock-owner")
-          })
+        const lock = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCK)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.boolean, false)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 0xffff_ffff_ffff_ffffn)
+          yield* writer.write(XdrCodec.boolean, true)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), "lock-owner")
+        })
 
         assert.strictEqual(yield* onFile(1, lock), Status.BAD_STATEID)
 
         // A write-lock test reports the read-only file system; a read-lock test finds no conflict.
-        const lockt = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LOCKT)
-            yield* writer.write(XdrCodec.uint32, 2)
-            yield* writer.write(XdrCodec.uint64, 0n)
-            yield* writer.write(XdrCodec.uint64, 1n)
-            yield* writer.write(XdrCodec.uint64, client)
-            yield* writer.write(XdrCodec.string(), "lock-owner")
-          })
+        const lockt = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKT)
+          yield* writer.write(XdrCodec.uint32, 2)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), "lock-owner")
+        })
 
         assert.strictEqual(yield* onFile(2, lockt), Status.ROFS)
 
-        const locku = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
-            yield* writer.write(XdrCodec.uint32, 1)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).fill(9).length), new Uint8Array(16).fill(9))
-            yield* writer.write(XdrCodec.uint64, 0n)
-            yield* writer.write(XdrCodec.uint64, 1n)
-          })
+        const locku = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).fill(9).length), new Uint8Array(16).fill(9))
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+        })
 
         assert.strictEqual(yield* onFile(3, locku), Status.BAD_STATEID)
 
-        const setSsv = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.SET_SSV)
-            yield* writer.write(XdrCodec.opaque(), new Uint8Array(4))
-            yield* writer.write(XdrCodec.opaque(), new Uint8Array(4))
-          })
+        const setSsv = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.SET_SSV)
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array(4))
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array(4))
+        })
 
         assert.strictEqual(yield* onFile(4, setSsv), Status.INVAL)
 
-        const truncatedLock = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LOCK)
-            yield* writer.write(XdrCodec.uint32, 1)
-            yield* writer.write(XdrCodec.boolean, false)
-          })
+        const truncatedLock = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCK)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.boolean, false)
+        })
 
         assert.strictEqual(yield* onFile(5, truncatedLock), Status.BADXDR)
       }).pipe(Effect.provide(Testing.layer())))
@@ -9320,12 +9266,11 @@ describe("ReadOnlyState", () => {
             yield* writer.write(XdrCodec.uint32, 1)
           })
 
-        const close = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.CLOSE)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.fixedOpaque(current.length), current)
-          })
+        const close = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, Operation.CLOSE)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(current.length), current)
+        })
 
         // Section 16.2.3.1.2: SAVEFH and RESTOREFH carry the stateid with the filehandle.
         const saved = yield* run(
@@ -10814,23 +10759,21 @@ describe("SessionReplay", () => {
               yield* flavors(writer)
             })
 
-        const authSys = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, 1)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.string(), "probe")
-            yield* writer.write(XdrCodec.uint32, 501)
-            yield* writer.write(XdrCodec.uint32, 20)
-            yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
-          })
+        const authSys = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.string(), "probe")
+          yield* writer.write(XdrCodec.uint32, 501)
+          yield* writer.write(XdrCodec.uint32, 20)
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
+        })
 
-        const gss = (writer: EncoderSession) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, 6)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* writer.write(XdrCodec.opaque(), new Uint8Array([1]))
-            yield* writer.write(XdrCodec.opaque(), new Uint8Array([2]))
-          })
+        const gss = Effect.fnUntraced(function*(writer: EncoderSession) {
+          yield* writer.write(XdrCodec.uint32, 6)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array([1]))
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array([2]))
+        })
 
         const backchannel = yield* run(
           handler,
@@ -10922,28 +10865,26 @@ describe("SessionReplay", () => {
 describe("Setattr", () => {
   type Attribute = readonly [number, WriteOperation]
 
-  const bitmap = (writer: EncoderSession, attributes: ReadonlyArray<number>) =>
-    Effect.gen(function*() {
-      const words = Array.from({
-        length: attributes.length === 0 ? 0 : Math.floor(Math.max(...attributes) / 32) + 1
-      }, () => 0)
+  const bitmap = Effect.fnUntraced(function*(writer: EncoderSession, attributes: ReadonlyArray<number>) {
+    const words = Array.from({
+      length: attributes.length === 0 ? 0 : Math.floor(Math.max(...attributes) / 32) + 1
+    }, () => 0)
 
-      for (const attribute of attributes) words[Math.floor(attribute / 32)]! |= 1 << attribute % 32
-      yield* writer.write(XdrCodec.uint32, words.length)
+    for (const attribute of attributes) words[Math.floor(attribute / 32)]! |= 1 << attribute % 32
+    yield* writer.write(XdrCodec.uint32, words.length)
 
-      for (const xdrValue of words) {
-        yield* ((item, word) => item.write(XdrCodec.uint32, word >>> 0))(writer, xdrValue)
-      }
-    })
+    for (const xdrValue of words) {
+      yield* ((item, word) => item.write(XdrCodec.uint32, word >>> 0))(writer, xdrValue)
+    }
+  })
 
-  const readBitmap = (reader: DecoderSession) =>
-    Effect.gen(function*() {
-      return (yield* reader.read(XdrCodec.array(XdrCodec.uint32))).flatMap((word, index) =>
-        Array.from({
-          length: 32
-        }, (_, bit) => index * 32 + bit).filter((attribute) => (word & 1 << attribute % 32) !== 0)
-      )
-    })
+  const readBitmap = Effect.fnUntraced(function*(reader: DecoderSession) {
+    return (yield* reader.read(XdrCodec.array(XdrCodec.uint32))).flatMap((word, index) =>
+      Array.from({
+        length: 32
+      }, (_, bit) => index * 32 + bit).filter((attribute) => (word & 1 << attribute % 32) !== 0)
+    )
+  })
 
   const setattr =
     (attributes: ReadonlyArray<Attribute>, stateid: Uint8Array = new Uint8Array(16)) => (writer: EncoderSession) =>
@@ -10997,75 +10938,78 @@ describe("Setattr", () => {
     }
   })
 
-  const run = (
-    handler: Nfs4Handler,
-    session: Uint8Array,
-    seq: number,
-    attributes: ReadonlyArray<Attribute>,
-    stateid?: Uint8Array
-  ) =>
-    Effect.gen(function*() {
+  const run = Effect.fnUntraced(
+    function*(
+      handler: Nfs4Handler,
+      session: Uint8Array,
+      seq: number,
+      attributes: ReadonlyArray<Attribute>,
+      stateid?: Uint8Array
+    ) {
       return yield* handler.compound(
-        yield* call([sequence(session, seq), (writer) =>
-          writer.write(XdrCodec.uint32, Operation.PUTROOTFH), (writer) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
-            yield* writer.write(XdrCodec.string(), "file")
-          }), setattr(attributes, stateid)])
+        yield* call([
+          sequence(session, seq),
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+              yield* writer.write(XdrCodec.string(), "file")
+            }),
+          setattr(attributes, stateid)
+        ])
       )
-    })
+    }
+  )
 
-  const result = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      const reader = yield* make.openReader(bytes, limits)
-      const status = yield* reader.read(XdrCodec.uint32)
-      yield* reader.read(XdrCodec.string())
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), 4)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.fixedOpaque(16))
+  const result = Effect.fnUntraced(function*(bytes: Uint8Array) {
+    const reader = yield* make.openReader(bytes, limits)
+    const status = yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.string())
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), 4)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.fixedOpaque(16))
 
-      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.LOOKUP)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SETATTR)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), status)
-      const attrsset = yield* readBitmap(reader)
-      yield* reader.finish
+    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.LOOKUP)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SETATTR)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), status)
+    const attrsset = yield* readBitmap(reader)
+    yield* reader.finish
 
-      return {
-        status,
-        attrsset
-      }
-    })
+    return {
+      status,
+      attrsset
+    }
+  })
 
-  const readOwners = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      const reader = yield* make.openReader(bytes, limits)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.string())
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), 4)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.fixedOpaque(16))
+  const readOwners = Effect.fnUntraced(function*(bytes: Uint8Array) {
+    const reader = yield* make.openReader(bytes, limits)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.string())
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), 4)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.fixedOpaque(16))
 
-      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.LOOKUP)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.GETATTR)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.deepStrictEqual(yield* readBitmap(reader), [36, 37])
-      const values = yield* make.openReader(yield* reader.read(XdrCodec.opaque()), limits)
-      const owners = [yield* values.read(XdrCodec.string()), yield* values.read(XdrCodec.string())]
-      yield* values.finish
-      yield* reader.finish
+    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.LOOKUP)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.GETATTR)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.deepStrictEqual(yield* readBitmap(reader), [36, 37])
+    const values = yield* make.openReader(yield* reader.read(XdrCodec.opaque()), limits)
+    const owners = [yield* values.read(XdrCodec.string()), yield* values.read(XdrCodec.string())]
+    yield* values.finish
+    yield* reader.finish
 
-      return owners
-    })
+    return owners
+  })
 
   // A client whose every stat of the file lets another client chown it first, `races` times, so the chown lands
   // between the metadata SETATTR observes and the change it makes. Each racing chown moves the owner to a new uid.
@@ -11769,71 +11713,69 @@ describe("Write", () => {
       yield* writer.write(XdrCodec.opaque(), bytes)
     })
 
-  const readWriteResult = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      const reader = yield* make.openReader(bytes, limits)
-      const status = yield* reader.read(XdrCodec.uint32)
-      yield* reader.read(XdrCodec.string())
-      yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.fixedOpaque(16))
+  const readWriteResult = Effect.fnUntraced(function*(bytes: Uint8Array) {
+    const reader = yield* make.openReader(bytes, limits)
+    const status = yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.string())
+    yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.fixedOpaque(16))
 
-      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTFH)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.WRITE)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), status)
+    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTFH)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.WRITE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), status)
 
-      if (status !== Status.OK) {
-        return {
-          status
-        }
-      }
-
-      const count = yield* reader.read(XdrCodec.uint32)
-      const committed = yield* reader.read(XdrCodec.uint32)
-      const verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
-      yield* reader.finish
-
+    if (status !== Status.OK) {
       return {
-        status,
-        count,
-        committed,
-        verifier
+        status
       }
-    })
+    }
 
-  const readCommitResult = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      const reader = yield* make.openReader(bytes, limits)
-      const status = yield* reader.read(XdrCodec.uint32)
-      yield* reader.read(XdrCodec.string())
-      yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      yield* reader.read(XdrCodec.fixedOpaque(16))
+    const count = yield* reader.read(XdrCodec.uint32)
+    const committed = yield* reader.read(XdrCodec.uint32)
+    const verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
+    yield* reader.finish
 
-      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTFH)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.COMMIT)
-      assert.strictEqual(yield* reader.read(XdrCodec.uint32), status)
+    return {
+      status,
+      count,
+      committed,
+      verifier
+    }
+  })
 
-      if (status !== Status.OK) {
-        return {
-          status
-        }
-      }
+  const readCommitResult = Effect.fnUntraced(function*(bytes: Uint8Array) {
+    const reader = yield* make.openReader(bytes, limits)
+    const status = yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.string())
+    yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.fixedOpaque(16))
 
-      const verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
-      yield* reader.finish
+    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTFH)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.COMMIT)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), status)
 
+    if (status !== Status.OK) {
       return {
-        status,
-        verifier
+        status
       }
-    })
+    }
+
+    const verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
+    yield* reader.finish
+
+    return {
+      status,
+      verifier
+    }
+  })
 
   it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
     it.effect("should report the committed prefix and replay a lost WRITE reply without writing twice when a WRITE reply is lost after a committed prefix", () =>

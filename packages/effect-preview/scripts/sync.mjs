@@ -33,11 +33,13 @@ for (const [path, patch] of patches) {
   if (hash(patch) !== manifest.files[path]) throw new Error(`Upstream patch checksum mismatch: ${path}`)
 }
 
-const sources = new Map([...patches].map(([path, patch]) => [path,
-  patch.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++")).map((line) =>
-    line.slice(1)
-  ).join("\n") + "\n"
-]))
+const sources = new Map(
+  [...patches].map(([path, patch]) => [
+    path,
+    patch.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++")).map((line) => line.slice(1))
+      .join("\n") + "\n"
+  ])
+)
 
 const additions = (path) => sources.get(path)
 
@@ -109,11 +111,16 @@ for (const [path, patch] of patches) {
 }
 
 // Only the core snapshot adapter owns immutable image records suitable for this handoff.
-put("src/internal/ownedCapture.ts", 'export { unsafeFromOwnedRecords } from "../virtual-file-system/internal/capture.js"\n')
+put(
+  "src/internal/ownedCapture.ts",
+  "export { unsafeFromOwnedRecords } from \"../virtual-file-system/internal/capture.js\"\n"
+)
 
-put("src/internal/durableStorage.ts",
-  'export { installStorage, resumeAllocator } from "../virtual-file-system/internal/engine.js"\n' +
-  'export { cleanupError } from "../virtual-file-system/internal/handles.js"\n')
+put(
+  "src/internal/durableStorage.ts",
+  "export { installStorage, resumeAllocator } from \"../virtual-file-system/internal/engine.js\"\n" +
+    "export { cleanupError } from \"../virtual-file-system/internal/handles.js\"\n"
+)
 
 put(
   "src/index.ts",
@@ -146,14 +153,19 @@ import { declare, link, Uint8Array, decodeTo, BigInt, brand, Struct, Literals, T
 `
 
 // Generated consumers bind Schema to stock Effect and can define their own type and value named BytePath.
-const portBytePathCode = (source) => source
-  .replace('`Schema.BytePath', '`bytePathSchema')
-  .replace(/(["`])BytePath\.BytePath\1/g, "$1import('@effect-vfs/effect-preview/BytePath').BytePath$1")
-  .replace('import * as BytePath from "effect/BytePath"', 'import { BytePath as bytePathSchema } from "@effect-vfs/effect-preview/Schema"')
+const portBytePathCode = (source) =>
+  source
+    .replace("`Schema.BytePath", "`bytePathSchema")
+    .replace(/(["`])BytePath\.BytePath\1/g, "$1import('@effect-vfs/effect-preview/BytePath').BytePath$1")
+    .replace(
+      "import * as BytePath from \"effect/BytePath\"",
+      "import { BytePath as bytePathSchema } from \"@effect-vfs/effect-preview/Schema\""
+    )
 
 put(
   "src/compat/Schema.ts",
-  schemaImports + portBytePathCode(additions("src/Schema.ts").replace("import * as BytePath_ from \"./BytePath.ts\"\n", ""))
+  schemaImports +
+    portBytePathCode(additions("src/Schema.ts").replace("import * as BytePath_ from \"./BytePath.ts\"\n", ""))
 )
 
 // Bytes predates the PR. Its added cases use the existing fixture helper and describe block.
@@ -206,6 +218,64 @@ put(representationPath, representationHelpers + portBytePathCode(additions(repre
 const testPath = "test/virtual-file-system/VirtualFileSystem.test.ts"
 
 let probes = generated.get(testPath)
+
+// Regular output files avoid runtimes dropping piped child output. The probe still
+// runs the requested runtime and validates the JSON returned by the copied engine.
+probes = probes.replace(
+  "import { execFile } from \"node:child_process\"",
+  "import { spawn } from \"node:child_process\""
+)
+
+probes = probes.replace(
+  "import { promisify } from \"node:util\"",
+  `import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"`
+)
+
+probes = probes.replace(
+  "const execute = promisify(execFile)",
+  `const execute = async (command: string, args: Array<string>, options: { readonly maxBuffer: number }) => {
+  const directory = mkdtempSync(join(tmpdir(), "effect-vfs-probe-"))
+  const output = join(directory, "stdout")
+  const errors = join(directory, "stderr")
+  const stdout = openSync(output, "w")
+  const stderr = openSync(errors, "w")
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command, args, { stdio: ["ignore", stdout, stderr] })
+      child.once("error", reject)
+      child.once("close", (code) => {
+        if (code === 0) resolve()
+        else reject(new Error(readFileSync(errors, "utf8") || "Identity probe exited with code " + code))
+      })
+    })
+    const text = readFileSync(output, "utf8")
+    if (new TextEncoder().encode(text).length > options.maxBuffer) throw new Error("Identity probe output exceeds maxBuffer")
+    return { stdout: text }
+  } finally {
+    closeSync(stdout)
+    closeSync(stderr)
+    rmSync(directory, { recursive: true, force: true })
+  }
+}`
+)
+
+// Resolve the dependency itself so copied engines use the same Effect in either linker layout.
+probes = probes.replace(
+  "const nodeModulesUrl = new URL(\"../../../../node_modules/\", import.meta.url).href",
+  "const effectPackageUrl = new URL(\"./\", import.meta.resolve(\"effect/package.json\")).href"
+)
+
+probes = probes.replace(
+  "import { cpSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from \"node:fs\"",
+  "import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from \"node:fs\""
+)
+
+probes = probes.replace(
+  "symlinkSync(fileURLToPath(${JSON.stringify(nodeModulesUrl)}), join(directory, \"node_modules\"), \"dir\")",
+  "mkdirSync(join(directory, \"node_modules\"))\nsymlinkSync(fileURLToPath(${JSON.stringify(effectPackageUrl)}), join(directory, \"node_modules/effect\"), \"dir\")"
+)
 
 probes = probes.replace(
   "new URL(\"../../src/virtual-file-system/VirtualFileSystem.ts\", import.meta.url).href",

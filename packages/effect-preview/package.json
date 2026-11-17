@@ -6,7 +6,10 @@
   "license": "MIT",
   "sideEffects": false,
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
     "./internal/durableStorage": {
       "types": "./dist/internal/durableStorage.d.ts",
       "import": "./dist/internal/durableStorage.js"
@@ -19,9 +22,18 @@
       "types": "./dist/virtual-file-system/VirtualFileSystem.d.ts",
       "import": "./dist/virtual-file-system/VirtualFileSystem.js"
     },
-    "./BytePath": { "types": "./dist/compat/BytePath.d.ts", "import": "./dist/compat/BytePath.js" },
-    "./Schema": { "types": "./dist/compat/Schema.d.ts", "import": "./dist/compat/Schema.js" },
-    "./DateTime": { "types": "./dist/compat/DateTime.d.ts", "import": "./dist/compat/DateTime.js" }
+    "./BytePath": {
+      "types": "./dist/compat/BytePath.d.ts",
+      "import": "./dist/compat/BytePath.js"
+    },
+    "./Schema": {
+      "types": "./dist/compat/Schema.d.ts",
+      "import": "./dist/compat/Schema.js"
+    },
+    "./DateTime": {
+      "types": "./dist/compat/DateTime.d.ts",
+      "import": "./dist/compat/DateTime.js"
+    }
   },
   "scripts": {
     "sync": "bun scripts/sync.mjs",
@@ -30,11 +42,13 @@
     "build": "bun run sync:check && tsc -p tsconfig.build.json",
     "type-check": "tsc --noEmit && bun run test:types && bun run test:sync && bun run test:consumer",
     "test": "bun run build && bun --bun run vitest run --config ../../vitest.config.ts --project effect-preview",
-    "test:types": "TSTYCHE_TYPESCRIPT_MODULE=typescript-js tstyche",
+    "test:types": "bun scripts/test-types.mjs",
     "test:consumer": "bun run build && node scripts/check-schema-consumer.mjs",
     "test:sync": "bun scripts/check-sync.mjs"
   },
-  "peerDependencies": { "effect": "4.1.4" },
+  "peerDependencies": {
+    "effect": "4.1.4"
+  },
   "devDependencies": {
     "@effect/vitest": "4.1.4",
     "@repo/config-typescript": "workspace:*",

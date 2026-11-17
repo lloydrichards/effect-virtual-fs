@@ -141,48 +141,48 @@ const bodyReaders = {
     })
 } satisfies Readonly<Record<number, BodyReader>>
 
-export const decode = (bytes: Uint8Array) =>
-  Effect.gen(function*() {
-    const reader = yield* make.openReader(bytes, limits)
-    const status = yield* reader.read(XdrCodec.uint32)
-    yield* reader.read(XdrCodec.string())
-    const count = yield* reader.read(XdrCodec.uint32)
-    const operations: Array<{ readonly code: number; readonly status: number; readonly value?: unknown }> = []
+export const decode = Effect.fnUntraced(function*(bytes: Uint8Array) {
+  const reader = yield* make.openReader(bytes, limits)
+  const status = yield* reader.read(XdrCodec.uint32)
+  yield* reader.read(XdrCodec.string())
+  const count = yield* reader.read(XdrCodec.uint32)
+  const operations: Array<{ readonly code: number; readonly status: number; readonly value?: unknown }> = []
 
-    for (let index = 0; index < count; index++) {
-      const code = yield* reader.read(XdrCodec.uint32)
-      const operationStatus = yield* reader.read(XdrCodec.uint32)
+  for (let index = 0; index < count; index++) {
+    const code = yield* reader.read(XdrCodec.uint32)
+    const operationStatus = yield* reader.read(XdrCodec.uint32)
 
-      if (operationStatus !== Status.OK) {
-        operations.push({ code, status: operationStatus })
-        continue
-      }
-
-      // SAFETY: The own-property check proves that a known operation code indexes this table.
-      const body = Object.hasOwn(bodyReaders, code) ? bodyReaders[code as keyof typeof bodyReaders] : undefined
-
-      if (body === undefined) throw new Error(`No body reader for operation ${code}`)
-      operations.push({ code, status: operationStatus, value: yield* body(reader) })
+    if (operationStatus !== Status.OK) {
+      operations.push({ code, status: operationStatus })
+      continue
     }
 
-    yield* reader.finish
+    // SAFETY: The own-property check proves that a known operation code indexes this table.
+    const body = Object.hasOwn(bodyReaders, code) ? bodyReaders[code as keyof typeof bodyReaders] : undefined
 
-    return { status, operations }
-  })
+    if (body === undefined) throw new Error(`No body reader for operation ${code}`)
+    operations.push({ code, status: operationStatus, value: yield* body(reader) })
+  }
+
+  yield* reader.finish
+
+  return { status, operations }
+})
 
 export const run = (handler: Nfs4Handler, request: Effect.Effect<CompoundCall, XdrEncodeError>) =>
   Effect.flatMap(request, (call) => Effect.flatMap(handler.compound(call), decode))
 
-export const fattr = (
-  writer: EncoderSession,
-  attribute: number,
-  value: (values: EncoderSession) => Effect.Effect<void, XdrEncodeError>
-) =>
-  Effect.gen(function*() {
+export const fattr = Effect.fnUntraced(
+  function*(
+    writer: EncoderSession,
+    attribute: number,
+    value: (values: EncoderSession) => Effect.Effect<void, XdrEncodeError>
+  ) {
     const values = yield* make.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxCompoundBytes))
     yield* value(values)
     const words = Array.from<number>({ length: Math.floor(attribute / 32) + 1 }).fill(0)
     words[Math.floor(attribute / 32)] = 1 << attribute % 32 >>> 0
     yield* writer.write(XdrCodec.array(XdrCodec.uint32), words)
     yield* writer.write(XdrCodec.opaque(), yield* values.finish)
-  })
+  }
+)

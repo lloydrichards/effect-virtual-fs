@@ -17,16 +17,15 @@ const limits = {
 
 const none = new Uint8Array(8)
 
-const encodeAuth = (flavor: number, body: Uint8Array) =>
-  Effect.gen(function*() {
-    const writer = yield* make.openWriter(limits, 128)
-    yield* writer.write(XdrCodec.uint32, flavor)
-    yield* writer.write(XdrCodec.opaque(), body)
+const encodeAuth = Effect.fnUntraced(function*(flavor: number, body: Uint8Array) {
+  const writer = yield* make.openWriter(limits, 128)
+  yield* writer.write(XdrCodec.uint32, flavor)
+  yield* writer.write(XdrCodec.opaque(), body)
 
-    return yield* writer.finish
-  })
+  return yield* writer.finish
+})
 
-const call = (options: {
+const call = Effect.fnUntraced(function*(options: {
   xid?: number
   rpcVersion?: number
   program?: number
@@ -35,31 +34,29 @@ const call = (options: {
   credential?: Uint8Array
   verifier?: Uint8Array
   body?: Uint8Array
-} = {}) =>
-  Effect.gen(function*() {
-    const writer = yield* make.openWriter(limits, 128 * 1024)
-    yield* writer.write(XdrCodec.uint32, options.xid ?? 42)
-    yield* writer.write(XdrCodec.uint32, 0)
-    yield* writer.write(XdrCodec.uint32, options.rpcVersion ?? 2)
-    yield* writer.write(XdrCodec.uint32, options.program ?? 100003)
-    yield* writer.write(XdrCodec.uint32, options.version ?? 4)
-    yield* writer.write(XdrCodec.uint32, options.procedure ?? 0)
-    yield* writer.appendEncoded(options.credential ?? none)
-    yield* writer.appendEncoded(options.verifier ?? none)
-    yield* writer.appendEncoded(options.body ?? new Uint8Array())
+} = {}) {
+  const writer = yield* make.openWriter(limits, 128 * 1024)
+  yield* writer.write(XdrCodec.uint32, options.xid ?? 42)
+  yield* writer.write(XdrCodec.uint32, 0)
+  yield* writer.write(XdrCodec.uint32, options.rpcVersion ?? 2)
+  yield* writer.write(XdrCodec.uint32, options.program ?? 100003)
+  yield* writer.write(XdrCodec.uint32, options.version ?? 4)
+  yield* writer.write(XdrCodec.uint32, options.procedure ?? 0)
+  yield* writer.appendEncoded(options.credential ?? none)
+  yield* writer.appendEncoded(options.verifier ?? none)
+  yield* writer.appendEncoded(options.body ?? new Uint8Array())
 
-    return yield* writer.finish
-  })
+  return yield* writer.finish
+})
 
-const fields = (reply: Uint8Array) =>
-  Effect.gen(function*() {
-    const reader = yield* make.openReader(reply, limits)
-    const result: Array<number> = []
+const fields = Effect.fnUntraced(function*(reply: Uint8Array) {
+  const reader = yield* make.openReader(reply, limits)
+  const result: Array<number> = []
 
-    while ((yield* reader.remaining) >= 4) result.push(yield* reader.read(XdrCodec.uint32))
+  while ((yield* reader.remaining) >= 4) result.push(yield* reader.read(XdrCodec.uint32))
 
-    return result
-  })
+  return result
+})
 
 const connection: Connection = { id: 0, send: () => Effect.succeed(true) }
 
@@ -71,17 +68,16 @@ const handler: RpcHandlers = {
   callbackReply: () => Effect.void
 }
 
-const encodeAuthSys = (groups: ReadonlyArray<number>) =>
-  Effect.gen(function*() {
-    const writer = yield* make.openWriter(limits, 128)
-    yield* writer.write(XdrCodec.uint32, 1)
-    yield* writer.write(XdrCodec.string(), "machine")
-    yield* writer.write(XdrCodec.uint32, 501)
-    yield* writer.write(XdrCodec.uint32, 20)
-    yield* writer.write(XdrCodec.array(XdrCodec.uint32), groups)
+const encodeAuthSys = Effect.fnUntraced(function*(groups: ReadonlyArray<number>) {
+  const writer = yield* make.openWriter(limits, 128)
+  yield* writer.write(XdrCodec.uint32, 1)
+  yield* writer.write(XdrCodec.string(), "machine")
+  yield* writer.write(XdrCodec.uint32, 501)
+  yield* writer.write(XdrCodec.uint32, 20)
+  yield* writer.write(XdrCodec.array(XdrCodec.uint32), groups)
 
-    return yield* writer.finish
-  })
+  return yield* writer.finish
+})
 
 describe("ONC RPC", () => {
   it.effect("should return policy denial when a COMPOUND call is refused", () =>

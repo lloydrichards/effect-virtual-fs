@@ -28,6 +28,7 @@ import { makeDigest, storeFailures } from "./internal/storeSupport.js"
  * ```
  *
  * @since 0.5.0
+ * @category models
  */
 export interface ObjectRecord {
   readonly bytes: Uint8Array
@@ -52,6 +53,7 @@ export interface ObjectRecord {
  * ```
  *
  * @since 0.5.0
+ * @category models
  */
 export interface R2Client {
   readonly read: (key: string) => Effect.Effect<ObjectRecord | null, Vfs.VfsError>
@@ -86,6 +88,7 @@ const loading = storeFailures("R2LiveImageStore.loadOrCreate")
  * ```
  *
  * @since 0.5.0
+ * @category constructors
  */
 export const fromS3: {
   (bucket: string): (client: S3Client) => R2Client
@@ -159,6 +162,7 @@ export const fromS3: {
  * ```
  *
  * @since 0.5.0
+ * @category models
  */
 export interface Options {
   readonly client: R2Client
@@ -196,6 +200,7 @@ interface Ownership {
  * ```
  *
  * @since 0.5.0
+ * @category layers
  */
 export const layer = (
   options: Options

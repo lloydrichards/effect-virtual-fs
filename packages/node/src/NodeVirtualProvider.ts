@@ -35,13 +35,18 @@ import { NodeFileHandle, type StatOptions, type Time } from "./internal/fileHand
 /**
  * Provider policy, independent of the backing volume's other callers.
  * @since 0.1.0
+ * @category schemas
  */
 export const Options = Schema.Struct({
   readonly: Schema.optionalKey(Schema.Boolean),
   caller: Schema.optionalKey(RootCallerOptions)
 })
 
-/** @since 0.1.0 */
+/**
+ * Provider policy decoded from the Options schema.
+ * @since 0.1.0
+ * @category models
+ */
 export type Options = typeof Options.Type
 
 type DirectoryOptions = Exclude<EncodingOptions, string> & {
@@ -63,6 +68,7 @@ const noFollow = (path: string) => ({ _tag: "Path" as const, path, followFinalSy
  * A provider over an existing synchronous volume. Node allocates numeric descriptors above this protocol.
  * Instances are constructed with bind and remain valid for its enclosing Effect scope.
  * @since 0.1.0
+ * @category models
  */
 export class Provider extends VirtualProvider {
   /** @internal */
@@ -406,7 +412,21 @@ export class Provider extends VirtualProvider {
 
 /**
  * Binds a qualified volume for this scope. Does not mount or install global hooks.
+ *
+ * @example
+ * ```ts
+ * import * as NodeVirtualProvider from "@effect-vfs/node/NodeVirtualProvider"
+ * import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+ * import * as Effect from "effect/Effect"
+ *
+ * const readThroughNode = Effect.scoped(Effect.gen(function*() {
+ *   const volume = yield* Vfs.make({ execution: "sync" })
+ *   const provider = yield* NodeVirtualProvider.bind(volume, { readonly: true })
+ *   return provider.statSync("/").isDirectory()
+ * }))
+ * ```
  * @since 0.1.0
+ * @category constructors
  */
 export const bind = Effect.fnUntraced(
   function*(volume: Volume, options?: Options): Effect.fn.Return<Provider, FsFailure, Scope.Scope> {
