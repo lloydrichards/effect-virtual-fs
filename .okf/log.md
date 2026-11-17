@@ -13,6 +13,9 @@
 
 - Drain pending R2 transport requests before store ownership handoff. Document borrowed clients and the recovery policy for writes with uncertain remote completion.
 
+- Resolve Effect tag-handler and construction rules against imported bindings. Native rules own direct catch-tag
+  dispatch. Custom rules advise on caught reasons and report a single diagnostic for a chained tag dispatch.
+
 - Reject ill-formed Unicode SQL image keys before querying storage, and validate D1 tables against the published v1 declarations so added constraints cannot silently change live-image behavior.
 
 - Expose the scoped NFS listener's termination to serving programs and distinguish typed socket failures from normal shutdown.

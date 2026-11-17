@@ -1,6 +1,6 @@
 import { defineRule } from "@oxlint/plugins"
 
-import { isInsideBroadEffectHandler, isTagMember, tagMemberFromComparison } from "../shared/tagged-values.ts"
+import { broadEffectHandler, isRepeatedTagTest, isTagMember, tagMemberFromComparison } from "../shared/tagged-values.ts"
 
 export const noManualTagComparisonRule = defineRule({
   meta: {
@@ -18,9 +18,11 @@ export const noManualTagComparisonRule = defineRule({
   createOnce(context) {
     return {
       BinaryExpression(node) {
+        const tag = tagMemberFromComparison(node)
         if (
-          tagMemberFromComparison(node) === undefined ||
-          isInsideBroadEffectHandler(node)
+          tag === undefined ||
+          broadEffectHandler(context.sourceCode, tag) !== undefined ||
+          isRepeatedTagTest(context.sourceCode, node, tag)
         ) {
           return
         }
@@ -29,7 +31,7 @@ export const noManualTagComparisonRule = defineRule({
       SwitchStatement(node) {
         if (
           !isTagMember(node.discriminant) ||
-          isInsideBroadEffectHandler(node)
+          broadEffectHandler(context.sourceCode, node.discriminant) !== undefined
         ) {
           return
         }

@@ -155,3 +155,71 @@ Stream.withSpan("scope")
 }
 
 console.log(`Custom lint policy passed: ${enabledRules.length} rules, ${fixtures} isolated fixtures.`)
+
+// Type-aware fixtures live under the workspace so their Effect imports resolve.
+const cache = path.join(root, ".cache")
+await mkdir(cache, { recursive: true })
+const typedDirectory = await mkdtemp(path.join(cache, "vfs-tag-policy-"))
+
+try {
+  const configPath = path.join(typedDirectory, "oxlint.json")
+  const filePath = path.join(typedDirectory, "tag-ownership.ts")
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jsPlugins: policy.jsPlugins.map((plugin) => ({ ...plugin, specifier: path.resolve(root, plugin.specifier) })),
+      plugins: ["effecttsgo"],
+      categories: { correctness: "off" },
+      rules: {
+        "effecttsgo/catch-all-tag-dispatch-to-catch-tag": "error",
+        "effecttsgo/catch-if-tag-to-catch-tag": "error",
+        "anti-slop-effect/no-manual-effect-error-tag": "error",
+        "anti-slop-effect/no-manual-tag-comparison": "error"
+      }
+    })
+  )
+
+  for (const identifier of ["Effect", "E"]) {
+    await writeFile(
+      filePath,
+      `
+import { Effect${identifier === "E" ? " as E" : ""} } from "effect"
+declare const task: ${identifier}.Effect<never, { readonly _tag: "Missing"; readonly reason: { readonly _tag: "A" | "B" } } | { readonly _tag: "Other"; readonly reason: { readonly _tag: "A" | "B" } }>
+declare const state: { readonly _tag: "Closed" | "Open" }
+export const direct = ${identifier}.catch(task, error => error._tag === "Missing" ? ${identifier}.succeed(1) : ${identifier}.fail(error))
+export const predicate = ${identifier}.catchIf(task, error => error._tag === "Missing", () => ${identifier}.succeed(1))
+export const reason = ${identifier}.catch(task, error => error.reason._tag === "A" ? ${identifier}.succeed(1) : error.reason._tag === "B" ? ${identifier}.succeed(2) : ${identifier}.fail(error))
+export const external = ${identifier}.catch(task, error => state._tag === "Closed" ? ${identifier}.succeed(1) : ${identifier}.fail(error))
+export const externalChain = state._tag === "Closed" ? 1 : state._tag === "Open" ? 2 : 3
+`
+    )
+    const result = Bun.spawnSync([
+      path.join(root, "node_modules/.bin/oxlint"),
+      "--type-aware",
+      "--config",
+      configPath,
+      "--disable-nested-config",
+      "--format",
+      "json",
+      filePath
+    ], { cwd: root })
+
+    assert.deepEqual(
+      parseReport(result, filePath).map((diagnostic) => [
+        diagnostic.code,
+        diagnostic.labels[0].span.line
+      ]).sort(),
+      [
+        ["anti-slop-effect(no-manual-effect-error-tag)", 7],
+        ["anti-slop-effect(no-manual-tag-comparison)", 9],
+        ["effecttsgo(catch-all-tag-dispatch-to-catch-tag)", 5],
+        ["effecttsgo(catch-if-tag-to-catch-tag)", 6]
+      ],
+      `Unexpected native/custom catch-tag policy for ${identifier}: ${result.stdout.toString()}`
+    )
+  }
+} finally {
+  await rm(typedDirectory, { recursive: true, force: true })
+}
+
+console.log("Native and custom tag diagnostics have separate ownership for canonical and aliased imports.")
