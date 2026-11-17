@@ -29,4 +29,6 @@
 - [NFS OPEN creation](nfs/open-creation.md) records all four internal create modes, atomic verifier storage, and the public writable export requirements.
 - [NFS namespace and metadata mutations](nfs/namespace-and-metadata.md) records internal CREATE, LINK, REMOVE, RENAME, and SETATTR behavior and its wire evidence.
 
+- [NFS unused-export pilot](nfs-unused-export-pilot.md) records which internal exports Knip found, how test consumers alter the result, and the limits of a mandatory check.
+
 Path-workload measurements are not a separate concept. Their durable conclusion is represented by the accepted optional total-path-limit decision: repository workloads do not justify a universal fixed cap.
