@@ -102,10 +102,8 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       assert.isDefined(failure.cause)
     })))
 
-  // Takes its own database: the Bun SQLite driver drops a leading U+FEFF from bound text, so "\ufeffrun" would
-  // collide with the "run" checkpoint another test saves in the suite's database (#218).
   it.effect("should keep valid names literal and reject invalid names when saving or loading", () =>
-    freshDatabase(Effect.gen(function*() {
+    Effect.gen(function*() {
       const store = yield* CheckpointStore.make(limits)
       const image = yield* snapshot
 
@@ -122,11 +120,37 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
         }
       }
 
-      for (const name of ["../run/'", "é".repeat(127) + "a", "é", "e\u0301", "\ufeffrun"]) {
+      for (const name of ["../run/'", "é".repeat(127) + "a", "é", "e\u0301", "embeddedbom", "embedded\ufeffbom"]) {
         yield* store.save(name, image)
         assert.deepStrictEqual(yield* Vfs.encodeSnapshot(yield* store.load(name)), yield* Vfs.encodeSnapshot(image))
       }
-    })))
+    }))
+
+  it.effect("should keep a leading BOM distinct from an existing checkpoint name", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient
+      const store = yield* CheckpointStore.make(limits)
+      const literal = "bom-run"
+      const leadingBom = `\ufeff${literal}`
+      const original = yield* Vfs.encodeSnapshot(yield* snapshot)
+      const empty = yield* (yield* Vfs.make()).snapshot
+
+      yield* sql`INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${literal}, ${original})`
+
+      const missing = yield* Effect.flip(store.load(leadingBom))
+      assert.instanceOf(missing, CheckpointError)
+      assert.deepStrictEqual([missing.code, missing.name], ["NotFound", leadingBom])
+
+      yield* store.save(leadingBom, empty)
+      assert.deepStrictEqual(yield* Vfs.encodeSnapshot(yield* store.load(literal)), original)
+      assert.deepStrictEqual(yield* Vfs.encodeSnapshot(yield* store.load(leadingBom)), yield* Vfs.encodeSnapshot(empty))
+
+      for (const name of [literal, leadingBom]) {
+        const duplicate = yield* Effect.flip(store.save(name, empty))
+        assert.instanceOf(duplicate, CheckpointError)
+        assert.deepStrictEqual([duplicate.code, duplicate.name], ["AlreadyExists", name])
+      }
+    }))
 
   it.effect("should retain its original limits when the supplied limits object changes", () =>
     Effect.gen(function*() {
