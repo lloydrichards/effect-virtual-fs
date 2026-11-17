@@ -16,6 +16,7 @@
 - [Snapshot search and glob research](search-and-glob.md) records fixture recipe limitations, current search tests, and native-regex execution boundaries.
 
 - [Bounded POSIX requirements](posix-requirements.md) records the standards frame used to define and test the core without claiming full POSIX conformance.
+- [Checkpoint discovery and cleanup](checkpoint-discovery.md) explores an app-owned catalog and explicit removal for build workspaces.
 - [Overlay filesystem direction](overlay-filesystem.md) retains the alternatives considered for overlay v1 and the parity cases a future harness should cover.
 - [Snapshot delta representation research](overlay-changes.md) retains the open delta questions: alternative encodings, checkpoint storage, profiling, and rebasing onto a different base. The [snapshot delta merge decision](../decisions/overlay/snapshot-delta-merge.md) covers merging two deltas from the same base.
 - [Rename-aware overlay merge proposal](overlay-rename-merge.md) describes trusted capture inputs, file move conflicts, and group resolutions for issue #271.
