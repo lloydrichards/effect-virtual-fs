@@ -1,4 +1,3 @@
-/* eslint-disable effecttsgo/node-builtin-import -- This benchmark measures file-content models outside the VFS runtime. */
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
