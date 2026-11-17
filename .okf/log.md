@@ -2,6 +2,8 @@
 
 ## 2026-11-17
 
+- Add PostgreSQL live-image persistence with explicit migrations, one application-controlled owner, private scoped sessions and a memory-only release guarantee. Reuse adapter contracts and add a real PostgreSQL CI job. Defer writable NFS and D1 implementation.
+
 - **Shared Effect diagnostic policy**: Pin tsgo 0.70.0 and derive Oxlint and standalone checks from the compiler preset, retaining narrow preview/synchronous exceptions and preserving separate source and compatibility work.
 
 - Consolidate validation under one local/CI sequence, keep Git hooks fast and read-only beyond staged formatting, and place

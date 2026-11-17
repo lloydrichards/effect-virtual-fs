@@ -317,6 +317,7 @@
       },
       "devDependencies": {
         "@effect/platform-node-shared": "4.1.4",
+        "@effect/sql-pg": "4.1.4",
         "@effect/sql-sqlite-bun": "4.1.4",
         "@effect/vitest": "4.1.4",
         "@repo/config-typescript": "workspace:*",
@@ -324,8 +325,12 @@
         "effect": "4.1.4",
       },
       "peerDependencies": {
+        "@effect/sql-pg": "~4.1.4",
         "effect": "~4.1.4",
       },
+      "optionalPeers": [
+        "@effect/sql-pg",
+      ],
     },
   },
   "overrides": {
@@ -599,6 +604,8 @@
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.1.4", "", { "dependencies": { "@types/ws": "^8.18.2", "ws": "^8.22.1" }, "peerDependencies": { "effect": "^4.1.4" } }, "sha512-DWdfphHGOFJNj/mYadgpT3jIm8aRXDcPrQiGXFBH4p2H4XmA7iYMrPsI8NxVgZ7kNX0q1+FGJZJama0tINHRAg=="],
 
     "@effect/sql-d1": ["@effect/sql-d1@4.1.4", "", { "dependencies": { "@cloudflare/workers-types": "^5.20261107.1" }, "peerDependencies": { "effect": "^4.1.4" } }, "sha512-x7UtDPNCgcAz6lvGbrf0INHxztV0qV8i4qleqPb31ADeilz7MnGYJ5Qhprqod+ySBUNPdsvXNRE9vm36TznIdg=="],
+
+    "@effect/sql-pg": ["@effect/sql-pg@4.1.4", "", { "peerDependencies": { "effect": "^4.1.4" } }, "sha512-DHsmpIfJeCYiJVk3JwMQFAWaQAmKV/elUbBCjHFP7qeZtJ8dViUV/y/AHdUaZ+OmMwtr8J7ZXA7AlsKZ9hPiQA=="],
 
     "@effect/sql-sqlite-bun": ["@effect/sql-sqlite-bun@4.1.4", "", { "peerDependencies": { "effect": "^4.1.4" } }, "sha512-z7wu/98/Hh0ArV7VaYPZ4uPX/2TpLX0vdO36zn1Z7l616xVJAv7Vd9vkDothKS+9LgJN1x8wmEZsswAacKyGxA=="],
 
