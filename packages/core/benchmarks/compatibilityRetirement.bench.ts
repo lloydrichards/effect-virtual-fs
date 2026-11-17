@@ -47,13 +47,15 @@ test("rename round trip and confined handle stat after closed-handle churn", asy
       { time: 1000 }
     )
 
-    console.table(Object.fromEntries(candidates.map((candidate) => {
+    const timings = Object.fromEntries(candidates.map((candidate) => {
       const label = `${candidate.closed.length} closed handles` as const
       const timing = results.get(label).latency
       candidate.closed.length = 0
 
       return [label, { meanMs: timing.mean, medianMs: timing.p50 }]
-    })))
+    }))
+
+    process.stdout.write(JSON.stringify(timings, null, 2) + "\n")
   } finally {
     await run(Scope.close(scope, Exit.void))
   }
