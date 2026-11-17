@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 import policy from "../../../oxlint.config.ts"
+import boundaryAudit from "../boundary-audit.config.ts"
 
 import { ruleCases } from "./cases.mjs"
 
@@ -12,6 +13,8 @@ const root = path.resolve(import.meta.dirname, "../../..")
 const enabledRules = Object.keys(policy.rules).filter((rule) =>
   rule.startsWith("anti-slop") && policy.rules[rule] !== "off"
 )
+
+enabledRules.push(...Object.keys(boundaryAudit.rules))
 
 assert.deepEqual(
   Object.keys(ruleCases).sort(),

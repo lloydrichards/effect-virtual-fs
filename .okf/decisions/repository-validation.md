@@ -17,6 +17,8 @@ sources:
     title: Source import graph and package direction checks
   - resource: ../../tools/checks/consumers.mjs
     title: Packed consumer compiler checks
+  - resource: ../../tools/oxlint/boundary-audit.config.ts
+    title: Opt-in boundary lint audit
   - resource: ../../tools/oxlint/test/run.mjs
     title: Isolated custom lint fixtures
   - resource: ../../tools/oxlint/test/performance-semantics.test.mjs
@@ -29,7 +31,7 @@ sources:
     title: Custom rule provenance and local contract
   - resource: ../../packages/effect-preview/upstream/manifest.json
     title: Imported engine provenance
-generated: { by: codex/okf, at: "2026-11-17T20:15:02+00:00" }
+generated: { by: codex/okf, at: "2026-11-17T20:40:23+00:00" }
 ---
 
 # Repository validation policy
@@ -62,6 +64,12 @@ Public Effect operations state inputs, success values, typed failures and requir
 or a supported fully annotated generator. Internal implementation helpers and tests do not need public API annotations.
 An explicit internal alias annotation can express intentional identity ownership; consumer declaration checks determine
 whether published types resolve. Do not reject all internal type names by string matching.
+
+Prefer `unknown` for raw input. Schema decoders and type predicates may accept it directly. A use of a type predicate
+can narrow the caller's value, and inline and named object contracts can express the same type. The blocking
+`no-widen-then-assert` rule detects a local known value that is widened and later reasserted. Run
+`bun run lint:audit-boundaries -- <path>` to review broad annotations and functions that return raw input unchanged.
+The audit emits warnings and exits successfully when it finds them.
 
 Require descriptions, stable-semver `@since` values and nonempty categories on public declarations. Members inherit metadata
 from their owning declarations; re-exports require an inventoried public defining module. Validate supplied stability tags, but do
