@@ -23,6 +23,9 @@ sources:
   - id: do-storage
     resource: https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/
     title: Durable Object SQLite storage and transactions
+  - id: local-replay
+    resource: ../../packages/persistence/test/WorkspaceReplayQualification.test.ts
+    title: Local SQLite image and replay transaction qualification
   - id: do-lifecycle
     resource: https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/
     title: Durable Object activation and eviction behavior
@@ -35,7 +38,7 @@ sources:
   - id: spectrum
     resource: https://developers.cloudflare.com/spectrum/reference/configuration-options/
     title: Spectrum configuration options
-generated: { by: codex/okf, at: 2026-11-17T22:58:00+01:00 }
+generated: { by: codex/okf, at: 2026-11-17T23:17:18+01:00 }
 ---
 
 # Remote agent filesystem access through Cloudflare
@@ -80,6 +83,25 @@ The owner admits mutations through the existing VFS coordination boundary, even 
 SQLite-backed Durable Object storage is a candidate for a compact image and its operation outcomes because both can be stored in one transaction. The prototype must prove that the existing staging and publication hook can commit the image generation and replay result atomically, then acknowledge only after the provider confirms the selected storage boundary. Store the outcome for an operation ID bound to workspace, principal, operation, and request content. A valid retry returns the recorded result, and conflicting reuse fails. The server must enforce a finite replay window, including across reactivation. Expired operation IDs require reconciliation and cannot be admitted again as new writes. In-memory completion tracking and the provider's response gate alone do not resolve a lost reply. An R2 or D1 image with a replay ledger in a different store needs a separate atomicity or reconciliation design. Keep existing adapter guarantees unchanged. [DO SQLite transactions](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transactionsync), [DO input and output gates](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/).
 
 On returned rejection, preserve the previous published image. On uncertainty, stop admitting writes for that owner until the storage outcome has been reconciled. Client cancellation stops waiting. It proves neither cancellation nor completion of an admitted commit. A workspace snapshot captures filesystem state, and an executor must qualify resumption and external tool effects under a separate contract.
+
+### Local transaction qualification
+
+The persistence test uses the pinned Bun SQLite client and public CheckpointStore to save real encoded
+VFS snapshots. One transaction advances a named workspace's head, saves its image, and records the operation
+result. After closing and reopening the connection, an exact retry returns the recorded generation even
+after a later write. Reusing an operation ID with different bytes or a different principal leaves the
+head unchanged. Stale generations are rejected. Aborting after all three writes leaves the prior head
+readable, the candidate checkpoint absent, and the operation ID available for a subsequent commit.
+
+Run the local qualification after building the persistence package and its dependencies.
+
+```sh
+bun run --cwd packages/persistence test WorkspaceReplayQualification.test.ts
+```
+
+This qualifies transaction composition with CheckpointStore on one local SQLite file. The production
+LiveVolume commit hook, hosted Durable Object activation, replay expiry, and crash durability remain
+separate qualification steps.
 
 ### Acceptance evidence
 
