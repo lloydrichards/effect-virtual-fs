@@ -12,6 +12,14 @@ import { defineConfig } from "vite"
 import remarkTocExport from "./app/lib/remark-toc-export"
 
 export default defineConfig({
+  server: { watch: { ignored: ["**/build/**"] } },
+  worker: { format: "es" },
+  optimizeDeps: {
+    entries: [
+      "app/components/filesystem-playground.tsx",
+      "app/lib/playground/workspace.worker.ts"
+    ]
+  },
   plugins: [
     mdx({
       providerImportSource: "@mdx-js/react",

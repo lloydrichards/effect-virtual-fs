@@ -1,15 +1,23 @@
 import { Cause, Effect, Exit, Result } from "effect"
-import type { buildWorkspace } from "./build"
 import { PlaygroundError } from "./error"
+import type { Entry as RpcEntry, Role } from "./protocol"
 import type { runBundle } from "./run"
-import type { deleteCheckpoint, readCheckpoint, saveCheckpoint } from "./storage"
-import type { FileAccess, openVolume, Workspace } from "./volume"
+import type { FileAccess as LocalAccess } from "./volume"
 
-export type Entry = Effect.Success<ReturnType<FileAccess["files"]>>[number]
+export type Entry = typeof RpcEntry.Type
+
+type FileAccess = {
+  [K in Exclude<keyof LocalAccess, "resolve">]: (...args: Parameters<LocalAccess[K]>) => Effect.Effect<
+    K extends "files" ? ReadonlyArray<Entry>
+      : K extends "read" | "permissions" ? Effect.Success<ReturnType<LocalAccess[K]>>
+      : unknown,
+    Error
+  >
+}
+
+type Workspace = Record<Role, FileAccess>
 
 export type Operation = "New file" | "New folder" | "Rename file" | "Rename folder"
-
-type Role = "admin" | "editor" | "reader"
 
 export type Command =
   | "open"
@@ -80,12 +88,15 @@ const selectReadableFile = Effect.fnUntraced(
 )
 
 interface Dependencies {
-  openVolume: typeof openVolume
-  buildWorkspace: typeof buildWorkspace
+  openVolume: (restore: boolean) => Effect.Effect<Workspace, Error>
+  buildWorkspace: (
+    caller: FileAccess,
+    role: Role
+  ) => Effect.Effect<{ code: string; reads: ReadonlyArray<string> }, Error>
   runBundle: typeof runBundle
-  readCheckpoint: typeof readCheckpoint
-  saveCheckpoint: typeof saveCheckpoint
-  deleteCheckpoint: typeof deleteCheckpoint
+  inspectCheckpoint: Effect.Effect<{ savedAt: string; size: number }, Error>
+  saveCheckpoint: Effect.Effect<void, Error>
+  deleteCheckpoint: Effect.Effect<void, Error>
 }
 
 const refreshView = Effect.fnUntraced(function*(caller: FileAccess, view: ViewRefresh) {
@@ -106,7 +117,7 @@ export function makeWorkspaceController({
   openVolume,
   buildWorkspace,
   runBundle,
-  readCheckpoint,
+  inspectCheckpoint,
   saveCheckpoint,
   deleteCheckpoint
 }: Dependencies) {
@@ -116,7 +127,7 @@ export function makeWorkspaceController({
     record: (patch: Partial<Playground>) => void
   ) {
     if (command === "open" || command === "reopen") {
-      const volume = yield* openVolume(command === "reopen" ? (yield* readCheckpoint).image : undefined)
+      const volume = yield* openVolume(command === "reopen")
       const caller = volume[state.role]
       const entries = yield* caller.files()
 
@@ -156,11 +167,11 @@ export function makeWorkspaceController({
         return state.pendingView ? yield* refreshView(caller, state.pendingView) : {}
       case "save":
         yield* flush
-        yield* saveCheckpoint(yield* volume.snapshot())
+        yield* saveCheckpoint
 
         return { dirty: false, status: "Saved workspace.sqlite in this browser." }
       case "inspect": {
-        const row = yield* readCheckpoint
+        const row = yield* inspectCheckpoint
 
         return { status: `SQLite row: saved_at = ${row.savedAt}, length(image) = ${row.size} bytes.` }
       }
@@ -172,7 +183,7 @@ export function makeWorkspaceController({
       case "build": {
         yield* flush
 
-        const result = yield* buildWorkspace(caller)
+        const result = yield* buildWorkspace(caller, role)
 
         const run = yield* Effect.result(runBundle(result.code))
 
@@ -327,10 +338,10 @@ export function makeWorkspaceController({
       })
     )
 
-  const edit = (state: Playground, source: string): Playground =>
-    state.busy || state.pendingView || !(state.permissions & 2)
-      ? state
-      : { ...state, source, dirty: true, error: "", output: null, status: "Working copy edited." }
-
-  return { edit, execute }
+  return { edit: editPlayground, execute }
 }
+
+export const editPlayground = (state: Playground, source: string): Playground =>
+  state.busy || state.pendingView || !(state.permissions & 2)
+    ? state
+    : { ...state, source, dirty: true, error: "", output: null, status: "Working copy edited." }

@@ -10,7 +10,7 @@ const ensureInitialized = SynchronizedRef.updateEffect(
   initialized,
   (ready) =>
     ready ? Effect.succeed(true) : Effect.tryPromise({
-      try: () => initialize({ wasmURL }),
+      try: () => initialize({ wasmURL, worker: false }),
       catch: PlaygroundError.fromCause
     }).pipe(Effect.as(true))
 ).pipe(Effect.uninterruptible)

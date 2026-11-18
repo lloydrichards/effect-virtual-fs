@@ -8,16 +8,30 @@ import { openVolume } from "../app/lib/playground/volume"
 const fixture = (options: Partial<Parameters<typeof makeWorkspaceController>[0]> = {}) => {
   let state = initialPlayground
   let image = new Uint8Array()
+  let volume: Effect.Success<ReturnType<typeof openVolume>>
 
   const controller = makeWorkspaceController({
-    openVolume,
+    openVolume: (restore) =>
+      openVolume(restore ? image : undefined).pipe(
+        Effect.tap((opened) =>
+          Effect.sync(() => {
+            volume = opened
+          })
+        )
+      ),
     buildWorkspace: () => Effect.fail(new PlaygroundError({ message: "Build failed" })),
     runBundle: () => Effect.succeed({ lines: [] }),
-    saveCheckpoint: (bytes) =>
-      Effect.sync(() => {
-        image = new Uint8Array(bytes)
-      }),
-    readCheckpoint: Effect.sync(() => ({ image, savedAt: "", size: image.length })),
+    saveCheckpoint: Effect.suspend(() =>
+      volume.snapshot().pipe(
+        Effect.tap((bytes) =>
+          Effect.sync(() => {
+            image = new Uint8Array(bytes)
+          })
+        ),
+        Effect.asVoid
+      )
+    ),
+    inspectCheckpoint: Effect.sync(() => ({ savedAt: "", size: image.length })),
     deleteCheckpoint: Effect.void,
     ...options
   })
@@ -129,8 +143,8 @@ test("a command can refresh after an applied rename without running the rename a
     let failRefresh = false
 
     const workspace = fixture({
-      openVolume: (image) =>
-        openVolume(image).pipe(Effect.map((volume) => ({
+      openVolume: () =>
+        openVolume().pipe(Effect.map((volume) => ({
           ...volume,
           editor: {
             ...volume.editor,
