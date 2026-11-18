@@ -10,6 +10,7 @@ import rehypeSlug from "rehype-slug"
 import remarkGfm from "remark-gfm"
 import { defineConfig } from "vite"
 import remarkTocExport from "./app/lib/remark-toc-export"
+import { workshopIsolation } from "./workshop-isolation.ts"
 
 export default defineConfig({
   server: { watch: { ignored: ["**/build/**"] } },
@@ -17,10 +18,13 @@ export default defineConfig({
   optimizeDeps: {
     entries: [
       "app/components/filesystem-playground.tsx",
-      "app/lib/playground/workspace.worker.ts"
+      "app/lib/playground/workspace.worker.ts",
+      "app/examples/image-tile-workshop/Workshop.tsx",
+      "app/examples/image-tile-workshop/*.worker.ts"
     ]
   },
   plugins: [
+    workshopIsolation,
     mdx({
       providerImportSource: "@mdx-js/react",
       remarkPlugins: [remarkGfm, remarkTocExport],

@@ -10,7 +10,7 @@
     "docs:generate": "bun run scripts/generate-api-docs.ts",
     "type-check": "react-router typegen && tsc --noEmit",
     "test": "bun run --cwd ../.. build --filter=@effect-vfs/core && bun test test/Documentation.test.ts test/PlaygroundController.test.ts",
-    "test:browser": "bun run --cwd ../.. build --filter=@effect-vfs/docs && bun test test/browser/Playground.test.ts"
+    "test:browser": "bun run --cwd ../.. build --filter=@effect-vfs/docs && bun test test/browser/Playground.test.ts && node --test test/browser/ImageTileWorkshop.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

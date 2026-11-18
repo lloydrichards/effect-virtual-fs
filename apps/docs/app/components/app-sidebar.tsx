@@ -15,6 +15,7 @@ import {
   useSidebar
 } from "~/components/ui/sidebar"
 import { cn } from "~/lib/utils"
+import { crossesWorkshopBoundary } from "~/lib/workshop-route"
 import { navigation } from "~/nav.config"
 
 export function AppSidebar() {
@@ -31,7 +32,13 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              render={<Link to="/" onClick={closeMobileSidebar} />}
+              render={
+                <Link
+                  to="/"
+                  reloadDocument={crossesWorkshopBoundary(location.pathname, "/")}
+                  onClick={closeMobileSidebar}
+                />
+              }
               className="h-11 md:h-8"
             >
               <span className="font-heading text-base font-semibold tracking-[-0.035em]">
@@ -57,6 +64,7 @@ export function AppSidebar() {
                       render={
                         <Link
                           to={item.href}
+                          reloadDocument={crossesWorkshopBoundary(location.pathname, item.href)}
                           onClick={closeMobileSidebar}
                           aria-current={location.pathname === item.href ? "page" : undefined}
                         />

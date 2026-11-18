@@ -1,6 +1,7 @@
 import type React from "react"
 import type { ComponentPropsWithoutRef } from "react"
-import { Link } from "react-router"
+import { Link, useLocation } from "react-router"
+import { crossesWorkshopBoundary } from "~/lib/workshop-route"
 
 import { CodeBlock } from "~/components/code-block"
 import {
@@ -100,15 +101,22 @@ export const proseComponents = {
       {...props}
     />
   ),
-  a: ({
+  a: function ProseLink({
     className,
     href,
     children,
     ...props
-  }: ComponentPropsWithoutRef<"a">) => {
-    if (href?.startsWith("/")) {
+  }: ComponentPropsWithoutRef<"a">) {
+    const { pathname } = useLocation()
+
+    if (href?.startsWith("/") && !href.startsWith("//")) {
       return (
-        <Link to={href} className={typefaceAnchor(className)} {...props}>
+        <Link
+          to={href}
+          reloadDocument={crossesWorkshopBoundary(pathname, href)}
+          className={typefaceAnchor(className)}
+          {...props}
+        >
           {children}
         </Link>
       )

@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react"
 import { Link, useLocation } from "react-router"
+import { crossesWorkshopBoundary } from "~/lib/workshop-route"
 import { navigation } from "~/nav.config"
 
 const REPO_URL = "https://github.com/lloydrichards/effect-virtual-fs"
@@ -35,6 +36,7 @@ export function DocFooter() {
           {prev && (
             <Link
               to={prev.href}
+              reloadDocument={crossesWorkshopBoundary(pathname, prev.href)}
               className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               <ChevronLeft className="size-4" />
@@ -46,6 +48,7 @@ export function DocFooter() {
           {next && (
             <Link
               to={next.href}
+              reloadDocument={crossesWorkshopBoundary(pathname, next.href)}
               className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               {next.label}

@@ -20,6 +20,7 @@ import { proseComponents } from "~/components/tokens/prose-components"
 import { Button } from "~/components/ui/button"
 import { SidebarProvider, SidebarTrigger, useSidebar } from "~/components/ui/sidebar"
 import type { TOCItem } from "~/lib/remark-toc-export"
+import { crossesWorkshopBoundary, isWorkshopPage } from "~/lib/workshop-route"
 import type { Route } from "./+types/root"
 import "./app.css"
 
@@ -47,13 +48,15 @@ const themeScript = `
 const umamiWebsiteId = import.meta.env.VITE_UMAMI_WEBSITE_ID
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const workshop = isWorkshopPage(useLocation().pathname)
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        {umamiWebsiteId ?
+        {umamiWebsiteId && !workshop ?
           (
             <script
               defer
@@ -113,7 +116,8 @@ export default function App() {
     <MDXProvider components={proseComponents}>
       {hasToc && <TableOfContents toc={toc} />}
       <div
-        className={location.pathname.replace(/\/$/, "") === "/examples/virtual-build"
+        className={isWorkshopPage(location.pathname) ||
+            location.pathname.replace(/\/$/, "") === "/examples/virtual-build"
           ? "mx-auto w-full max-w-[105ch]"
           : "mx-auto w-full max-w-[70ch]"}
       >
@@ -154,6 +158,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 }
 
 function SiteHeader() {
+  const { pathname } = useLocation()
   const { state, isMobile } = useSidebar()
   const sidebarVisible = state === "expanded" && !isMobile
 
@@ -163,6 +168,7 @@ function SiteHeader() {
       {!sidebarVisible && (
         <Link
           to="/"
+          reloadDocument={crossesWorkshopBoundary(pathname, "/")}
           className="font-heading text-base font-semibold tracking-[-0.035em]"
         >
           effect-virtual-fs
