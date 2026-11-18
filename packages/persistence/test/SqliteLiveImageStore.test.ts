@@ -25,6 +25,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { SqlClient } from "effect/sql/SqlClient"
 import { ConnectionError, SqlError } from "effect/sql/SqlError"
 import * as SqliteLiveImageStore from "../src/SqliteLiveImageStore.js"
+import { liveImageStoreContract } from "./helpers/liveImageStoreContract.js"
+import { storeFixture } from "./helpers/storeFixture.js"
 
 const volume = {
   maxEntries: 100,
@@ -710,4 +712,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
         assert.strictEqual((yield* Effect.flip(caller.stat("/"))).code, "VolumeUnavailable")
       })).pipe(Effect.provide(injected))
     })))
+})
+
+liveImageStoreContract({
+  name: "SQLite",
+  fixture: storeFixture("SQLite"),
+  pendingWritesCompleteOnClose: false,
+  rollback: true
 })

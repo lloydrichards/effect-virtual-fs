@@ -24,7 +24,7 @@ sources:
     resource: https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/
     title: Durable Object SQLite storage and transactions
   - id: local-replay
-    resource: ../../packages/persistence/test/WorkspaceReplayQualification.test.ts
+    resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Local SQLite image and replay transaction qualification
   - id: do-lifecycle
     resource: https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/
@@ -96,7 +96,7 @@ readable, the candidate checkpoint absent, and the operation ID available for a 
 Run the local qualification after building the persistence package and its dependencies.
 
 ```sh
-bun run --cwd packages/persistence test WorkspaceReplayQualification.test.ts
+bun run --cwd packages/persistence test CheckpointStore.test.ts
 ```
 
 This qualifies transaction composition with CheckpointStore on one local SQLite file. The production
