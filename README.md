@@ -95,6 +95,7 @@ bun run build
 - [Snapshot search](apps/docs/app/content/guides/snapshot-search.mdx) finds filenames and content in captured state.
 - [Overlay guide](apps/docs/app/content/guides/overlay-filesystems.mdx) combines independent edits with snapshot deltas.
 - [Agent toolkit and MCP demo](apps/demo-agent-tools/README.md) exposes a disposable virtual workspace through MCPJam.
+- [Image tile workshop](apps/docs/app/content/examples/image-tile-workshop.mdx) shares source pixels across browser workers and publishes tiles to one VFS.
 - [Virtual build example](apps/virtual-build/README.md) runs Vite over virtual files.
 
 Reference repositories under `.reference/` are optional and excluded from builds.

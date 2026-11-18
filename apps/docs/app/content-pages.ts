@@ -84,6 +84,13 @@ export const contentPages = [
     contentPath: "content/examples/virtual-build.mdx"
   },
   {
+    section: "Examples",
+    label: "Image Tile Workshop",
+    href: "/examples/image-tile-workshop",
+    routePath: "examples/image-tile-workshop",
+    contentPath: "content/examples/image-tile-workshop.mdx"
+  },
+  {
     section: "Reference",
     label: "Compatibility and Limits",
     href: "/reference/compatibility-and-limits",

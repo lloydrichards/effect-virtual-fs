@@ -97,3 +97,5 @@ For a server-side example, see [Save and restore SQLite checkpoints](/guides/sql
 1. Open Chrome DevTools and find **Browser filesystem** under **Sources → Threads**. On the dev server, switch to that thread and set a breakpoint in the build handler in `workspace.worker.ts`. Published builds bundle the script as `workspace.worker-*`. [Chrome DevTools thread controls](https://developer.chrome.com/docs/devtools/javascript/reference)
 2. Select **Build and run**. If you set a breakpoint, resume execution when the debugger pauses. Look for `Reading: 20` under **Console output** when running the starter source. The sandbox runner exists only while the compiled code runs.
 3. Select **Save checkpoint** and check **Application → IndexedDB** for `workspace.sqlite` in the `effect-vfs-checkpoints` database. Reload and select **Reopen saved** to verify that a new worker can restore the saved bytes.
+
+The [Image Tile Workshop](/examples/image-tile-workshop) adds multiple compute workers that read the same shared pixel buffer.

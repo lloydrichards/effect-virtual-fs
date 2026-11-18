@@ -1,0 +1,84 @@
+import { WorkerFlowDiagram } from "~/components/worker-flow-diagram"
+import ImageTileWorkshop from "~/examples/image-tile-workshop/Workshop"
+
+# Share a browser filesystem across workers
+
+Render an image in 12 tiles with three tile workers. Then rebuild one tile on
+a different worker and follow its replacement through Effect VFS.
+
+<ImageTileWorkshop />
+
+## Follow the worker handoff
+
+Select **Load sample** to switch the source image and clear the previous render.
+For these steps, use **Blur**, **3** workers, and the **4 × 3** tile grid.
+
+1. Select **Render**. The image fills in as the compositor opens the tile files. The byte count next to **Worker progress** shows the size of the one `SharedArrayBuffer` that holds the decoded pixels.
+2. Select **Tile 6**. The inspector shows `/tiles/2-2.png` and **Version 1 · Worker 3**.
+3. Open **Tile history** and select **Rebuild tile**. The history shows **Worker 3 → Worker 1**. The preview still shows version 1 while Worker 1 uses the shared source pixels to rebuild the tile.
+4. Watch for **Committed · awaiting compositor**. The filesystem worker has renamed the new file onto the same path. Version 1 stays in the preview until the compositor opens the replacement.
+5. The preview now shows **Version 2 · Worker 1**. The blur is deterministic, so the pixels look the same. The version and history show what changed.
+6. Hold **Shift** and select another tile, or turn on **Multi-select** and tap another tile. Choose **Invert colors**, then select **Rebuild 2 tiles**. The selected tiles change while the rest of the image stays as it was. Watch the worker bars count published tiles and the compositor count applied tiles.
+7. If **Multi-select** is on, turn it off. Select one tile and choose a destination under **Swap with position**. The tiles trade places in the preview and the downloaded PNG. Each tile keeps its VFS path and version, and rebuilding it updates its new position. A full **Render** starts a fresh grid.
+
+Open **Inspect virtual filesystem** to see the tile files grouped under `/tiles`. Select a file to inspect its tile. **Download PNG** writes the composed image to `/output/result.png`.
+
+## Change the render setup
+
+Open **Render settings** to choose two to four workers and a grid of 4, 12, or 24 tiles.
+Select **Render** to apply the settings to the current image and create a fresh volume. The previous
+tile versions and selection reset. The walkthrough uses the default three workers
+and 12 tiles. To apply a different effect to every tile, change **Effect** and select **Render**.
+
+## Follow a tile from pixels to preview
+
+A dedicated Web Worker runs JavaScript on a separate thread from the page. React
+starts a render through `AtomRpc` and receives a stream of events. The filesystem
+worker owns the volume, an in-memory file tree, and assigns jobs to the tile workers. Each tile worker
+computes the requested effect from the source pixels.
+
+<WorkerFlowDiagram
+  label="From image to tile file"
+  steps={[
+    ["Page", "Decode the image and fill a shared pixel buffer."],
+    ["Tile workers", "Read the shared pixels and return PNG tiles."],
+    ["Filesystem worker", "Publish each PNG to one Effect VFS volume."],
+    ["Compositor", "Request committed PNGs by path and draw them."]
+  ]}
+/>
+
+The page copies the decoded RGBA pixels into one `SharedArrayBuffer`. The tile
+workers get views of the same backing memory, so each can read neighboring
+pixels for blur without a separate copy of the source image. The source buffer
+is read-only by convention once published. Each tile worker writes into its own
+output buffer and transfers the finished PNG as an ordinary `ArrayBuffer`.
+Effect RPC connects the page to the filesystem worker. Within a job, the
+filesystem worker talks to the tile workers and compositor through message ports.
+
+```ts title="Allocate the shared source"
+const pixels = new SharedArrayBuffer(source.byteLength)
+new Uint8ClampedArray(pixels).set(source)
+```
+
+The [filesystem worker](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/workshop.worker.ts)
+writes each tile to a staging path, then renames the completed file onto the
+final path. The compositor requests that path over a message port. Effect VFS
+gives the compositor one committed file to open even when a different tile
+worker rebuilds it. The inspector keeps the old preview visible until the
+compositor has applied the replacement.
+
+```ts title="Publish and open a tile"
+yield* filesystem.writeFile(stagingPath, png, { access: "write", create: "exclusive" })
+yield* filesystem.rename(stagingPath, path)
+
+// After the compositor requests the published path.
+const committedTile = yield* filesystem.readFile(path)
+```
+
+## Inspect the workers in DevTools
+
+1. Open Chrome DevTools, then select **Render**. In **Sources → Threads**, look for the VFS owner, three tile workers with the default settings, and the compositor. Published builds bundle their scripts as `workshop.worker-*` and `image.worker-*`. [Chrome DevTools thread controls](https://developer.chrome.com/docs/devtools/javascript/reference)
+2. In the page’s Console, evaluate `crossOriginIsolated`. This page needs `true` to share a `SharedArrayBuffer` with its workers.
+3. Rebuild a tile. Compare the worker assignment in **Tile history** with the later VFS commit and compositor read. On the dev server, set a breakpoint at the rename in `workshop.worker.ts` before rebuilding a single tile. Resume promptly so the request can finish.
+
+The preview paces events so you can follow their order. Use DevTools to measure how long work takes.

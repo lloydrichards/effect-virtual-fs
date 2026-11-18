@@ -1,3 +1,49 @@
 {
-  "buildCommand": "cd ../.. && bun run build --filter=@effect-vfs/docs"
+  "buildCommand": "cd ../.. && bun run build --filter=@effect-vfs/docs",
+  "headers": [
+    {
+      "source": "/examples/image-tile-workshop",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "require-corp"
+        }
+      ]
+    },
+    {
+      "source": "/assets/image.worker-:hash.js",
+      "headers": [
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "require-corp"
+        }
+      ]
+    },
+    {
+      "source": "/assets/workshop.worker-:hash.js",
+      "headers": [
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "require-corp"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/examples/image-tile-workshop",
+      "destination": "/examples/image-tile-workshop/index.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/examples/image-tile-workshop/run",
+      "destination": "/examples/image-tile-workshop",
+      "permanent": true
+    }
+  ]
 }
