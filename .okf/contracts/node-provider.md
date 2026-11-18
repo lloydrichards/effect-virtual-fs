@@ -13,9 +13,9 @@ sources:
     title: Direct Node provider
   - resource: ../../packages/node/src/internal/fileHandle.ts
     title: Node handle protocol
-  - resource: ../../packages/node/test/Provider.test.ts
+  - resource: ../../packages/node/test/NodeVirtualProvider.test.ts
     title: Direct provider behavior
-  - resource: ../../packages/node/test/Lifetime.test.ts
+  - resource: ../../packages/node/test/NodeVirtualProvider.test.ts
     title: Reentry and ownership lifetime
   - resource: ../../packages/node/README.md
     title: Runtime profile and commands
