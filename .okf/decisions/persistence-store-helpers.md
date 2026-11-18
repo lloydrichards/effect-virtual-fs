@@ -18,7 +18,7 @@ sources:
     resource: ../../packages/persistence/test/helpers/liveImageStoreContract.ts
     title: Reusable live-image behavior contracts
   - id: protocol-contract
-    resource: ../../packages/persistence/test/LiveImageProtocol.test.ts
+    resource: ../../packages/persistence/test/R2Store.test.ts
     title: Create-race and uncertain-initialization contracts
   - id: protocol-issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/238

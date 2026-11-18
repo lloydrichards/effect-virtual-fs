@@ -3,13 +3,13 @@ import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { ByteSize, Context, Effect, Exit, FileSystem, Layer, Path, Schema, Scope } from "effect"
 import { SqlClient } from "effect/sql/SqlClient"
 import { ConnectionError, SqlError } from "effect/sql/SqlError"
-import * as R2 from "../src/R2LiveImageStore.js"
-import * as Sqlite from "../src/SqliteLiveImageStore.js"
-import { liveImageStoreContract, type Phase } from "./helpers/liveImageStoreContract.js"
+import * as R2 from "../../src/R2Store.js"
+import * as Sqlite from "../../src/SqliteLiveImageStore.js"
+import type { Phase } from "./liveImageStoreContract.js"
 
 const limit = 16
 
-const fixture = Effect.fnUntraced(function*(backend: "SQLite" | "R2") {
+export const storeFixture = Effect.fnUntraced(function*(backend: "SQLite" | "R2") {
   const hooks = new Map<Phase, Effect.Effect<void, VfsError.StoreFailure>>()
   let writes = 0
   let reads = 0
@@ -146,12 +146,3 @@ const fixture = Effect.fnUntraced(function*(backend: "SQLite" | "R2") {
     operation: backend === "SQLite" ? "SqliteLiveImageStore.loadOrCreate" : "R2LiveImageStore.loadOrCreate"
   }
 })
-
-for (const backend of ["SQLite", "R2"] as const) {
-  liveImageStoreContract({
-    name: backend,
-    fixture: fixture(backend),
-    pendingWritesCompleteOnClose: backend === "R2",
-    rollback: backend === "SQLite"
-  })
-}
