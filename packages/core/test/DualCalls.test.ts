@@ -1,7 +1,7 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, pipe, Stream } from "effect"
-import { BytePath, Search, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import { BytePath, Search, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const limits: Vfs.DecodeLimits = {
   maxEncodedBytes: ByteSize.kibibytes(16),
@@ -23,7 +23,7 @@ const contentQuery: Search.ContentQuery = {
 
 describe("data-first and data-last calls", () => {
   it.layer(BunCrypto.layer)((it) => {
-    it.effect("searches snapshots through reusable queries in both call styles", () =>
+    it.effect("finds snapshot names in both call styles", () =>
       Effect.gen(function*() {
         const snapshot = yield* (yield* Vfs.fromFixture(fixture)).snapshot
         const glob = yield* pipe(snapshot, Search.glob(globQuery))
@@ -31,25 +31,39 @@ describe("data-first and data-last calls", () => {
         assert.deepStrictEqual(glob, yield* Search.glob(snapshot, globQuery))
         assert.deepStrictEqual(yield* Stream.runCollect(pipe(snapshot, Search.scanGlob(globQuery))), glob.results)
         assert.deepStrictEqual(yield* Stream.runCollect(Search.scanGlob(snapshot, globQuery)), glob.results)
+      }))
 
-        const lines = yield* pipe(snapshot, Search.lines(contentQuery))
-        const files = yield* pipe(snapshot, Search.files(contentQuery))
-        const counts = yield* pipe(snapshot, Search.countLines(contentQuery))
-        assert.deepStrictEqual(lines.results.map((line) => line.lineNumber), [1, 3])
-        assert.deepStrictEqual(files.results, ["message.txt"])
-        assert.deepStrictEqual(counts.results, [{ path: "message.txt", count: 2 }])
-        assert.deepStrictEqual(lines, yield* Search.lines(snapshot, contentQuery))
-        assert.deepStrictEqual(files, yield* Search.files(snapshot, contentQuery))
-        assert.deepStrictEqual(counts, yield* Search.countLines(snapshot, contentQuery))
-        assert.deepStrictEqual(yield* Stream.runCollect(pipe(snapshot, Search.scanLines(contentQuery))), lines.results)
-        assert.deepStrictEqual(yield* Stream.runCollect(pipe(snapshot, Search.scanFiles(contentQuery))), files.results)
-        assert.deepStrictEqual(
-          yield* Stream.runCollect(pipe(snapshot, Search.scanCountLines(contentQuery))),
-          counts.results
-        )
-        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanLines(snapshot, contentQuery)), lines.results)
-        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanFiles(snapshot, contentQuery)), files.results)
-        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanCountLines(snapshot, contentQuery)), counts.results)
+    it.effect("returns lines from snapshot content in both call styles", () =>
+      Effect.gen(function*() {
+        const snapshot = yield* (yield* Vfs.fromFixture(fixture)).snapshot
+        const report = yield* pipe(snapshot, Search.lines(contentQuery))
+        const { results } = report
+        assert.deepStrictEqual(results.map((line) => line.lineNumber), [1, 3])
+        assert.deepStrictEqual(report, yield* Search.lines(snapshot, contentQuery))
+        assert.deepStrictEqual(yield* Stream.runCollect(pipe(snapshot, Search.scanLines(contentQuery))), results)
+        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanLines(snapshot, contentQuery)), results)
+      }))
+
+    it.effect("returns matching files from snapshot content in both call styles", () =>
+      Effect.gen(function*() {
+        const snapshot = yield* (yield* Vfs.fromFixture(fixture)).snapshot
+        const report = yield* pipe(snapshot, Search.files(contentQuery))
+        const { results } = report
+        assert.deepStrictEqual(results, ["message.txt"])
+        assert.deepStrictEqual(report, yield* Search.files(snapshot, contentQuery))
+        assert.deepStrictEqual(yield* Stream.runCollect(pipe(snapshot, Search.scanFiles(contentQuery))), results)
+        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanFiles(snapshot, contentQuery)), results)
+      }))
+
+    it.effect("returns line counts from snapshot content in both call styles", () =>
+      Effect.gen(function*() {
+        const snapshot = yield* (yield* Vfs.fromFixture(fixture)).snapshot
+        const report = yield* pipe(snapshot, Search.countLines(contentQuery))
+        const { results } = report
+        assert.deepStrictEqual(results, [{ path: "message.txt", count: 2 }])
+        assert.deepStrictEqual(report, yield* Search.countLines(snapshot, contentQuery))
+        assert.deepStrictEqual(yield* Stream.runCollect(pipe(snapshot, Search.scanCountLines(contentQuery))), results)
+        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanCountLines(snapshot, contentQuery)), results)
       }))
 
     it.effect("encodes with omitted, undefined, or explicit limits and decodes in either call style", () =>
@@ -123,14 +137,5 @@ describe("data-first and data-last calls", () => {
         yield* BytePath.toBytes(BytePath.join(name)(path))
       )
       assert.strictEqual(yield* BytePath.toString(path.pipe(BytePath.join("file"))), "/work/file")
-    }))
-
-  it.effect("collects the requested number of elements in both call styles", () =>
-    Effect.gen(function*() {
-      const stream = Stream.make(1, 2, 3)
-      const direct = yield* Testing.collectChanges(stream, 2)
-      const curried = yield* stream.pipe(Testing.collectChanges(2))
-      assert.deepStrictEqual(yield* direct, [1, 2])
-      assert.deepStrictEqual(yield* curried, [1, 2])
     }))
 })

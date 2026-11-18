@@ -8050,11 +8050,10 @@ describe("ReadOnlyOperations", () => {
         assert.deepStrictEqual(unknown.operations[1], { code: Operation.ILLEGAL, status: Status.OP_ILLEGAL })
       }).pipe(Effect.provide(Testing.layer())))
 
-    it.effect("should complete COMMIT, PUTPUBFH, and SECINFO on a read-only export when COMMIT, PUTPUBFH, or SECINFO is sent", () =>
+    it.effect("should select the root handle when PUTPUBFH is sent to a read-only export", () =>
       Effect.gen(function*() {
         const caller = yield* Vfs.Caller
-        yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
-        const { handler, session } = yield* openSession(caller, "commit")
+        const { handler, session } = yield* openSession(caller, "putpubfh")
 
         const handles = yield* run(
           handler,
@@ -8072,11 +8071,18 @@ describe("ReadOnlyOperations", () => {
 
         assert.strictEqual(handles.status, Status.OK)
         assert.deepStrictEqual(handles.operations[2]!.value, handles.operations[4]!.value)
+      }).pipe(Effect.provide(Testing.layer())))
+
+    it.effect("should return a COMMIT verifier for a file and reject a directory on a read-only export", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+        const { handler, session } = yield* openSession(caller, "commit")
 
         const commit = yield* run(
           handler,
           call([
-            sequence(session, 2),
+            sequence(session, 1),
             (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
 
             (writer) =>
@@ -8103,7 +8109,7 @@ describe("ReadOnlyOperations", () => {
         const commitDirectory = yield* run(
           handler,
           call([
-            sequence(session, 3),
+            sequence(session, 2),
             (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
 
             (writer) =>
@@ -8116,11 +8122,18 @@ describe("ReadOnlyOperations", () => {
         )
 
         assert.strictEqual(commitDirectory.status, Status.ISDIR)
+      }).pipe(Effect.provide(Testing.layer())))
+
+    it.effect("should report SECINFO flavors and clear the current handle on a read-only export", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+        const { handler, session } = yield* openSession(caller, "secinfo")
 
         const secinfo = yield* run(
           handler,
           call([
-            sequence(session, 4),
+            sequence(session, 1),
             (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
 
             (writer) =>
@@ -8138,7 +8151,7 @@ describe("ReadOnlyOperations", () => {
         const missing = yield* run(
           handler,
           call([
-            sequence(session, 5),
+            sequence(session, 2),
             (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
 
             (writer) =>

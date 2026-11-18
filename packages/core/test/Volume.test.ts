@@ -73,15 +73,18 @@ it.layer(BunCrypto.layer)((it) => {
     }))
 
   it.effect(
-    "should publish durability identity and incarnation when a memory volume is constructed",
+    "should publish durability identity and incarnation when memory volumes are constructed",
     () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.make()
+        const next = yield* Vfs.make()
 
         assert.strictEqual(volume.durability, "memory-only")
         assert.strictEqual(volume.identity, "11111111111111111111111111111111")
         assert.strictEqual(volume.incarnation, "22222222222222222222222222222222")
-      }).pipe(Effect.provide(cryptoLayer(0x11, 0x22)))
+        assert.notStrictEqual(next.identity, volume.identity)
+        assert.notStrictEqual(next.incarnation, volume.incarnation)
+      }).pipe(Effect.provide(cryptoLayer(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88)))
   )
 })
 

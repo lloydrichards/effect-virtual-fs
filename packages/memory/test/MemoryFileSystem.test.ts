@@ -726,28 +726,6 @@ it.layer(NodeCrypto.layer)((it) => {
     }))
 })
 
-it.layer(NodeCrypto.layer)((it) => {
-  it.effect("should give each core volume a distinct identity and incarnation when no crypto service is provided", () =>
-    Effect.gen(function*() {
-      const first = yield* Vfs.make()
-      const second = yield* Vfs.make()
-
-      assert.notStrictEqual(first.identity, second.identity)
-      assert.notStrictEqual(first.incarnation, second.incarnation)
-      assert.notStrictEqual(String(first.identity), String(first.incarnation))
-    }))
-})
-
-it.layer(NodeCrypto.layer)((it) => {
-  it.effect("should draw identities from a supplied crypto service when one is in context", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-
-      assert.strictEqual(volume.identity, "07".repeat(16))
-      assert.strictEqual(volume.incarnation, "07".repeat(16))
-    }).pipe(Effect.provide(suppliedCrypto)))
-})
-
 const GUEST = { uid: 1, gid: 1, groups: [], privileged: false } as const
 
 // A guest bound to a volume with a guest-owned /work, so permission checks apply as they do to an unprivileged

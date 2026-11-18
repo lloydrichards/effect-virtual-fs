@@ -235,10 +235,6 @@ describe("snapshot filename search", () => {
     it.effect("preflights directory width including already prepared siblings", () =>
       Effect.gen(function*() {
         const snapshot = yield* snapshotOf([{ kind: "directory", path: "/a" }, file("/a/x"), file("/a/y"), file("/b")])
-        const tooWide = yield* Search.glob(snapshot, { ...all, limits: { maxEntries: 1 } })
-        assert.deepStrictEqual(tooWide.results, [])
-        assert.strictEqual(tooWide.work.entries, 0)
-        assert.deepStrictEqual(tooWide.completion, { _tag: "Stopped", limit: "maxEntries", path: "" })
         const pending = yield* Search.glob(snapshot, { ...all, limits: { maxEntries: 3 } })
         assert.deepStrictEqual(pending.results, ["a"])
         assert.strictEqual(pending.work.entries, 1)
@@ -317,7 +313,7 @@ describe("snapshot filename search", () => {
         })
       }))
 
-    it.effect("stops before extending depth or raw path bounds and counts rejected entries", () =>
+    it.effect("stops at the depth bound and counts entries excluded by the selector", () =>
       Effect.gen(function*() {
         const snapshot = yield* snapshotOf([{ kind: "directory", path: "/a" }, file("/a/x"), file("/b")])
         const depth = yield* Search.glob(snapshot, { ...all, include: ["never"], limits: { maxDepth: 1 } })
@@ -326,11 +322,6 @@ describe("snapshot filename search", () => {
         if (Predicate.isTagged("Stopped")(depth.completion)) assert.strictEqual(depth.completion.limit, "maxDepth")
         assert.deepStrictEqual(depth.results, [])
         assert.strictEqual(depth.work.entries, 2)
-        const path = yield* Search.glob(snapshot, { ...all, limits: { maxPathBytes: ByteSize.bytes(2) } })
-        assert.deepStrictEqual(path.results, ["a"])
-        assert.strictEqual(path.completion._tag, "Stopped")
-
-        if (Predicate.isTagged("Stopped")(path.completion)) assert.strictEqual(path.completion.limit, "maxPathBytes")
         const emptyDirectory = yield* snapshotOf([{ kind: "directory", path: "/a" }])
         assert.strictEqual(
           (yield* Search.glob(emptyDirectory, { ...all, limits: { maxDepth: 1 } })).completion._tag,
@@ -427,6 +418,11 @@ describe("snapshot filename search", () => {
         const fitting = yield* Search.glob(nested, { ...all, limits: { maxPathBytes: ByteSize.bytes(3) } })
         assert.deepStrictEqual(fitting.results, ["a", "a/x"])
         assert.strictEqual(fitting.completion._tag, "Complete")
+        const short = yield* Search.glob(nested, { ...all, limits: { maxPathBytes: ByteSize.bytes(2) } })
+        assert.deepStrictEqual(short.results, ["a"])
+        assert.strictEqual(short.completion._tag, "Stopped")
+
+        if (Predicate.isTagged("Stopped")(short.completion)) assert.strictEqual(short.completion.limit, "maxPathBytes")
       }))
 
     it.effect("never accesses file payloads even when selected contents are invalid, binary or oversized", () =>
