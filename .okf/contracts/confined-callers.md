@@ -13,7 +13,7 @@ sources:
     title: Escape, scope, staged removal, and rejected commit acceptance
   - resource: ../../packages/core/test/CallerWatch.test.ts
     title: Alias selection, terminal delivery, and imported authority acceptance
-  - resource: ../../packages/memory/test/BindCaller.test.ts
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Borrowed adapter and temporary cleanup acceptance
 generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---

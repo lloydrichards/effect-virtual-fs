@@ -72,7 +72,7 @@ does not cover it.
   Avoid `Effect.runSync` inside Effect tests.
 - For changes to observable `FileSystem` behavior, inspect the
   [adapter compatibility suite](../../../packages/memory/test/FileSystemTest.ts) and the
-  [borrowed caller binding tests](../../../packages/memory/test/BindCaller.test.ts).
+  [borrowed caller binding tests](../../../packages/memory/test/MemoryFileSystem.test.ts).
 - For public type changes, inspect and extend the relevant compile-time contracts for
   [API composition](../../../packages/core/contracts/ApiTypes.ts) or
   [engine ownership](../../../packages/core/contracts/EngineOwnership.ts).

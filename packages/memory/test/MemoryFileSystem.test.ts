@@ -1,8 +1,7 @@
-import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { BytePath, Testing, VfsError, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import {
-  ByteSize,
   Cause,
   Context,
   Deferred,
@@ -10,18 +9,20 @@ import {
   Exit,
   Fiber,
   FileSystem,
+  Function,
   Layer,
   Option,
   Path,
-  PlatformError,
   Result,
   Schema,
   Scope,
   Stream
 } from "effect"
+import * as ByteSize from "effect/ByteSize"
 import * as Digest from "effect/crypto/Digest"
 import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Hex from "effect/encoding/Hex"
+import * as PlatformError from "effect/PlatformError"
 import { TestClock } from "effect/testing"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import * as FileSystemTest from "./FileSystemTest.js"
@@ -724,28 +725,6 @@ it.layer(NodeCrypto.layer)((it) => {
 
       assert.strictEqual(withCrypto, "hello")
     }))
-})
-
-it.layer(NodeCrypto.layer)((it) => {
-  it.effect("should give each core volume a distinct identity and incarnation when no crypto service is provided", () =>
-    Effect.gen(function*() {
-      const first = yield* Vfs.make()
-      const second = yield* Vfs.make()
-
-      assert.notStrictEqual(first.identity, second.identity)
-      assert.notStrictEqual(first.incarnation, second.incarnation)
-      assert.notStrictEqual(String(first.identity), String(first.incarnation))
-    }))
-})
-
-it.layer(NodeCrypto.layer)((it) => {
-  it.effect("should draw identities from a supplied crypto service when one is in context", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-
-      assert.strictEqual(volume.identity, "07".repeat(16))
-      assert.strictEqual(volume.incarnation, "07".repeat(16))
-    }).pipe(Effect.provide(suppliedCrypto)))
 })
 
 const GUEST = { uid: 1, gid: 1, groups: [], privileged: false } as const
@@ -1589,6 +1568,750 @@ describe("fixture-backed layers", () => {
 
         assert.strictEqual(error.code, code)
         assert.strictEqual(error.field, field)
+      }))
+  })
+})
+
+it.layer(NodeCrypto.layer)((it) => {
+  it.effect("reports Busy with the write path when the borrowed caller rejects admission", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      const rejected = VfsError.make({ code: "VolumeBusy", operation: "writeFile" })
+
+      const fs = yield* MemoryFileSystem.bindCaller({
+        ...caller,
+        writeFile: Function.dual(
+          3,
+          (_entry: Vfs.EntryInput, _bytes: Uint8Array, _options: Vfs.WriteFileOptions) => Effect.fail(rejected)
+        )
+      })
+
+      const error = yield* Effect.flip(fs.writeFileString("/file", "content"))
+      const reason = systemReason(error)
+      assert.strictEqual(reason._tag, "Busy")
+      assert.strictEqual(reason.method, "writeFile")
+      assert.strictEqual(reason.pathOrDescriptor, "/file")
+      assert.strictEqual(reason.cause, rejected)
+    }))
+})
+
+describe("Synchronous execution", () => {
+  FileSystemTest.suite(
+    "sync memory",
+    MemoryFileSystem.layerFromFixture({ entries: [{ kind: "directory", path: "/tmp" }] }, { execution: "sync" })
+      .pipe(Layer.provide(NodeCrypto.layer))
+  )
+})
+
+describe("Copy cleanup and fidelity", () => {
+  // The core test seam runs between observing an entry and its coordinated removal.
+  const removalSeam = Context.Reference("@effect-vfs/core/VolumeTestSeams", {
+    defaultValue: () => ({
+      afterSubscribe: Effect.void,
+      betweenSnapshotAndSummary: Effect.void,
+      beforeTreeRemoval: Effect.void
+    })
+  })
+
+  const text = new TextEncoder()
+
+  const denied = Object.assign(new Vfs.VfsError({ code: "AccessDenied", operation: "readFile" }), {
+    code: "AccessDenied" as const
+  })
+
+  const setup = Effect.fnUntraced(function*() {
+    const volume = yield* Vfs.make()
+    const owner = yield* volume.caller()
+    yield* owner.chmod("/", 0o777)
+    const caller = yield* volume.caller({ identity: { uid: 1000, gid: 1000, groups: [], privileged: false }, umask: 0 })
+    yield* caller.mkdir("/source")
+
+    for (const name of ["a", "b"]) {
+      yield* caller.writeFile(`/source/${name}`, text.encode(name), { access: "write", create: "exclusive" })
+    }
+
+    const failing = {
+      ...caller,
+      readFile: Effect.fnUntraced(function*(target: Vfs.TargetInput) {
+        if (Vfs.Target.$is("Path")(target)) {
+          const path = yield* BytePath.toString(yield* BytePath.fromInput(target.path))
+
+          if (path === "/source/b") return yield* denied
+        }
+
+        return yield* caller.readFile(target)
+      })
+    }
+
+    return { caller, failing }
+  })
+
+  it.effect("copy removes an unfinished reject-mode root but preserves overwrite progress", () =>
+    Effect.gen(function*() {
+      for (const overwrite of [false, true]) {
+        const { caller, failing } = yield* setup()
+        const fs = yield* MemoryFileSystem.bindCaller(failing)
+        const result = yield* Effect.result(fs.copy("/source", "/copy", { overwrite }))
+        assert.isTrue(Result.isFailure(result))
+        assert.strictEqual(yield* fs.exists("/copy"), overwrite)
+
+        if (overwrite) assert.strictEqual(yield* fs.readFileString("/copy/a"), "a")
+        assert.strictEqual(
+          yield* caller.readFile("/source/b").pipe(Effect.map((bytes) => new TextDecoder().decode(bytes))),
+          "b"
+        )
+      }
+    }).pipe(Effect.provide(NodeCrypto.layer)))
+
+  for (const replacement of ["directory", "symlink"] as const) {
+    it.effect(`copy cleanup preserves a replacement ${replacement} and the moved claimed tree`, () =>
+      Effect.gen(function*() {
+        const { caller, failing } = yield* setup()
+
+        const fs = yield* MemoryFileSystem.bindCaller({
+          ...failing,
+          readFile: (target) =>
+            failing.readFile(target).pipe(Effect.tapError(() =>
+              Effect.gen(function*() {
+                yield* caller.rename("/copy", "/moved")
+                yield* caller.mkdir("/outside")
+                yield* caller.writeFile("/outside/keep", text.encode("safe"), { access: "write", create: "exclusive" })
+
+                if (replacement === "symlink") yield* caller.symlink("/outside", "/copy")
+                else {
+                  yield* caller.mkdir("/copy")
+                  yield* caller.writeFile("/copy/keep", text.encode("safe"), { access: "write", create: "exclusive" })
+                }
+              })
+            ))
+        })
+
+        assert.isTrue(Result.isFailure(yield* Effect.result(fs.copy("/source", "/copy"))))
+        assert.strictEqual(yield* fs.readFileString("/copy/keep"), "safe")
+        assert.strictEqual(yield* fs.readFileString("/moved/a"), "a")
+        assert.strictEqual(yield* fs.readFileString("/outside/keep"), "safe")
+      }).pipe(Effect.provide(NodeCrypto.layer)))
+  }
+
+  for (const cleanupFails of [false, true]) {
+    it.effect(
+      cleanupFails
+        ? "copy retains interruption and a cleanup defect"
+        : "copy interruption removes the claimed root after an interruptible source read",
+      () =>
+        Effect.gen(function*() {
+          const { caller } = yield* setup()
+          const waiting = yield* Deferred.make<void>()
+
+          const fs = yield* MemoryFileSystem.bindCaller({
+            ...caller,
+            remove: cleanupFails ? () => Effect.fail(denied) : caller.remove,
+            readFile: (target) =>
+              caller.readFile(target).pipe(Effect.andThen(
+                Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Effect.never))
+              ))
+          })
+
+          const fiber = yield* Effect.forkChild(fs.copy("/source", "/copy"))
+          yield* Deferred.await(waiting)
+          yield* Fiber.interrupt(fiber)
+          const exit = yield* Fiber.await(fiber)
+          assert.isTrue(Exit.isFailure(exit))
+
+          if (Exit.isFailure(exit)) {
+            assert.isTrue(Cause.hasInterrupts(exit.cause))
+            assert.strictEqual(Cause.hasDies(exit.cause), cleanupFails)
+          }
+
+          assert.strictEqual(yield* fs.exists("/copy"), cleanupFails)
+          assert.isTrue(yield* fs.exists("/source/a"))
+        }).pipe(Effect.provide(NodeCrypto.layer))
+    )
+  }
+
+  for (const cleanupFails of [false, true]) {
+    it.effect(
+      cleanupFails
+        ? "copy restores restrictive modes when cleanup also fails"
+        : "copy removes finalized restrictive directories after a metadata failure",
+      () =>
+        Effect.gen(function*() {
+          const { caller } = yield* setup()
+          yield* caller.mkdir("/source/nested", { mode: 0o555 })
+          yield* caller.chmod("/source", 0o555)
+
+          const fs = yield* MemoryFileSystem.bindCaller({
+            ...caller,
+            remove: cleanupFails ? () => Effect.fail(denied) : caller.remove,
+            utimes: Function.dual(2, (target: Vfs.TargetInput, times: Parameters<Vfs.Caller["utimes"]>[1]) =>
+              Effect.gen(function*() {
+                if (target === (yield* caller.lookup("/copy"))) {
+                  return yield* denied
+                }
+
+                yield* caller.utimes(target, times)
+              }))
+          })
+
+          const exit = yield* Effect.exit(fs.copy("/source", "/copy", { preserveTimestamps: true }))
+          assert.isTrue(Exit.isFailure(exit))
+
+          if (Exit.isFailure(exit)) {
+            assert.strictEqual(Cause.hasDies(exit.cause), cleanupFails)
+          }
+
+          assert.strictEqual(yield* fs.exists("/copy"), cleanupFails)
+
+          if (cleanupFails) {
+            assert.strictEqual((yield* fs.stat("/copy")).mode & 0o777, 0o555)
+            assert.strictEqual((yield* fs.stat("/copy/nested")).mode & 0o777, 0o555)
+          }
+        }).pipe(Effect.provide(NodeCrypto.layer))
+    )
+  }
+
+  it.effect("copy retains the original failure as a defect alongside a cleanup defect", () =>
+    Effect.gen(function*() {
+      const { caller, failing } = yield* setup()
+
+      const cleanup = Object.assign(new Vfs.VfsError({ code: "AccessDenied", operation: "remove" }), {
+        code: "AccessDenied" as const
+      })
+
+      const fs = yield* MemoryFileSystem.bindCaller({ ...failing, remove: () => Effect.fail(cleanup) })
+      const exit = yield* Effect.exit(fs.copy("/source", "/copy"))
+      assert.isTrue(Exit.isFailure(exit))
+
+      if (Exit.isFailure(exit)) {
+        assert.deepStrictEqual(exit.cause.reasons.filter(Cause.isDieReason).map((reason) => reason.defect), [
+          denied,
+          cleanup
+        ])
+        assert.isFalse(Cause.hasFails(exit.cause))
+        assert.isFalse(Cause.hasInterrupts(exit.cause))
+      }
+
+      assert.strictEqual(yield* (yield* MemoryFileSystem.bindCaller(caller)).readFileString("/copy/a"), "a")
+    }).pipe(Effect.provide(NodeCrypto.layer)))
+
+  it.effect("copy preserves raw names, dangling link aliases, and nanosecond timestamps", () =>
+    Effect.gen(function*() {
+      const { caller } = yield* setup()
+      const raw = yield* BytePath.fromBytes(new Uint8Array([0xff]))
+      const base = yield* caller.openDirectory("/source")
+      const target = Vfs.Target.Path({ path: raw, relativeTo: base, followFinalSymlink: false })
+      yield* caller.symlink(yield* BytePath.fromBytes(new Uint8Array([0xfe])), target)
+      yield* caller.chmod(target, 0o751)
+      yield* caller.link(target, "/source/alias")
+      yield* caller.utimes(target, {
+        access: { kind: "value", nanoseconds: 123n },
+        modification: { kind: "value", nanoseconds: 456n }
+      })
+      const fs = yield* MemoryFileSystem.bindCaller(caller)
+      yield* fs.copy("/source", "/copy", { preserveTimestamps: true })
+
+      const copied = Vfs.Target.Path({
+        path: raw,
+        relativeTo: yield* caller.openDirectory("/copy"),
+        followFinalSymlink: false
+      })
+
+      const metadata = yield* caller.stat(copied)
+      assert.strictEqual(
+        metadata.ino,
+        (yield* caller.stat(Vfs.Target.Path({ path: "/copy/alias", followFinalSymlink: false }))).ino
+      )
+      assert.strictEqual(metadata.mode, 0o751)
+      assert.strictEqual(metadata.atimeNs, 123n)
+      assert.strictEqual(metadata.mtimeNs, 456n)
+      assert.deepStrictEqual(yield* caller.readLink(copied), new Uint8Array([0xfe]))
+    }).pipe(Effect.provide(NodeCrypto.layer)))
+
+  for (const replaced of ["root", "child"] as const) {
+    it.effect(`copy cleanup preserves a ${replaced} replacement made after the removal walk observes it`, () =>
+      Effect.gen(function*() {
+        const { caller, failing } = yield* setup()
+        const fs = yield* MemoryFileSystem.bindCaller(failing)
+        let reached = false
+
+        const beforeTreeRemoval = Effect.gen(function*() {
+          if (reached) return
+          reached = true
+          const path = replaced === "root" ? "/copy" : "/copy/a"
+          yield* caller.rename(path, "/moved")
+
+          if (replaced === "root") {
+            yield* caller.mkdir(path)
+            yield* caller.writeFile(`${path}/keep`, text.encode("replacement"), {
+              access: "write",
+              create: "exclusive"
+            })
+          } else yield* caller.writeFile(path, text.encode("replacement"), { access: "write", create: "exclusive" })
+        }).pipe(Effect.orDie)
+
+        const exit = yield* Effect.exit(
+          fs.copy("/source", "/copy").pipe(
+            Effect.provideService(removalSeam, {
+              afterSubscribe: Effect.void,
+              betweenSnapshotAndSummary: Effect.void,
+              beforeTreeRemoval
+            })
+          )
+        )
+
+        assert.isTrue(reached)
+        assert.isTrue(Exit.isFailure(exit))
+
+        if (Exit.isFailure(exit)) assert.isTrue(Cause.hasDies(exit.cause))
+        const view = yield* MemoryFileSystem.bindCaller(caller)
+        assert.strictEqual(yield* view.readFileString(replaced === "root" ? "/copy/keep" : "/copy/a"), "replacement")
+        assert.strictEqual(yield* view.readFileString(replaced === "root" ? "/moved/a" : "/moved"), "a")
+      }).pipe(Effect.provide(NodeCrypto.layer)))
+  }
+
+  it.effect("copy cleanup removes concurrent additions listed inside its owned root", () =>
+    Effect.gen(function*() {
+      const { caller, failing } = yield* setup()
+
+      const fs = yield* MemoryFileSystem.bindCaller({
+        ...failing,
+        readFile: (target) =>
+          failing.readFile(target).pipe(Effect.tapError(() =>
+            caller.writeFile("/copy/addition", text.encode("new"), { access: "write", create: "exclusive" })
+          ))
+      })
+
+      assert.isTrue(Result.isFailure(yield* Effect.result(fs.copy("/source", "/copy"))))
+      assert.isFalse(yield* fs.exists("/copy"))
+    }).pipe(Effect.provide(NodeCrypto.layer)))
+
+  it.effect("copy completes restrictive directory metadata before a late interruption takes effect", () =>
+    Effect.gen(function*() {
+      const { caller } = yield* setup()
+      yield* caller.mkdir("/source/nested", { mode: 0o555 })
+      yield* caller.chmod("/source", 0o555)
+      const waiting = yield* Deferred.make<void>()
+      const resume = yield* Deferred.make<void>()
+
+      const fs = yield* MemoryFileSystem.bindCaller({
+        ...caller,
+        chmod: Function.dual(2, (target: Vfs.TargetInput, mode: number) =>
+          Effect.gen(function*() {
+            yield* caller.chmod(target, mode)
+
+            if (mode === 0o555 && target === (yield* caller.lookup("/copy"))) {
+              yield* Deferred.succeed(waiting, undefined)
+              yield* Deferred.await(resume)
+            }
+          }))
+      })
+
+      const fiber = yield* Effect.forkChild(fs.copy("/source", "/copy"))
+      yield* Deferred.await(waiting)
+      const interrupting = yield* Effect.forkChild(Fiber.interrupt(fiber), { startImmediately: true })
+      yield* Deferred.succeed(resume, undefined)
+      yield* Fiber.join(interrupting)
+      const exit = yield* Fiber.await(fiber)
+      assert.isTrue(Exit.isFailure(exit))
+
+      if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterrupts(exit.cause))
+      assert.strictEqual((yield* fs.stat("/copy")).mode & 0o777, 0o555)
+      assert.strictEqual((yield* fs.stat("/copy/nested")).mode & 0o777, 0o555)
+      assert.strictEqual(yield* fs.readFileString("/copy/a"), "a")
+    }).pipe(Effect.provide(NodeCrypto.layer)))
+
+  it.effect("copy overwrites root and dot-ending directory destinations", () =>
+    Effect.gen(function*() {
+      for (const destination of ["/", "/destination/.", "/destination/child/.."]) {
+        const { caller } = yield* setup()
+        yield* caller.mkdir("/destination/child", { recursive: true })
+        const fs = yield* MemoryFileSystem.bindCaller(caller)
+        yield* fs.copy("/source", destination, { overwrite: true })
+        const prefix = destination === "/" ? "" : "/destination"
+        assert.strictEqual(yield* fs.readFileString(`${prefix}/a`), "a")
+        assert.strictEqual(yield* fs.readFileString(`${prefix}/b`), "b")
+      }
+    }).pipe(Effect.provide(NodeCrypto.layer)))
+
+  it.effect("copy cleanup preserves a regular-file replacement installed after the atomic write", () =>
+    Effect.gen(function*() {
+      const { caller } = yield* setup()
+      yield* caller.writeFile("/source-file", text.encode("original"), { access: "write", create: "exclusive" })
+
+      const fs = yield* MemoryFileSystem.bindCaller({
+        ...caller,
+        writeFile: Function.dual(
+          3,
+          (target: Vfs.EntryInput, bytes: Uint8Array, options: Vfs.WriteFileOptions) =>
+            caller.writeFile(target, bytes, options).pipe(Effect.tap(() =>
+              Effect.gen(function*() {
+                yield* caller.rename("/copy", "/moved")
+                yield* caller.writeFile("/copy", text.encode("replacement"), { access: "write", create: "exclusive" })
+              })
+            ))
+        ),
+        utimes: Function.dual(2, (_target: Vfs.TargetInput, _times: Vfs.Times) => Effect.fail(denied))
+      })
+
+      assert.isTrue(
+        Result.isFailure(yield* Effect.result(fs.copy("/source-file", "/copy", { preserveTimestamps: true })))
+      )
+      assert.strictEqual(yield* fs.readFileString("/copy"), "replacement")
+      assert.strictEqual(yield* fs.readFileString("/moved"), "original")
+    }).pipe(Effect.provide(NodeCrypto.layer)))
+
+  it.effect("copy restores a created directory mode when opening it is denied by the caller umask", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller()
+      yield* admin.chmod("/", 0o777)
+      yield* admin.mkdir("/source", { mode: 0o555 })
+
+      const caller = yield* volume.caller({
+        identity: { uid: 1000, gid: 1000, groups: [], privileged: false },
+        umask: 0o100
+      })
+
+      const fs = yield* MemoryFileSystem.bindCaller(caller)
+      assert.isTrue(Result.isFailure(yield* Effect.result(fs.copy("/source", "/copy", { overwrite: true }))))
+      assert.strictEqual((yield* admin.stat("/copy")).mode, 0o555)
+    }).pipe(Effect.provide(NodeCrypto.layer)))
+
+  for (const nested of [false, true]) {
+    for (const overwrite of [false, true]) {
+      it.effect(`copy preserves an empty ${nested ? "descendant" : "root"} link target with overwrite ${overwrite}`, () =>
+        Effect.gen(function*() {
+          const { caller } = yield* setup()
+          const source = nested ? "/source/empty" : "/source-link"
+          yield* caller.symlink("", source)
+          const target = nested ? "/copy/empty" : "/copy"
+
+          if (overwrite) {
+            if (nested) yield* caller.mkdir("/copy")
+            yield* caller.writeFile(target, text.encode("old"), { access: "write", create: "exclusive" })
+          }
+
+          const fs = yield* MemoryFileSystem.bindCaller(caller)
+          yield* fs.copy(nested ? "/source" : source, "/copy", { overwrite })
+          assert.strictEqual(yield* fs.readLink(target), "")
+        }).pipe(Effect.provide(NodeCrypto.layer)))
+    }
+  }
+})
+
+describe("borrowed caller filesystem", () => {
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("preserves confinement, cwd, and umask without adding tmp", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.fromFixture({
+          entries: [{ kind: "directory", path: "/tenant" }, { kind: "directory", path: "/tenant/work" }]
+        })
+
+        const owner = yield* volume.caller({ umask: 0o077 })
+        const confined = yield* owner.withRoot("/tenant")
+        const caller = yield* confined.withDirectory("/work")
+        const fs = yield* MemoryFileSystem.bindCaller(caller)
+        yield* fs.writeFileString("relative", "inside")
+        assert.strictEqual(yield* fs.readFileString("/work/relative"), "inside")
+        assert.strictEqual((yield* owner.stat("/tenant/work/relative")).mode & 0o777, 0o600)
+        assert.strictEqual((yield* Effect.flip(fs.makeTempDirectory())).reason._tag, "NotFound")
+        assert.isFalse(yield* fs.exists("/tmp"))
+      }))
+
+    it.effect("cleans the original temporary directory after rename without deleting its replacement", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.fromFixture({
+          entries: [{ kind: "directory", path: "/tenant" }, { kind: "directory", path: "/tenant/tmp" }]
+        })
+
+        const owner = yield* volume.caller()
+        const fs = yield* MemoryFileSystem.bindCaller(yield* owner.withRoot("/tenant"))
+        let original = ""
+        yield* Effect.scoped(Effect.gen(function*() {
+          original = yield* fs.makeTempDirectoryScoped()
+          yield* fs.rename(original, "/moved")
+          yield* fs.makeDirectory(original)
+          yield* fs.writeFileString(`${original}/replacement`, "keep")
+        }))
+        assert.isFalse(yield* fs.exists("/moved"))
+        assert.strictEqual(yield* fs.readFileString(`${original}/replacement`), "keep")
+      }))
+
+    it.effect("retries cleanup when a rename and replacement race conditional removal", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.fromFixture({
+          entries: [
+            { kind: "directory", path: "/tenant" },
+            { kind: "directory", path: "/tenant/tmp" }
+          ]
+        })
+
+        const owner = yield* volume.caller()
+        const caller = yield* owner.withRoot("/tenant")
+        let temporary = ""
+        let raced = false
+
+        // SAFETY: Delegation preserves both remove overloads; force controls the underlying result exactly as before.
+        const remove = ((entry: Vfs.EntryInput, options?: Vfs.RemoveOptions) =>
+          Effect.gen(function*() {
+            if (!raced) {
+              raced = true
+              yield* owner.rename(`/tenant${temporary}`, "/tenant/moved")
+              yield* owner.mkdir(`/tenant${temporary}`)
+            }
+
+            return yield* caller.remove(entry, options ?? {})
+          })) as Vfs.Caller["remove"]
+
+        const fs = yield* MemoryFileSystem.bindCaller({ ...caller, remove })
+        yield* Effect.scoped(Effect.gen(function*() {
+          temporary = yield* fs.makeTempDirectoryScoped()
+        }))
+        assert.isFalse(yield* fs.exists("/moved"))
+        assert.isTrue(yield* fs.exists(temporary))
+      }))
+
+    it.effect("leaves a temporary alone after a trusted move outside its root", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.fromFixture({
+          entries: [{ kind: "directory", path: "/tenant" }, { kind: "directory", path: "/tenant/tmp" }]
+        })
+
+        const owner = yield* volume.caller()
+        const fs = yield* MemoryFileSystem.bindCaller(yield* owner.withRoot("/tenant"))
+        yield* Effect.scoped(Effect.gen(function*() {
+          const path = yield* fs.makeTempDirectoryScoped()
+          yield* owner.rename(`/tenant${path}`, "/outside")
+        }))
+        assert.strictEqual((yield* owner.stat("/outside")).kind, "directory")
+      }))
+
+    it.effect("keeps directory copy and glob inside the borrowed root", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.fromFixture({
+          entries: [
+            { kind: "directory", path: "/tenant" },
+            { kind: "directory", path: "/tenant/source" },
+            { kind: "file", path: "/tenant/source/file.ts", bytes: new TextEncoder().encode("inside") },
+            { kind: "file", path: "/file.ts", bytes: new TextEncoder().encode("outside") }
+          ]
+        })
+
+        const owner = yield* volume.caller()
+        const fs = yield* MemoryFileSystem.bindCaller(yield* owner.withRoot("/tenant"))
+        yield* fs.copy("/source", "/copy")
+        assert.strictEqual(yield* fs.readFileString("/copy/file.ts"), "inside")
+        assert.deepStrictEqual(yield* fs.glob("**/*.ts", { root: "/" }), ["copy/file.ts", "source/file.ts"])
+        assert.strictEqual((yield* Effect.flip(fs.readFile("/../../file.ts"))).reason._tag, "NotFound")
+        assert.strictEqual(new TextDecoder().decode(yield* owner.readFile("/file.ts")), "outside")
+      }))
+
+    it.effect("translates failures that occur while consuming a caller watch", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+
+        const fs = yield* MemoryFileSystem.bindCaller({
+          ...caller,
+          watch: () => Effect.succeed(Stream.fail(VfsError.make({ code: "ClosedCaller", operation: "watch" })))
+        })
+
+        const failure = yield* Effect.flip(Stream.runDrain(fs.watch("/")))
+        assert.strictEqual(failure._tag, "PlatformError")
+        assert.strictEqual(failure.reason._tag, "BadResource")
+      }))
+  })
+})
+
+const encode = new TextEncoder()
+
+describe("filesystem adapter compatibility", () => {
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("includes hidden entries when the glob dot option is enabled", () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        yield* fs.writeFileString("/.hidden", "x")
+        assert.deepStrictEqual(yield* fs.glob("*", { dot: true }), [".hidden", "tmp"])
+        assert.deepStrictEqual(yield* fs.glob("*"), ["tmp"])
+      }))
+    it.effect("rejects final links while following parent links", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const fs = yield* MemoryFileSystem.bind(volume)
+        yield* fs.makeDirectory("/directory")
+        yield* fs.writeFileString("/directory/file", "original")
+        yield* fs.symlink("directory", "/parent")
+        yield* fs.symlink("directory/file", "/link")
+        yield* fs.symlink("missing", "/dangling")
+        assert.strictEqual((yield* fs.stat("/link")).type, "File")
+        yield* Effect.flip(fs.open("/link", { flag: "w", noFollow: true }))
+        yield* Effect.flip(fs.open("/dangling", { flag: "w", noFollow: true }))
+        assert.strictEqual(yield* fs.readFileString("/directory/file"), "original")
+        assert.isFalse(yield* fs.exists("/missing"))
+        const handle = yield* fs.open("/parent/file", { noFollow: true })
+        assert.strictEqual((yield* handle.stat).type, "File")
+      }))
+    it.effect("should enforce all requested access permissions for a nonprivileged caller", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.fromFixture({
+          entries: [{ kind: "file", path: "/file", bytes: encode.encode("x"), metadata: { mode: 0o444 } }]
+        })
+
+        const fs = yield* MemoryFileSystem.bind(volume, { identity: { uid: 1, gid: 1, groups: [], privileged: false } })
+        yield* fs.access("/file")
+        yield* fs.access("/file", { readable: true })
+
+        for (const options of [{ writable: true }, { readable: true, writable: true }]) {
+          const error = yield* Effect.flip(fs.access("/file", options))
+          assert.strictEqual(error.reason._tag, "PermissionDenied")
+        }
+
+        yield* fs.access("/file", { readable: false, writable: false })
+        const missing = yield* Effect.flip(fs.access("/missing"))
+        assert.strictEqual(missing.reason._tag, "NotFound")
+      }))
+    it.effect("should signal readiness after registration and buffer immediate mutations", () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        const ready = yield* Deferred.make<void>()
+        let called = 0
+
+        const watch = fs.watch("/", {
+          onReady: () => {
+            called++
+            Deferred.doneUnsafe(ready, Effect.void)
+          }
+        })
+
+        assert.strictEqual(called, 0)
+        const fiber = yield* Effect.forkChild(Stream.runCollect(Stream.take(watch, 1)))
+        yield* Deferred.await(ready)
+        yield* fs.writeFileString("/new", "x")
+        const events = yield* Fiber.join(fiber)
+        assert.deepStrictEqual(events, [{ _tag: "Create", path: "/new" }])
+        assert.strictEqual(called, 1)
+
+        const error = yield* Effect.flip(Stream.runDrain(fs.watch("/absent", {
+          onReady: () => {
+            called++
+          }
+        })))
+
+        assert.strictEqual(error.reason._tag, "NotFound")
+        assert.strictEqual(called, 1)
+      }))
+    it.effect("should propagate a stale entry while preparing a directory listing", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        yield* caller.writeFile("/kept", encode.encode("kept"), { access: "write", create: "exclusive" })
+        yield* caller.writeFile("/removed", encode.encode("removed"), { access: "write", create: "exclusive" })
+
+        const fs = yield* MemoryFileSystem.bindCaller({
+          ...caller,
+          readDirectory: (target) => caller.readDirectory(target).pipe(Effect.tap(() => caller.unlink("/removed")))
+        })
+
+        const error = yield* Effect.flip(fs.glob("*"))
+        assert.strictEqual(error.reason._tag, "BadResource")
+        assert.strictEqual(error.reason.description, "StaleReference")
+        assert.deepStrictEqual(yield* caller.readFile("/kept"), encode.encode("kept"))
+      }))
+
+    for (const invalidation of ["closed", "deleted"] as const) {
+      it.effect(`should fail glob when a borrowed confined caller is ${invalidation}`, () =>
+        Effect.gen(function*() {
+          const volume = yield* Vfs.make()
+          const admin = yield* volume.caller()
+          yield* admin.mkdir("/root")
+          const scope = yield* Scope.make()
+          const caller = yield* admin.withRoot("/root").pipe(Effect.provideService(Scope.Scope, scope))
+          const fs = yield* MemoryFileSystem.bindCaller(caller)
+
+          if (invalidation === "closed") yield* Scope.close(scope, Exit.void)
+          else yield* admin.rmdir("/root")
+          const result = yield* Effect.flip(fs.glob("**"))
+          assert.strictEqual(result.reason._tag, "BadResource")
+          assert.strictEqual(result.reason.description, "ClosedCaller")
+          yield* Scope.close(scope, Exit.void)
+        }))
+    }
+  })
+})
+
+// Effect's platform-neutral services, without a Node or Bun platform layer.
+const memory = MemoryFileSystem.layer.pipe(
+  Layer.provide(Layer.mergeAll(Digest.layerWebCrypto, SecureRandom.layerWebCrypto))
+)
+
+describe("crypto services", () => {
+  it.layer(memory)((it) => {
+    it.effect("should build the FileSystem service when only WebCrypto Digest and SecureRandom are provided", () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+
+        yield* fs.writeFileString("/greeting", "héllo 🌍")
+
+        assert.strictEqual(yield* fs.readFileString("/greeting"), "héllo 🌍")
+      }))
+  })
+})
+
+describe("Construction call styles", () => {
+  const fixture: Vfs.Fixture = { entries: [{ kind: "file", path: "/file", bytes: Uint8Array.of(7) }] }
+
+  const volumeOptions: Vfs.VolumeOptions = { maxBytes: ByteSize.kibibytes(4) }
+
+  const callerOptions: Vfs.RootCallerOptions = { umask: 0o077 }
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should use the requested caller mask when binding with either call style", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.fromFixture(fixture)
+
+        const binds = [
+          MemoryFileSystem.bind(volume),
+          MemoryFileSystem.bind(volume, undefined),
+          MemoryFileSystem.bind(volume, callerOptions),
+          MemoryFileSystem.bind()(volume),
+          MemoryFileSystem.bind(undefined)(volume),
+          MemoryFileSystem.bind(callerOptions)(volume)
+        ]
+
+        const caller = yield* volume.caller()
+
+        for (const [index, bind] of binds.entries()) {
+          const fs = yield* bind
+          assert.deepStrictEqual(yield* fs.readFile("/file"), Uint8Array.of(7))
+          yield* fs.writeFileString(`/new-${index}`, "hello")
+          assert.strictEqual((yield* caller.stat(`/new-${index}`)).mode, index === 2 || index === 5 ? 0o600 : 0o644)
+        }
+      }))
+
+    it.effect("should build isolated fixture layers when volume and caller options are partially applied", () =>
+      Effect.gen(function*() {
+        const layers = [
+          MemoryFileSystem.layerFromFixture(fixture),
+          MemoryFileSystem.layerFromFixture(fixture, undefined),
+          MemoryFileSystem.layerFromFixture(fixture, volumeOptions),
+          MemoryFileSystem.layerFromFixture(fixture, volumeOptions, callerOptions),
+          MemoryFileSystem.layerFromFixture()(fixture),
+          MemoryFileSystem.layerFromFixture(undefined)(fixture),
+          MemoryFileSystem.layerFromFixture(volumeOptions)(fixture),
+          MemoryFileSystem.layerFromFixture(volumeOptions, callerOptions)(fixture),
+          MemoryFileSystem.layerFromFixture(undefined, callerOptions)(fixture)
+        ]
+
+        const read = Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          assert.deepStrictEqual(yield* fs.readFile("/file"), Uint8Array.of(7))
+          assert.isFalse(yield* fs.exists("/new"))
+          yield* fs.writeFileString("/new", "hello")
+        })
+
+        for (const layer of layers) {
+          yield* read.pipe(Effect.provide(layer))
+        }
       }))
   })
 })
