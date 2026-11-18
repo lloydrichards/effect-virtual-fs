@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Result } from "effect"
 import type * as Digest from "effect/crypto/Digest"
 import type * as SecureRandom from "effect/crypto/SecureRandom"
+import { TestClock } from "effect/testing"
 import { Testing, type VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../../src/index.js"
 import { GUEST } from "../support/caller.js"
 import { pathText } from "../support/text.js"
@@ -63,7 +64,7 @@ interface Row {
     fixture: Fixture,
     family: "path" | "reference"
   ) => Effect.Effect<unknown, FsError, Digest.Digest | SecureRandom.SecureRandom>
-  readonly expected: { readonly path: string; readonly reference: string }
+  readonly expected: { readonly path: string | number; readonly reference: string | number }
 }
 
 const report = (error: FsError): Effect.Effect<string> =>
@@ -99,6 +100,7 @@ const outcome = Effect.fnUntraced(function*(row: Row, family: "path" | "referenc
 
   if (Result.isFailure(acted)) return yield* report(acted.failure)
 
+  if (typeof row.expected[family] === "number") return acted.success
   if (row.check === undefined) return "ok"
   const checked = yield* Effect.result(row.check(fixture, family))
 
@@ -881,7 +883,7 @@ const accessRows: ReadonlyArray<Row> = [
     scenario: "grants a permitted check",
     path: ({ guest }) => guest.access("/file", 4),
     reference: ({ guest, file }) => guest.access(file, 4),
-    expected: { path: "ok", reference: "ok" }
+    expected: { path: 4, reference: 4 }
   },
   {
     scenario: "rejects invalid bits",
@@ -894,16 +896,14 @@ const accessRows: ReadonlyArray<Row> = [
     scenario: "grants no execute on a file without any execute bit, even to an administrator",
     path: ({ admin }) => admin.access("/file", 1),
     reference: ({ admin, file }) => admin.access(file, 1),
-    check: ({ admin }) => Effect.map(admin.access("/file", 1), (granted) => assert.strictEqual(granted, 0)),
-    expected: { path: "ok", reference: "ok" }
+    expected: { path: 0, reference: 0 }
   },
   {
     // #186 decision 16: access answers with the granted bits instead of failing.
     scenario: "grants nothing for a missing permission",
     path: ({ guest }) => guest.access("/", 2),
     reference: ({ guest, root }) => guest.access(root, 2),
-    check: ({ guest }) => Effect.map(guest.access("/", 2), (granted) => assert.strictEqual(granted, 0)),
-    expected: { path: "ok", reference: "ok" }
+    expected: { path: 0, reference: 0 }
   },
   {
     scenario: "reports a removed target as missing on paths and stale on references",
@@ -1093,9 +1093,15 @@ const setattrRows: ReadonlyArray<Row> = [
   },
   {
     scenario: "lets a caller with write access set a size and both times to now",
-    path: ({ guest }) => guest.setattr("/file", { size: 2n, times: NOW_TIMES }),
-    reference: ({ guest, file }) => guest.setattr(file, { size: 2n, times: NOW_TIMES }),
-    check: metadataAt("/file", ({ size }) => size, 2n),
+    path: ({ guest }) =>
+      Effect.andThen(TestClock.setTime(1_000), guest.setattr("/file", { size: 2n, times: NOW_TIMES })),
+    reference: ({ guest, file }) =>
+      Effect.andThen(TestClock.setTime(1_000), guest.setattr(file, { size: 2n, times: NOW_TIMES })),
+    check: metadataAt("/file", ({ atimeNs, mtimeNs, size }) => ({ atimeNs, mtimeNs, size }), {
+      atimeNs: 1_000_000_000n,
+      mtimeNs: 1_000_000_000n,
+      size: 2n
+    }),
     expected: { path: "ok", reference: "ok" }
   },
   {

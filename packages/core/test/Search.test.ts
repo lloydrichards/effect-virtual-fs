@@ -181,18 +181,17 @@ describe("snapshot filename search", () => {
         }
 
         for (
-          const limits of [
-            { maxPatterns: 0 },
-            { maxPatternBytes: ByteSize.bytes(0) },
-            { maxPatternListBytes: ByteSize.bytes(0) },
-            { maxExpansions: 0 },
-            { maxTokens: 0 }
-          ]
+          const [limit, limits] of [
+            ["maxPatterns", { maxPatterns: 0 }],
+            ["maxPatternBytes", { maxPatternBytes: ByteSize.bytes(0) }],
+            ["maxPatternListBytes", { maxPatternListBytes: ByteSize.bytes(0) }],
+            ["maxExpansions", { maxExpansions: 0 }],
+            ["maxTokens", { maxTokens: 0 }]
+          ] as const
         ) {
-          assert.instanceOf(
-            yield* Effect.flip(Search.glob(snapshot, { root: "/missing", include: ["a"], limits })),
-            Search.QueryFailure
-          )
+          const error = yield* Effect.flip(Search.glob(snapshot, { root: "/missing", include: ["a"], limits }))
+          assert(error instanceof Search.QueryFailure)
+          assert.strictEqual(error.limit, limit)
         }
 
         for (const maxEntries of [-1, 0.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1]) {

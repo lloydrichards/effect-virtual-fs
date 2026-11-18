@@ -371,6 +371,9 @@ describe("snapshot content search", () => {
           Search.QueryFailure
         )
 
+        const exactFit = yield* Search.lines(snapshot, { ...query, limits: { maxPatternBytes: ByteSize.bytes(3) } })
+        assert.deepStrictEqual(exactFit.results, [])
+
         const missing = yield* Effect.flip(
           Search.lines(snapshot, { ...query, root: "/missing", limits: { maxResults: 0 } })
         )

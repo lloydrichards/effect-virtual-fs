@@ -226,9 +226,12 @@ describe("metadata authority", () => {
             )).code,
             "NotPermitted"
           )
+          const { mtimeNs } = yield* admin.stat("/f")
+          yield* TestClock.adjust("1 second")
           yield* admin.utimes("/f", { access: { kind: "value", nanoseconds: 3n }, modification: { kind: "omit" } })
           const before = yield* admin.stat("/f")
           assert.strictEqual(before.atimeNs, 3n)
+          assert.strictEqual(before.mtimeNs, mtimeNs)
           yield* TestClock.adjust("1 second")
           yield* guest.utimes("/f", { access: { kind: "omit" }, modification: { kind: "omit" } })
           assert.deepStrictEqual(yield* admin.stat("/f"), before)

@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, Deferred, Effect, Exit, Fiber, Option, Predicate, PubSub, Queue, Scope, Stream } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Predicate, Queue, Scope, Stream } from "effect"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 import { withVolumeTestSeams } from "../src/internal/model.js"
@@ -721,24 +721,6 @@ describe("bounded watches", () => {
           yield* Fiber.join(mutation)
           assert.deepEqual(entryNames(yield* caller.readDirectory("/")), ["after-cancel"])
         }).pipe(Effect.provide(Testing.layer({ volume: { maxPendingOperations: 1 } })))
-    )
-  })
-
-  it.layer(BunCrypto.layer)((it) => {
-    it.effect(
-      "should publish to an active subscriber when another subscriber is stalled",
-      () =>
-        Effect.gen(function*() {
-          const hub = yield* PubSub.bounded<number>(2)
-          const slow = yield* PubSub.subscribe(hub)
-          const fast = yield* PubSub.subscribe(hub)
-          assert.isTrue(PubSub.publishUnsafe(hub, 1))
-          assert.deepEqual(yield* PubSub.take(fast), 1)
-          assert.isTrue(PubSub.publishUnsafe(hub, 2))
-          assert.deepEqual(yield* PubSub.take(fast), 2)
-          assert.isFalse(PubSub.publishUnsafe(hub, 3))
-          assert.deepEqual(yield* PubSub.take(slow), 1)
-        })
     )
   })
 

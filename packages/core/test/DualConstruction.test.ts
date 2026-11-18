@@ -55,32 +55,33 @@ describe("dual construction and snapshot deltas", () => {
         const snapshot = yield* (yield* Vfs.fromFixture(fixture)).snapshot
 
         const layers = [
-          Vfs.Volume.layerFromFixture(fixture),
-          Vfs.Volume.layerFromFixture(fixture, undefined),
-          Vfs.Volume.layerFromFixture(fixture, options),
-          Vfs.Volume.layerFromFixture()(fixture),
-          Vfs.Volume.layerFromFixture(undefined)(fixture),
-          Vfs.Volume.layerFromFixture(options)(fixture),
-          Vfs.Volume.layerFromSnapshot(snapshot),
-          Vfs.Volume.layerFromSnapshot(snapshot, undefined),
-          Vfs.Volume.layerFromSnapshot(snapshot, options),
-          Vfs.Volume.layerFromSnapshot()(snapshot),
-          Vfs.Volume.layerFromSnapshot(undefined)(snapshot),
-          Vfs.Volume.layerFromSnapshot(options)(snapshot),
-          Vfs.Volume.layerOverlay(snapshot),
-          Vfs.Volume.layerOverlay(snapshot, undefined),
-          Vfs.Volume.layerOverlay(snapshot, options),
-          Vfs.Volume.layerOverlay()(snapshot),
-          Vfs.Volume.layerOverlay(undefined)(snapshot),
-          Vfs.Volume.layerOverlay(options)(snapshot)
-        ]
+          [Vfs.Volume.layerFromFixture(fixture), undefined],
+          [Vfs.Volume.layerFromFixture(fixture, undefined), undefined],
+          [Vfs.Volume.layerFromFixture(fixture, options), options.maxBytes],
+          [Vfs.Volume.layerFromFixture()(fixture), undefined],
+          [Vfs.Volume.layerFromFixture(undefined)(fixture), undefined],
+          [Vfs.Volume.layerFromFixture(options)(fixture), options.maxBytes],
+          [Vfs.Volume.layerFromSnapshot(snapshot), undefined],
+          [Vfs.Volume.layerFromSnapshot(snapshot, undefined), undefined],
+          [Vfs.Volume.layerFromSnapshot(snapshot, options), options.maxBytes],
+          [Vfs.Volume.layerFromSnapshot()(snapshot), undefined],
+          [Vfs.Volume.layerFromSnapshot(undefined)(snapshot), undefined],
+          [Vfs.Volume.layerFromSnapshot(options)(snapshot), options.maxBytes],
+          [Vfs.Volume.layerOverlay(snapshot), undefined],
+          [Vfs.Volume.layerOverlay(snapshot, undefined), undefined],
+          [Vfs.Volume.layerOverlay(snapshot, options), options.maxBytes],
+          [Vfs.Volume.layerOverlay()(snapshot), undefined],
+          [Vfs.Volume.layerOverlay(undefined)(snapshot), undefined],
+          [Vfs.Volume.layerOverlay(options)(snapshot), options.maxBytes]
+        ] as const
 
-        const read = Effect.gen(function*() {
-          return yield* (yield* (yield* Vfs.Volume).caller()).readFile("/file")
-        })
-
-        for (const layer of layers) {
-          assert.deepStrictEqual(yield* read.pipe(Effect.provide(layer)), Uint8Array.of(7))
+        for (const [layer, maxBytes] of layers) {
+          yield* Effect.gen(function*() {
+            const volume = yield* Vfs.Volume
+            const caller = yield* volume.caller()
+            assert.deepStrictEqual(yield* caller.readFile("/file"), Uint8Array.of(7))
+            if (maxBytes !== undefined) assert.deepStrictEqual(volume.limits.maxBytes, maxBytes)
+          }).pipe(Effect.provide(layer))
         }
       }))
 

@@ -977,11 +977,13 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
           new Uint8Array([0xc3, 0x28]),
           encoder.encode("{"),
           encodeDocument({ ...source, unexpected: true }),
-          encodeDocument({ ...source, changes: [{ ...source.changes[0], unexpected: true }] }),
-          encodeDocument({ ...source, version: 2 })
+          encodeDocument({ ...source, changes: [{ ...source.changes[0], unexpected: true }] })
         ]
 
         for (const input of cases) assert.isDefined(yield* reject(input))
+
+        const unsupported = yield* reject(encodeDocument({ ...source, version: 2 }))
+        assert.strictEqual(unsupported.message, "Snapshot delta UnsupportedVersion")
       }))
 
     it.effect("should reject noncanonical base64, invalid digests, paths, and payloads when encoded bytes or digests are noncanonical", () =>
@@ -1006,7 +1008,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
         for (const [value, field] of encodingCases) {
           const error = yield* reject(encodeDocument(value))
           assert.instanceOf(error, Schema.SchemaError)
-          assert.include(String(error), `Snapshot delta InvalidEncoding at ${field}`)
+          assert.strictEqual(error.message, `Snapshot delta InvalidEncoding at ${field}`)
         }
 
         const structuralCases = [
