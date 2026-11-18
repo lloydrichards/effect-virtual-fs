@@ -61,7 +61,7 @@ does not cover it.
   The [file handle tests](../../../packages/core/test/FileHandle.test.ts) exercise handles across scope closure.
 - For streams, see `node_modules/effect/ai-docs/src/03_stream/`. Check the
   [volume watch tests](../../../packages/core/test/Watch.test.ts) for concurrent registration and the
-  [caller watch tests](../../../packages/core/test/CallerWatch.test.ts) for filtering and rebasing paths.
+  [caller watch tests](../../../packages/core/test/Caller.test.ts) for filtering and rebasing paths.
 - For Schema, start with `node_modules/effect/ai-docs/src/01_effect/02_schema/` and the installed
   Schema source or declarations. The package does not include the full `SCHEMA.md`.
   The [snapshot tests](../../../packages/core/test/Snapshot.test.ts) show how this project uses Schema.

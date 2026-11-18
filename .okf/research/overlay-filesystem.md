@@ -12,10 +12,10 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Volume capabilities and overlay construction
   - id: overlay-tests
-    resource: ../../packages/core/test/behaviour/overlay.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Representative overlay behavior, summaries and capture races
   - id: parity-tests
-    resource: ../../packages/core/test/behaviour/overlayParity.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Paired overlay and restored-volume scenarios
   - id: tree-observer
     resource: ../../packages/core/test/support/describeTree.ts

@@ -12,16 +12,16 @@ sources:
     resource: ../../packages/core/src/internal/overlayDiff.ts
     title: Identity-based final-state comparison
   - id: behavior
-    resource: ../../packages/core/test/behaviour/overlay.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Overlay behavior and integration tests
   - id: sharing
-    resource: ../../packages/core/test/behaviour/overlay.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Internal shared-content identity evidence
   - id: changes
-    resource: ../../packages/core/test/behaviour/overlay.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Final-difference summary tests
   - id: parity
-    resource: ../../packages/core/test/behaviour/overlayParity.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Paired ordinary-volume behavior
   - id: checkpoint
     resource: ../../packages/persistence/test/CheckpointStore.test.ts

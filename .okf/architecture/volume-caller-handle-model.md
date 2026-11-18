@@ -19,9 +19,9 @@ sources:
     title: Volume and confined watch delivery
   - resource: ../../packages/core/compatibility/preview-imports/check.mjs
     title: Sole-preview source import qualification
-  - resource: ../../packages/core/test/PreviewRuntime.test.ts
-    title: Constructor and native ownership regressions
-  - resource: ../../packages/core/test/Execution.test.ts
+  - resource: ../../packages/core/test/SynchronousAdapter.test.ts
+    title: Shared file contents and scope cleanup through the synchronous binding
+  - resource: ../../packages/core/test/Volume.test.ts
     title: Execution checks through the existing constructors
   - resource: ../../packages/effect-preview/src/virtual-file-system/VirtualFileSystem.ts
     title: Preview owner, caller, operation, and handle contracts

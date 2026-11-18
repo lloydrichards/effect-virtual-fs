@@ -84,3 +84,18 @@ describe("BytePath toolkit", () => {
     assert.isTrue(Option.isNone(BytePath.decodeOption(Uint8Array.from([0xff]))))
   })
 })
+
+it.effect("joins byte paths in both call styles without losing raw names", () =>
+  Effect.gen(function*() {
+    const path = yield* BytePath.fromString("/work")
+    const name = Uint8Array.of(255)
+    assert.deepStrictEqual(
+      yield* BytePath.toBytes(path.pipe(BytePath.join(name))),
+      Uint8Array.of(47, 119, 111, 114, 107, 47, 255)
+    )
+    assert.deepStrictEqual(
+      yield* BytePath.toBytes(BytePath.join(path, name)),
+      yield* BytePath.toBytes(BytePath.join(name)(path))
+    )
+    assert.strictEqual(yield* BytePath.toString(path.pipe(BytePath.join("file"))), "/work/file")
+  }))

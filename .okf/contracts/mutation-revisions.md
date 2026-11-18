@@ -9,7 +9,7 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Metadata, mutation gate and watch publication
   - id: metadata-tests
-    resource: ../../packages/core/test/behaviour/mutationRevision.test.ts
+    resource: ../../packages/core/test/Caller.test.ts
     title: Fixed-clock revision and runtime-only snapshot tests
   - id: replacement-tests
     resource: ../../packages/core/test/VirtualFileSystem.test.ts

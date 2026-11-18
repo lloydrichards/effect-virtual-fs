@@ -12,7 +12,7 @@ sources:
     resource: ../../../packages/core/src/internal/runtime.ts
     title: changeAttributes, the one body behind setattr, chmod, chown, utimes and truncate
   - id: families
-    resource: ../../../packages/core/test/behaviour/operations.test.ts
+    resource: ../../../packages/core/test/Caller.test.ts
     title: setattr check-order rows for both families
   - id: tests
     resource: ../../../packages/core/test/VirtualFileSystem.test.ts

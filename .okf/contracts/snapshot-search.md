@@ -18,7 +18,7 @@ sources:
     resource: ../../packages/core/src/internal/searchContent.ts
     title: Shared content classifier, line scanner and byte accounting
   - id: content-tests
-    resource: ../../packages/core/test/SearchContent.test.ts
+    resource: ../../packages/core/test/Search.test.ts
     title: Content behavior, limits, borrowing and interruption proofs
   - id: tests
     resource: ../../packages/core/test/Search.test.ts

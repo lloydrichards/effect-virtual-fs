@@ -9,9 +9,9 @@ sources:
     title: Core caller, handle, and confined lookup integration
   - resource: ../../packages/core/src/internal/callerWatchSelection.ts
     title: Publication-time watch selection
-  - resource: ../../packages/core/test/Confinement.test.ts
+  - resource: ../../packages/core/test/Caller.test.ts
     title: Escape, scope, staged removal, and rejected commit acceptance
-  - resource: ../../packages/core/test/CallerWatch.test.ts
+  - resource: ../../packages/core/test/Caller.test.ts
     title: Alias selection, terminal delivery, and imported authority acceptance
   - resource: ../../packages/memory/test/BindCaller.test.ts
     title: Borrowed adapter and temporary cleanup acceptance

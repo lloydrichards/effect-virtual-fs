@@ -19,7 +19,7 @@ sources:
     title: One configured R2 image per NFS gateway
   - resource: ../../apps/docs/app/lib/playground/storage.ts
     title: Browser checkpoint persistence
-  - resource: ../../packages/core/test/LiveVolumeRegistry.test.ts
+  - resource: ../../packages/core/test/LiveVolume.test.ts
     title: Registry lifecycle tests
   - resource: ../../packages/persistence/test/SqliteLiveImageStore.test.ts
     title: SQLite sharing and committed-content reopen

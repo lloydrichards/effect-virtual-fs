@@ -55,8 +55,7 @@
               "../../packages/core/src/internal/runtime.ts",
               "../../packages/core/src/internal/synchronous.ts",
               "../../packages/core/src/internal/durableStorage.ts",
-              "../../packages/core/src/internal/volumeWatch.ts",
-              "../../packages/core/test/PreviewRuntime.test.ts"
+              "../../packages/core/src/internal/volumeWatch.ts"
             ],
             "options": {
               "diagnosticSeverity": {

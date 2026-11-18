@@ -11,7 +11,7 @@ sources:
     title: Replacement and coordination tests
   - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Watch and lifecycle tests
-  - resource: ../../packages/core/test/behaviour/mutationRevision.test.ts
+  - resource: ../../packages/core/test/Caller.test.ts
     title: Revision and coordinated observation tests
   - resource: ../../packages/core/test/Watch.test.ts
     title: Watch registration and delivery tests

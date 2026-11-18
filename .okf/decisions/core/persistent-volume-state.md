@@ -11,9 +11,7 @@ sources:
     title: Snapshot and live-image codecs
   - resource: ../../../packages/core/src/internal/snapshotDelta.ts
     title: Delta computation and verification
-  - resource: ../../../packages/core/test/Engine.test.ts
-    title: Persistent inode state and payload-free metadata replacement
-  - resource: ../../../packages/core/test/behaviour/directoryOrder.test.ts
+  - resource: ../../../packages/core/test/Caller.test.ts
     title: Compaction order and captured-state isolation
 generated: { by: codex/okf, at: "2026-10-21T17:50:27+00:00" }
 ---

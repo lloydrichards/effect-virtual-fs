@@ -8,11 +8,8 @@ sources:
   - id: measurements
     resource: ./collection-reuse-data.json
     title: Final paired trials, normalized traces and source hashes
-  - id: ownership
-    resource: ../../packages/core/test/Engine.test.ts
-    title: Persistent state and metadata updates without payload inspection
   - id: ordering
-    resource: ../../packages/core/test/behaviour/directoryOrder.test.ts
+    resource: ../../packages/core/test/Caller.test.ts
     title: Compaction, insertion order and snapshot isolation
 generated: { by: codex/okf, at: "2026-10-21T17:53:04+00:00" }
 ---

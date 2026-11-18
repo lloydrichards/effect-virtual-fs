@@ -9,7 +9,7 @@ sources:
     resource: ../../packages/core/src/LiveVolume.ts
     title: Registry contracts and RcMap construction
   - id: tests
-    resource: ../../packages/core/test/LiveVolumeRegistry.test.ts
+    resource: ../../packages/core/test/LiveVolume.test.ts
     title: Registry sharing, failures, scope cleanup and handle isolation
   - id: sqlite
     resource: ../../packages/persistence/test/SqliteLiveImageStore.test.ts

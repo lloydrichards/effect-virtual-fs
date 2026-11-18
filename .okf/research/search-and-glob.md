@@ -18,7 +18,7 @@ sources:
     resource: ../../packages/core/test/Search.test.ts
     title: Filename selection, aliases, and no-copy tests
   - id: content-tests
-    resource: ../../packages/core/test/SearchContent.test.ts
+    resource: ../../packages/core/test/Search.test.ts
     title: Content classification, byte positions, and accounting tests
   - id: snapshot-model
     resource: ../../packages/core/src/Snapshot.ts
@@ -136,7 +136,7 @@ Historical timing scripts and reports are no longer retained. This concept makes
 
 [^filename-tests]: Public filename search tests in `Search.test.ts`.
 
-[^content-tests]: Public content search tests in `SearchContent.test.ts`.
+[^content-tests]: Public content search tests in `Search.test.ts`.
 
 [^text-decoder]: WHATWG Encoding defines fatal decoding and BOM preservation.
 

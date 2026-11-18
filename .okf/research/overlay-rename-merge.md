@@ -15,7 +15,7 @@ sources:
     resource: ../../packages/core/src/internal/overlayDiff.ts
     title: Identity-based pairing of removed and added names
   - id: tests
-    resource: ../../packages/core/test/SnapshotMerge.test.ts
+    resource: ../../packages/core/test/SnapshotDelta.test.ts
     title: Current delta-only rename behavior and merge laws
 ---
 

@@ -18,7 +18,7 @@ sources:
     resource: ../../packages/core/test/Search.test.ts
     title: Snapshot filename behavior and budgets
   - id: content-tests
-    resource: ../../packages/core/test/SearchContent.test.ts
+    resource: ../../packages/core/test/Search.test.ts
     title: Snapshot content behavior and accounting
   - id: existing-adapter
     resource: ../../packages/memory/src/internal/treeOperations.ts

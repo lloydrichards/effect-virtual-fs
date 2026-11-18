@@ -33,7 +33,7 @@ sources:
     resource: ../../packages/core/src/internal/snapshotMerge.ts
     title: Merge classification, hard-link partition check, resolutions and emission
   - id: merge-tests
-    resource: ../../packages/core/test/SnapshotMerge.test.ts
+    resource: ../../packages/core/test/SnapshotDelta.test.ts
     title: Merge conflict table and property laws
 generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
 ---
@@ -88,4 +88,4 @@ Hard links are merged per node, using each side's final tree to tell which names
 
 [^merge]: `snapshotMerge.ts` indexes both verified documents by path, classifies paths top down with timestamp-only updates treated as unchanged, compares each side's partition of a base node's names before the path loop, and emits one change list by lineage for the existing fold to validate and digest.
 
-[^merge-tests]: `SnapshotMerge.test.ts` holds a row per paired change, resolution and rejection cases, and `it.effect.prop` laws over generated edit scripts.
+[^merge-tests]: The merge section in `SnapshotDelta.test.ts` holds a row per paired change, resolution and rejection cases, and `it.effect.prop` laws over generated edit scripts.
