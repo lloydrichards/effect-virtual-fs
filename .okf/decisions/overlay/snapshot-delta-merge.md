@@ -21,7 +21,7 @@ sources:
     resource: ../../../packages/core/src/internal/snapshotMerge.ts
     title: Classification, hard-link partition check, resolution and emission over the existing fold
   - id: tests
-    resource: ../../../packages/core/test/SnapshotMerge.test.ts
+    resource: ../../../packages/core/test/SnapshotDelta.test.ts
     title: Conflict table and property laws
   - id: git-ort
     resource: https://github.com/git/git/blob/master/merge-ort.c

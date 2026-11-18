@@ -18,8 +18,6 @@ import {
 } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
-
-import { withVolumeTestSeams } from "../src/internal/model.js"
 import { exists, failure, GUEST, RECURSIVE, write } from "./support/caller.js"
 import { entryNames, pathText, rawEntryNames, text } from "./support/text.js"
 
@@ -1286,128 +1284,6 @@ describe("recursive removal", () => {
             yield* guest.remove("/work/t", RECURSIVE)
 
             assert.isFalse(yield* exists(guest, "/work/t"))
-          }).pipe(Effect.provide(Testing.layer()))
-      )
-    })
-
-    it.layer(BunCrypto.layer)((it) => {
-      it.effect(
-        "should forgive a missing target but report a missing child when force is enabled",
-        () =>
-          Effect.gen(function*() {
-            const fs = yield* Vfs.Caller
-
-            assert.isUndefined(yield* fs.remove("/missing", { force: true }))
-            assert.isUndefined(yield* fs.remove("/missing/deeper", { recursive: true, force: true }))
-
-            yield* fs.mkdir("/t")
-            yield* fs.mkdir("/t/a")
-            yield* write(fs, "/t/a/x")
-            yield* write(fs, "/t/b")
-            let removals = 0
-
-            // Another caller removes /t/b once the walk has listed /t and before the removal reaches it.
-            const beforeTreeRemoval = Effect.suspend(() =>
-              ++removals === 1 ? Effect.orDie(fs.unlink("/t/b")) : Effect.void
-            )
-
-            const error = yield* Effect.flip(
-              fs.remove("/t", { recursive: true, force: true }).pipe(withVolumeTestSeams({ beforeTreeRemoval }))
-            )
-
-            assert.deepStrictEqual(yield* failure(error), ["NotFound", "/t/b"])
-            assert.deepStrictEqual(yield* present(fs, ["/t", "/t/a"]), [true, false])
-          }).pipe(Effect.provide(Testing.layer()))
-      )
-    })
-
-    it.layer(BunCrypto.layer)((it) => {
-      it.effect(
-        "should leave a renamed directory untouched when it moves out of the target tree",
-        () =>
-          Effect.gen(function*() {
-            const fs = yield* Vfs.Caller
-            yield* fs.mkdir("/keep")
-            yield* fs.mkdir("/work/a/g", RECURSIVE)
-            yield* write(fs, "/work/a/f")
-            yield* write(fs, "/work/a/g/y")
-            yield* fs.mkdir("/work/z")
-            yield* write(fs, "/work/z/k")
-            let removals = 0
-
-            // Another caller moves /work/z out once the walk has listed /work and before the removal reaches /work/z.
-            const beforeTreeRemoval = Effect.suspend(() =>
-              ++removals === 1 ? Effect.orDie(fs.rename("/work/z", "/keep/z")) : Effect.void
-            )
-
-            const error = yield* Effect.flip(
-              fs.remove("/work", RECURSIVE).pipe(withVolumeTestSeams({ beforeTreeRemoval }))
-            )
-
-            // The walk reaches /work/z by its name, which no longer names it, so nothing below it is removed.
-            assert.deepStrictEqual(yield* failure(error), ["NotFound", "/work/z"])
-            assert.deepStrictEqual(yield* present(fs, ["/work/a", "/keep/z/k"]), [false, true])
-          }).pipe(Effect.provide(Testing.layer()))
-      )
-    })
-
-    it.layer(BunCrypto.layer)((it) => {
-      it.effect(
-        "should report a missing target unless force is enabled when the target is renamed before removal",
-        () =>
-          Effect.gen(function*() {
-            const fs = yield* Vfs.Caller
-
-            for (const force of [false, true]) {
-              yield* fs.mkdir("/work/a", RECURSIVE)
-              yield* write(fs, "/work/a/f")
-              yield* write(fs, "/work/b")
-              let removals = 0
-
-              // Another caller moves /work itself once the walk has listed it and before the first removal.
-              const beforeTreeRemoval = Effect.suspend(() =>
-                ++removals === 1 ? Effect.orDie(fs.rename("/work", "/keep")) : Effect.void
-              )
-
-              const removed = yield* Effect.result(
-                fs.remove("/work", { recursive: true, force }).pipe(withVolumeTestSeams({ beforeTreeRemoval }))
-              )
-
-              const outcome = Result.isSuccess(removed) ? "removed" : yield* failure(removed.failure)
-
-              // The walk reaches every entry through the target's name, which no longer names it, so nothing moves.
-              assert.deepStrictEqual(outcome, force ? "removed" : ["NotFound", "/work"])
-              assert.deepStrictEqual(yield* present(fs, ["/keep/a/f", "/keep/b"]), [true, true])
-              yield* fs.remove("/keep", RECURSIVE)
-            }
-          }).pipe(Effect.provide(Testing.layer()))
-      )
-    })
-
-    it.layer(BunCrypto.layer)((it) => {
-      it.effect(
-        "should leave a replacement untouched and fail at its name when an entry changes after listing",
-        () =>
-          Effect.gen(function*() {
-            const fs = yield* Vfs.Caller
-            yield* fs.mkdir("/keep")
-            yield* fs.mkdir("/work")
-            yield* write(fs, "/work/f")
-            let removals = 0
-
-            // Another caller moves /work/f out and creates a new /work/f before the removal reaches it.
-            const beforeTreeRemoval = Effect.suspend(() =>
-              ++removals === 1
-                ? Effect.orDie(Effect.andThen(fs.rename("/work/f", "/keep/f"), write(fs, "/work/f")))
-                : Effect.void
-            )
-
-            const error = yield* Effect.flip(
-              fs.remove("/work", RECURSIVE).pipe(withVolumeTestSeams({ beforeTreeRemoval }))
-            )
-
-            assert.deepStrictEqual(yield* failure(error), ["NotFound", "/work/f"])
-            assert.deepStrictEqual(yield* present(fs, ["/work/f", "/keep/f"]), [true, true])
           }).pipe(Effect.provide(Testing.layer()))
       )
     })

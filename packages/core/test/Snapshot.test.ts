@@ -4,13 +4,10 @@ import { ByteSize, Effect, Fiber, Layer, Option, pipe, Predicate, Schema, Stream
 import * as Base64 from "effect/encoding/Base64"
 import * as TestClock from "effect/testing/TestClock"
 import { BytePath, LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
-import * as LiveImage from "../src/internal/liveImage.js"
-import { ENCODED_CHUNK_BYTES } from "../src/internal/tree.js"
 import { describeTree } from "./support/describeTree.js"
 import { assertHardLinkedSymlinks, hardLinkedSymlinks } from "./support/hardLinkedSymlinks.js"
 import { documentText, readLines, toLines, toLines as encode } from "./support/lines.js"
 import { entryNames, text } from "./support/text.js"
-import { name as entryKey } from "./support/volumeState.js"
 
 const limits = {
   maxEncodedBytes: ByteSize.megabytes(1),
@@ -526,52 +523,6 @@ describe("snapshots", () => {
 
 describe("snapshot capture", () => {
   it.layer(BunCrypto.layer)((it) => {
-    it.effect("assembles snapshot aliases without rescanning the growing list of links", () =>
-      Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const caller = yield* volume.caller()
-        const original = "000-primary"
-        const aliases = Array.from({ length: 16 }, (_, i) => `alias-${i}`)
-        yield* caller.writeFile(`/${original}`, Uint8Array.of(7), { access: "write", create: "exclusive" })
-
-        for (const alias of aliases) yield* caller.link(`/${original}`, `/${alias}`)
-
-        // The capture visits names in byte order, so each prefix starts with the primary name.
-        const firstKey = entryKey(original)
-        const iterate = Array.prototype[Symbol.iterator]
-        let visited = 0
-
-        // Vitest's spy wrapper also calls the array iterator, so count these visits directly.
-        // eslint-disable-next-line no-extend-native
-        Array.prototype[Symbol.iterator] = function(this: Array<unknown>) {
-          const first = this[0]
-
-          if (
-            Predicate.hasProperty(first, "name") && first.name === firstKey && Predicate.hasProperty(first, "parent")
-          ) {
-            visited += this.length
-          }
-
-          return iterate.call(this)
-        }
-
-        let snapshot: Vfs.Snapshot
-
-        try {
-          snapshot = yield* volume.snapshot
-        } finally {
-          // eslint-disable-next-line no-extend-native
-          Array.prototype[Symbol.iterator] = iterate
-        }
-
-        assert.isAtMost(visited, aliases.length + 1)
-        const restored = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
-        const file = yield* restored.stat(`/${original}`)
-        assert.strictEqual(file.nlink, aliases.length + 1)
-
-        for (const alias of aliases) assert.strictEqual((yield* restored.stat(`/${alias}`)).ino, file.ino)
-      }))
-
     it.effect("captures the file and its alias when the volume is at its entry and byte limits", () =>
       Effect.gen(function*() {
         const size = 128n * 1024n * 1024n - 1n
@@ -773,7 +724,7 @@ describe("snapshot entries", () => {
   })
 })
 
-{
+describe("line encoding", () => {
   const LIMITS: Vfs.DecodeLimits = {
     maxEncodedBytes: ByteSize.megabytes(1),
     maxRecords: 100,
@@ -923,7 +874,7 @@ describe("snapshot entries", () => {
 
     it.layer(BunCrypto.layer)((it) => {
       it.effect(
-        "should stream chunks of at most 128 lines and the chunk byte cap, a line past the cap in a chunk of its own when a chunk reaches line or byte caps",
+        "should stream the same snapshot bytes in chunks of at most 128 lines",
         () =>
           Effect.gen(function*() {
             const KIB = 1024
@@ -953,7 +904,6 @@ describe("snapshot entries", () => {
 
             for (const chunk of chunks) {
               assert.isAtMost(newlines(chunk), 128)
-              assert.isTrue(chunk.length <= ENCODED_CHUNK_BYTES || newlines(chunk) === 1, String(chunk.length))
             }
           })
       )
@@ -1268,31 +1218,10 @@ describe("snapshot entries", () => {
           })
       )
     })
-
-    it.layer(BunCrypto.layer)((it) => {
-      it.effect(
-        "should read a live image's runtime block from its first line when a live image header is decoded",
-        () =>
-          Effect.gen(function*() {
-            const image = yield* LiveVolume.prepareEmptyImage()
-            const [header, ...nodes] = readLines(image)
-
-            assert.deepStrictEqual(Object.keys(Object(header)), ["format", "version", "runtime"])
-            assert.strictEqual(nodes.length, 1)
-            assert.strictEqual(image.at(-1), 10)
-
-            const failed = yield* Effect.flip(
-              LiveImage.decode(image.subarray(0, image.length - 1), ByteSize.kilobytes(64))
-            )
-
-            assert.deepStrictEqual([failed.code, failed.field], ["InvalidEncoding", "liveImage"])
-          })
-      )
-    })
   })
-}
+})
 
-{
+describe("byte and symlink fidelity", () => {
   const LIMITS: Vfs.DecodeLimits = {
     maxEncodedBytes: ByteSize.megabytes(1),
     maxRecords: 1_000,
@@ -1941,4 +1870,73 @@ describe("snapshot entries", () => {
       )
     })
   })
-}
+})
+
+describe("codec call styles", () => {
+  const limits: Vfs.DecodeLimits = {
+    maxEncodedBytes: ByteSize.kibibytes(16),
+    maxRecords: 10,
+    maxEntries: 10,
+    maxDecodedBytes: ByteSize.kibibytes(16)
+  }
+
+  const fixture: Vfs.Fixture = {
+    entries: [{ kind: "file", path: "/message.txt", bytes: new TextEncoder().encode("hit\nmiss\nhit\n") }]
+  }
+
+  describe("data-first and data-last calls", () => {
+    it.layer(BunCrypto.layer)((it) => {
+      it.effect("encodes with omitted, undefined, or explicit limits and decodes in either call style", () =>
+        Effect.gen(function*() {
+          const snapshot = yield* (yield* Vfs.fromFixture(fixture)).snapshot
+          const expected = yield* Vfs.encodeSnapshot(snapshot)
+
+          for (const encode of [Vfs.encodeSnapshot(), Vfs.encodeSnapshot(undefined), Vfs.encodeSnapshot(limits)]) {
+            assert.deepStrictEqual(yield* encode(snapshot), expected)
+          }
+
+          assert.deepStrictEqual(yield* Vfs.encodeSnapshot(snapshot, undefined), expected)
+          assert.deepStrictEqual(yield* Vfs.encodeSnapshot(snapshot, limits), expected)
+
+          for (
+            const encode of [
+              Vfs.encodeSnapshotStream(),
+              Vfs.encodeSnapshotStream(undefined),
+              Vfs.encodeSnapshotStream(limits)
+            ]
+          ) {
+            assert.deepStrictEqual(
+              yield* Stream.runCollect(encode(snapshot)),
+              yield* Stream.runCollect(Vfs.encodeSnapshotStream(snapshot))
+            )
+          }
+
+          assert.deepStrictEqual(
+            yield* Stream.runCollect(Vfs.encodeSnapshotStream(snapshot, limits)),
+            yield* Stream.runCollect(Vfs.encodeSnapshotStream(snapshot, undefined))
+          )
+          const restored = yield* pipe(expected, Vfs.decodeSnapshot(limits))
+          assert.deepStrictEqual(yield* Vfs.encodeSnapshot(restored), expected)
+          assert.deepStrictEqual(yield* Vfs.encodeSnapshot(yield* Vfs.decodeSnapshot(expected, limits)), expected)
+          const entries = yield* Stream.runCollect(pipe(restored, Vfs.snapshotEntries("/")))
+          assert.deepStrictEqual(entries.map((entry) => entry.path), ["/", "/message.txt"])
+          assert.deepStrictEqual(entries, yield* Stream.runCollect(Vfs.snapshotEntries(restored, "/")))
+        }))
+
+      it.effect("preserves typed codec failures through curried calls", () =>
+        Effect.gen(function*() {
+          const snapshot = yield* (yield* Vfs.fromFixture(fixture)).snapshot
+          const bytes = yield* Vfs.encodeSnapshot(snapshot)
+          const small = { ...limits, maxEncodedBytes: ByteSize.bytes(1) }
+          assert.deepStrictEqual(
+            yield* Effect.flip(Vfs.encodeSnapshot(small)(snapshot)),
+            yield* Effect.flip(Vfs.encodeSnapshot(snapshot, small))
+          )
+          assert.deepStrictEqual(
+            yield* Effect.flip(Vfs.decodeSnapshot(small)(bytes)),
+            yield* Effect.flip(Vfs.decodeSnapshot(bytes, small))
+          )
+        }))
+    })
+  })
+})

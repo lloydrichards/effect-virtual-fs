@@ -30,7 +30,7 @@ sources:
     resource: ../../apps/virtual-build/test/VirtualBuild.test.ts
     title: Public-package virtual build tests
   - id: overlay-tests
-    resource: ../../packages/core/test/behaviour/overlay.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Overlay workspace tests
   - id: delta-tests
     resource: ../../packages/core/test/SnapshotDelta.test.ts
@@ -39,7 +39,7 @@ sources:
     resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Overlay checkpoint tests
   - id: failure-sequences
-    resource: ../../packages/core/test/behaviour/failureSequences.test.ts
+    resource: ../../packages/core/test/Caller.test.ts
     title: Fixed-seed failure and identity sequences
   - id: file-resources
     resource: ../../packages/core/test/FileHandle.test.ts

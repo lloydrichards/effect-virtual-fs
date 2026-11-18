@@ -18,7 +18,7 @@ sources:
     resource: ../../../packages/core/src/internal/model.ts
     title: One resolution step per addressing mode
   - id: table
-    resource: ../../../packages/core/test/behaviour/operations.test.ts
+    resource: ../../../packages/core/test/Caller.test.ts
     title: Side-by-side codes per addressing mode
 generated: { by: codex/okf, at: 2026-11-11T20:35:41+00:00 }
 ---

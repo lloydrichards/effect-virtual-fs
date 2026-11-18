@@ -1,10 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Clock, Deferred, Duration, Effect, Fiber, Predicate, Result } from "effect"
+import { ByteSize, Clock, Duration, Effect, Predicate, Result } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { Metadata, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
-
-import { withVolumeTestSeams } from "../src/internal/model.js"
 import { pathText } from "./support/text.js"
 
 // A clock whose wall time is `now`; monotonic time and sleeping stay with `original`.
@@ -226,9 +224,12 @@ describe("metadata authority", () => {
             )).code,
             "NotPermitted"
           )
+          const { mtimeNs } = yield* admin.stat("/f")
+          yield* TestClock.adjust("1 second")
           yield* admin.utimes("/f", { access: { kind: "value", nanoseconds: 3n }, modification: { kind: "omit" } })
           const before = yield* admin.stat("/f")
           assert.strictEqual(before.atimeNs, 3n)
+          assert.strictEqual(before.mtimeNs, mtimeNs)
           yield* TestClock.adjust("1 second")
           yield* guest.utimes("/f", { access: { kind: "omit" }, modification: { kind: "omit" } })
           assert.deepStrictEqual(yield* admin.stat("/f"), before)
@@ -392,11 +393,6 @@ const DAY = Duration.hours(24)
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
 
-// Lets forked fibers make progress without waiting on any of them.
-const settle = Effect.gen(function*() {
-  for (let i = 0; i < 4; i++) yield* Effect.yieldNow
-})
-
 // Each read that relatime governs, as a function of the caller and a path to a file or directory.
 const READS = [
   { name: "readFile", kind: "file", read: (fs: Vfs.Caller, path: string) => Effect.asVoid(fs.readFile(path)) },
@@ -489,57 +485,5 @@ describe("relatime", () => {
         assert.deepStrictEqual(yield* file.read(0), bytes())
         assert.strictEqual(yield* atime(fs, "/f"), 0n)
       }).pipe(Effect.scoped, Effect.provide(Testing.layer())))
-  })
-
-  it.layer(BunCrypto.layer)((it) => {
-    it.effect(
-      "should allow recent reads beside observations and wait for stale reads when relatime is enabled",
-      () =>
-        Effect.gen(function*() {
-          // Both entries were accessed after their last change, so reading them refreshes nothing.
-          const base = yield* (yield* Vfs.fromFixture({
-            entries: [
-              { kind: "file", path: "/recent", bytes: bytes(1, 2), metadata: { atimeNs: 5n } },
-              { kind: "directory", path: "/dir", metadata: { atimeNs: 5n } },
-              { kind: "file", path: "/stale", bytes: bytes(3) }
-            ]
-          })).snapshot
-
-          // A second on, so the unread entry's access time is due.
-          yield* TestClock.adjust("1 second")
-
-          const overlay = yield* Vfs.makeOverlay(base)
-          const fs = yield* overlay.caller()
-          const file = yield* fs.open("/recent", { access: "read" })
-          const held = yield* Deferred.make<void>()
-          const release = yield* Deferred.make<void>()
-
-          // A capture held between its two halves keeps one permit, which a change must wait for.
-          const capturing = yield* overlay.capture().pipe(
-            withVolumeTestSeams({
-              betweenSnapshotAndSummary: Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release)))
-            }),
-            Effect.forkChild({ startImmediately: true })
-          )
-
-          yield* Deferred.await(held)
-          assert.deepStrictEqual(yield* fs.readFile("/recent"), bytes(1, 2))
-          assert.strictEqual((yield* fs.readDirectory("/dir")).value.length, 0)
-          assert.deepStrictEqual((yield* file.pread(2, 0n)).bytes, bytes(1, 2))
-
-          // A due access time and a cursor read each need a change, so both wait for the capture.
-          const stale = yield* fs.readFile("/stale").pipe(Effect.forkChild({ startImmediately: true }))
-          const cursor = yield* file.read(2).pipe(Effect.forkChild({ startImmediately: true }))
-          yield* settle
-          assert.isUndefined(stale.pollUnsafe())
-          assert.isUndefined(cursor.pollUnsafe())
-
-          yield* Deferred.succeed(release, undefined)
-          yield* Fiber.join(capturing)
-          assert.deepStrictEqual(yield* Fiber.join(stale), bytes(3))
-          assert.deepStrictEqual(yield* Fiber.join(cursor), bytes(1, 2))
-          assert.strictEqual(yield* atime(fs, "/recent"), 5n)
-        }).pipe(Effect.scoped)
-    )
   })
 })

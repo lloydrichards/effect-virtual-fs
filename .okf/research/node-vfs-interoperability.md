@@ -15,13 +15,13 @@ sources:
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/297#issuecomment-6231692267
     title: Retained composition evidence and Effect parity scope
   - id: overlay-probe
-    resource: ../../packages/core/test/behaviour/overlay.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Effect overlay identity and isolation behavior
   - id: evidence
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/297#issuecomment-6231692267
     title: Comparison environment and qualification limits
   - id: overlay-tests
-    resource: ../../packages/core/test/behaviour/overlay.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Core overlay behavior
 generated: { by: codex/okf, at: "2026-10-21T09:54:58+00:00" }
 ---

@@ -15,7 +15,7 @@ sources:
     title: Link and path-resolution behavior tests
   - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Namespace behavior tests
-  - resource: ../../packages/core/test/behaviour/operations.test.ts
+  - resource: ../../packages/core/test/Caller.test.ts
     title: Side-by-side path and reference outcomes
 generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
 ---

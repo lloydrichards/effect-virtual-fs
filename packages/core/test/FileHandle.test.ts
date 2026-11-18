@@ -1,9 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Cause, Deferred, Effect, Exit, Fiber, Scheduler, Scope } from "effect"
-import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
-import * as LiveImage from "../src/internal/liveImage.js"
-import { makeVolume, VolumeSource } from "../src/internal/virtualFileSystem.js"
+import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import { entryNames, text } from "./support/text.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
@@ -402,26 +401,26 @@ const pausedVolumeWith = Effect.fnUntraced(function*(options?: Vfs.VolumeOptions
   let pause: Pause | undefined
   let outcome: "committed" | "rejected" = "committed"
   let commits = 0
-  let retained: ReadonlyArray<bigint> = []
 
-  const { volume } = yield* makeVolume(VolumeSource.Empty(), {
-    mode: "durable",
-    shutdown: Effect.void,
-    commit: (candidate) =>
+  const volume = yield* LiveVolume.open({
+    volume: options ?? {},
+    maxImageBytes: ByteSize.megabytes(1)
+  }).pipe(Effect.provideService(LiveVolume.LiveImageStore, {
+    loadOrCreate: Effect.succeed,
+    commit: () =>
       Effect.suspend(() => {
         commits++
-        retained = LiveImage.retainedFiles(candidate).map((file) => file.metadata.ino)
         const paused = pause
-
-        if (paused === undefined) return Effect.succeed(outcome)
         pause = undefined
 
-        return Deferred.succeed(paused.entered, undefined).pipe(
+        const settle = Effect.succeed(outcome)
+
+        return paused === undefined ? settle : Deferred.succeed(paused.entered, undefined).pipe(
           Effect.andThen(Deferred.await(paused.release)),
-          Effect.as("committed" as const)
+          Effect.andThen(settle)
         )
       })
-  }, options)
+  }))
 
   const caller = yield* volume.caller()
 
@@ -447,7 +446,7 @@ const pausedVolumeWith = Effect.fnUntraced(function*(options?: Vfs.VolumeOptions
       outcome = rejected ? "rejected" : "committed"
     })
 
-  return { volume, caller, hold, pauseNext, reject, commits: () => commits, retained: () => retained }
+  return { volume, caller, hold, pauseNext, reject, commits: () => commits }
 })
 
 const pausedVolume = pausedVolumeWith()
@@ -576,8 +575,9 @@ describe("handle lifecycles", () => {
         `should interrupt ${label} and release resources when its scope closes during a pending commit`,
         () =>
           Effect.gen(function*() {
-            const { caller, pauseNext, retained } = yield* pausedVolume
+            const { caller, pauseNext } = yield* pausedVolume
             yield* caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
+            const reference = yield* caller.lookup("/file")
             const { entered, release } = yield* pauseNext
             const scope = yield* Scope.make()
 
@@ -593,7 +593,7 @@ describe("handle lifecycles", () => {
             assert.isTrue(Exit.isFailure(result) && Cause.hasInterruptsOnly(result.cause))
             assert.strictEqual((yield* caller.stat("/file")).size, 0n)
             yield* caller.unlink("/file")
-            assert.deepEqual(retained(), [])
+            assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
           })
       )
     })
@@ -605,8 +605,9 @@ describe("handle lifecycles", () => {
         `should release resources when ${label} scope and fiber close during its pending commit`,
         () =>
           Effect.gen(function*() {
-            const { caller, pauseNext, retained } = yield* pausedVolume
+            const { caller, pauseNext } = yield* pausedVolume
             yield* caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
+            const reference = yield* caller.lookup("/file")
             const { entered, release } = yield* pauseNext
             const scope = yield* Scope.make()
 
@@ -623,7 +624,7 @@ describe("handle lifecycles", () => {
             yield* Fiber.join(interrupting)
             assert.strictEqual((yield* caller.stat("/file")).size, 0n)
             yield* caller.unlink("/file")
-            assert.deepEqual(retained(), [])
+            assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
           })
       )
     })
@@ -713,14 +714,13 @@ describe("handle lifecycles", () => {
     it.effect("should release a file when its scope closes while the volume is busy", () =>
       Effect.gen(function*() {
         const scope = yield* Scope.make()
-        const { volume, finish, commits, retained } = yield* busyWithUnlinkedOpen(scope)
+        const { volume, finish, commits } = yield* busyWithUnlinkedOpen(scope)
         const before = commits()
         const closing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkChild({ startImmediately: true }))
         yield* finish
         yield* Fiber.join(closing)
         assert.strictEqual((yield* volume.usage).usedBytes, 0n)
         assert.strictEqual(commits() - before, 1)
-        assert.deepEqual(retained(), [])
       }))
   })
 
@@ -740,4 +740,35 @@ describe("handle lifecycles", () => {
         })
     )
   })
+})
+
+describe("unlinked file lifetime", () => {
+  const text = new TextEncoder()
+
+  it.effect("should retain unlinked bytes and capacity when an open handle outlives every name", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(4) })
+      const ops = yield* volume.caller({ umask: 0 })
+      const bytes = text.encode("data")
+      yield* ops.writeFile("/file", bytes, { access: "write", create: "exclusive" })
+      bytes.fill(0)
+      yield* ops.link("/file", "/alias")
+      const handle = yield* ops.open("/file", { access: "readWrite" })
+      yield* handle.pwrite(text.encode("D"), 0n)
+      assert.deepStrictEqual(yield* ops.readFile("/alias"), text.encode("Data"))
+      yield* ops.unlink("/file")
+      yield* ops.unlink("/alias")
+      assert.deepStrictEqual((yield* handle.pread(4, 0n)).bytes, text.encode("Data"))
+      assert.strictEqual((yield* volume.usage).usedBytes, 4n)
+
+      const denied = yield* Effect.flip(
+        ops.writeFile("/next", text.encode("x"), { access: "write", create: "exclusive" })
+      )
+
+      assert.strictEqual(denied.code, "NoSpace")
+      yield* handle.close
+      assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+      yield* ops.writeFile("/next", text.encode("x"), { access: "write", create: "exclusive" })
+      assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")
+    }).pipe(Effect.provide(NodeCrypto.layer)))
 })

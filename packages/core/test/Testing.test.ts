@@ -98,24 +98,27 @@ describe("Testing.callerAs", () => {
 
 describe("Testing.collectChanges", () => {
   it.layer(BunCrypto.layer)((it) => {
-    it.effect("should collect the first n changes committed when the watch opened", () =>
+    it.effect("should collect only the first two changes after opening a watch in either call style", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.Volume
         const caller = yield* Vfs.Caller
         yield* caller.mkdir("/before")
 
-        const changes = yield* Testing.collectChanges(yield* volume.watch(), 2)
+        const direct = yield* Testing.collectChanges(yield* volume.watch(), 2)
+        const curried = yield* (yield* volume.watch()).pipe(Testing.collectChanges(2))
         yield* caller.mkdir("/first")
         yield* caller.rmdir("/before")
         yield* caller.mkdir("/third")
 
-        const collected: Array<string> = []
+        for (const changes of [direct, curried]) {
+          const collected: Array<string> = []
 
-        for (const change of yield* changes) {
-          collected.push(`${change._tag} ${decoder.decode(yield* Vfs.pathToBytes(change.path))}`)
+          for (const change of yield* changes) {
+            collected.push(`${change._tag} ${decoder.decode(yield* Vfs.pathToBytes(change.path))}`)
+          }
+
+          assert.deepStrictEqual(collected, ["Create /first", "Remove /before"])
         }
-
-        assert.deepStrictEqual(collected, ["Create /first", "Remove /before"])
       }).pipe(Effect.provide(Testing.layer())))
   })
 

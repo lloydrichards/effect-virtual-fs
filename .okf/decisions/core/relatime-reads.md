@@ -9,7 +9,7 @@ sources:
     resource: ../../../packages/core/src/internal/runtime.ts
     title: RELATIME_INTERVAL_NS, accessDue, refreshDue, accessing, refreshAccess and the unchanged-draft skip in committed
   - id: tests
-    resource: ../../../packages/core/test/behaviour/linuxSemantics.test.ts
+    resource: ../../../packages/core/test/Caller.test.ts
     title: The rule for each read, including a status-only change, the 24 h bound, and reads beside a held observation
   - id: live-tests
     resource: ../../../packages/core/test/LiveVolume.test.ts

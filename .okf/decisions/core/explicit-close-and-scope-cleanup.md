@@ -5,7 +5,7 @@ description: Makes repeated explicit close fail while automatic scope cleanup re
 status: stable
 tags: [resources, lifetimes, scope]
 sources:
-  - resource: ../../../packages/core/test/Execution.test.ts
+  - resource: ../../../packages/core/test/Volume.test.ts
     title: Sync reentry and ownership-drain behavior
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
@@ -19,9 +19,6 @@ sources:
   - id: registry
     resource: ../../../packages/core/src/internal/runtime.ts
     title: Handle lifecycle, acquisition and one release operation
-  - id: registry-tests
-    resource: ../../../packages/core/test/Engine.test.ts
-    title: Direct lifecycle transition tests
 generated: { by: codex/okf, at: "2026-10-21T21:48:36+00:00" }
 ---
 
@@ -43,4 +40,4 @@ The lifetime rule remains current, while [reusable capability effects](reusable-
 
 [^tests]: The lifecycle suite races opens and closes against scope closes, fiber interruption, busy admission, and rejected commits.
 
-[^registry]: The shared engine’s `TokenRegistry` namespace owns `acquire`, `release`, `finalize`, and the lifecycle union. Its direct tests exercise cleanup before publication and staged release; `FileHandle.test.ts` retains the engine race and failure coverage.
+[^registry]: The shared engine’s `TokenRegistry` namespace owns `acquire`, `release`, `finalize`, and the lifecycle union. The FileHandle suite exercises cleanup before publication and release after a storage failure through public handles.
