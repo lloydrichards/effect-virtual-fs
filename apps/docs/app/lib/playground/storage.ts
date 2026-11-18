@@ -9,7 +9,12 @@ import { PlaygroundError } from "./error"
 const key = "workspace.sqlite"
 
 const storeLayer = BrowserKeyValueStore.layerIndexedDb({ database: "effect-vfs-checkpoints" }).pipe(
-  Layer.provide(IndexedDb.layerWindow)
+  Layer.provide(
+    Layer.effect(
+      IndexedDb.IndexedDb,
+      Effect.sync(() => IndexedDb.make({ indexedDB: globalThis.indexedDB, IDBKeyRange: globalThis.IDBKeyRange }))
+    )
+  )
 )
 
 const checkpointLayer = Layer.merge(storeLayer, SqliteClient.layerMemory({}))

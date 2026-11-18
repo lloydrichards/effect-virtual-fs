@@ -112,7 +112,11 @@ export default function App() {
   return (
     <MDXProvider components={proseComponents}>
       {hasToc && <TableOfContents toc={toc} />}
-      <div className="mx-auto w-full max-w-[70ch]">
+      <div
+        className={location.pathname.replace(/\/$/, "") === "/examples/virtual-build"
+          ? "mx-auto w-full max-w-[105ch]"
+          : "mx-auto w-full max-w-[70ch]"}
+      >
         <Outlet />
         <DocFooter />
       </div>

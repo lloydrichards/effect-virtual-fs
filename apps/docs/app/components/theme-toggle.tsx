@@ -1,29 +1,18 @@
 import { useCallback, useEffect, useState } from "react"
 import { Button } from "~/components/ui/button"
 
-function getInitialTheme(): "light" | "dark" {
-  if (typeof document === "undefined") return "dark"
-
-  return document.documentElement.classList.contains("dark") ? "dark" : "light"
-}
-
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme)
+  const [theme, setTheme] = useState<"light" | "dark">("dark")
 
   useEffect(() => {
-    const root = document.documentElement
-
-    if (theme === "dark") {
-      root.classList.add("dark")
-    } else {
-      root.classList.remove("dark")
-    }
-
-    localStorage.setItem("theme", theme)
-  }, [theme])
+    setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light")
+  }, [])
 
   const toggle = useCallback(() => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"))
+    const root = document.documentElement
+    const next = root.classList.toggle("dark") ? "dark" : "light"
+    localStorage.setItem("theme", next)
+    setTheme(next)
   }, [])
 
   return (

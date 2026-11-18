@@ -78,7 +78,7 @@ export const contentPages = [
   },
   {
     section: "Examples",
-    label: "Build and save a browser filesystem",
+    label: "Persistent Browser Filesystem",
     href: "/examples/virtual-build",
     routePath: "examples/virtual-build",
     contentPath: "content/examples/virtual-build.mdx"

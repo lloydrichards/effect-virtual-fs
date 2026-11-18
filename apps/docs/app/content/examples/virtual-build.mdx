@@ -1,8 +1,11 @@
 import { RegistryProvider } from "@effect/atom-react"
 import { CheckpointDiagram, FilePermissions } from "~/components/checkpoint-diagram"
+import { WorkerFlowDiagram } from "~/components/worker-flow-diagram"
 import { FilesystemPlayground } from "~/components/filesystem-playground"
 
-# Build and save a browser filesystem
+export const meta = () => [{ title: "Persistent Browser Filesystem | Effect VFS" }]
+
+# Persistent Browser Filesystem
 
 Select **Build and run** to see `Reading: 20` under **Console output**. All three callers can run the public sensor example. As **Editor**, change `20` to `21` in `src/value.js` and build again. The output changes to `Reading: 21`.
 
@@ -10,13 +13,13 @@ Select **Build and run** to see `Reading: 20` under **Console output**. All thre
 
 <FilesystemPlayground />
 
-Select a file or folder by name, then use the **Files** toolbar to rename or delete it. Renaming a folder moves its contents. Deleting a folder removes every file and subfolder inside it. Enter paths from the volume root, such as `src/lib`. If you rename an imported module, update its import before building. Tree changes stay in memory until you save a checkpoint.
+Select a file or folder by name, then use the **Project files** toolbar to rename or delete it. Renaming a folder moves its contents. Deleting a folder removes every file and subfolder inside it. Enter paths from the volume root, such as `src/lib`. If you rename an imported module, update its import before building. Tree changes stay in memory until you save a checkpoint.
 
 ## Try the private calibration
 
 1. As **Editor**, open `main.js` and uncomment `import "./secret.js"`. Select **Build and run**. The bundler now needs the private calibration module, so the read fails with `AccessDenied`.
 2. Switch to **Reader** and build the same files. Reader can read the public sensor value but cannot read the calibration module either.
-3. Switch to **Admin** and build again. The import runs `secret.js`, which adds its private offset to the sensor reading and logs the result. With the starter reading, you see `Secret: 42 (20 + 22)` followed by `Reading: 20`. Change the reading to `21` and run again to see `Secret: 43 (21 + 22)`.
+3. Switch to **Admin** and build again. The import runs `secret.js`, which adds its private offset to the sensor reading and logs the result. With the starter reading, you see `Secret: 42 (20 + 22)` followed by `Reading: 20`. If you changed the reading to `21` earlier, you see `Secret: 43 (21 + 22)` followed by `Reading: 21`.
 4. As **Admin**, open `secret.js` and set **File access** to **Everyone can read**. Keep the import enabled. The diagram now shows mode `0644` and read-only access for Editor and Reader.
 5. Switch to **Reader**. The lock disappears from `secret.js`. Open the file and select **Build and run**. Reader can inspect the calibration and run it, but only Admin can edit it.
 6. To restrict the file again, switch to **Admin** and set **File access** to **Private**. The mode returns to `0600`. **Save checkpoint** keeps the current permissions with the files.
@@ -37,12 +40,44 @@ Admin can change **File access** on any regular file. **Private** keeps read and
 2. Reload to start with the original files. Choose **Reopen saved** to replace the working copy with your saved files.
 3. Choose **Delete checkpoint** to remove the saved database and keep editing the files in memory.
 
+## What runs on each thread
+
+A dedicated browser worker owns the workspace and compiles it with esbuild.
+The VFS volume is the worker’s in-memory file tree. The editor sends file and
+build commands through typed Effect RPC. A sandboxed iframe starts a short-lived
+runner worker to execute the compiled JavaScript.
+
+<WorkerFlowDiagram
+  label="Build and run an edited file"
+  steps={[
+    ["Page", "Send the edit and request a build through Effect RPC."],
+    ["Filesystem worker", "Open files as the selected caller and compile with esbuild."],
+    ["Sandbox runner", "Execute the returned JavaScript and send log lines to the page."]
+  ]}
+/>
+
+The worker keeps the live VFS and its caller capabilities in one place.
+For example, the build request sends the caller role. The worker resolves the
+role to a VFS caller before it reads any source files. [Worker build handler](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/lib/playground/workspace.worker.ts)
+
+```ts title="Build with the selected caller"
+build: ({ role }) => caller(role).pipe(
+  Effect.flatMap(buildWorkspace),
+  Effect.mapError(failure)
+)
+```
+
 ## How the checkpoint reaches IndexedDB
 
-**Save checkpoint** runs an Effect Atom command. After writing the current edit to the virtual file, the command encodes the volume and saves the snapshot:
+**Save checkpoint** runs an Effect Atom command. The command flushes the current edit, then requests a checkpoint through RPC. The worker takes the volume snapshot and writes it through the checkpoint store.
 
 ```ts
-yield* saveCheckpoint(yield* volume.snapshot())
+saveCheckpoint: () =>
+  workspace.pipe(
+    Effect.flatMap((value) => value.snapshot()),
+    Effect.flatMap(saveCheckpoint),
+    Effect.mapError(failure)
+  )
 ```
 
 The save effect binds the snapshot bytes to an Effect SQL query. The browser SQLite driver exports the database, then the effect waits for the IndexedDB write to finish.
@@ -56,3 +91,9 @@ yield* store.set("workspace.sqlite", yield* sql.export)
 The effect scope closes the database on success or failure. After a successful save or delete, the command refreshes the checkpoint atom. Its value controls **Reopen saved** and **Inspect saved row**.
 
 For a server-side example, see [Save and restore SQLite checkpoints](/guides/sqlite-checkpoints).
+
+## Inspect the workers in DevTools
+
+1. Open Chrome DevTools and find **Browser filesystem** under **Sources → Threads**. On the dev server, switch to that thread and set a breakpoint in the build handler in `workspace.worker.ts`. Published builds bundle the script as `workspace.worker-*`. [Chrome DevTools thread controls](https://developer.chrome.com/docs/devtools/javascript/reference)
+2. Select **Build and run**. If you set a breakpoint, resume execution when the debugger pauses. Look for `Reading: 20` under **Console output** when running the starter source. The sandbox runner exists only while the compiled code runs.
+3. Select **Save checkpoint** and check **Application → IndexedDB** for `workspace.sqlite` in the `effect-vfs-checkpoints` database. Reload and select **Reopen saved** to verify that a new worker can restore the saved bytes.
