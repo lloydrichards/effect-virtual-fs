@@ -10,6 +10,6 @@ process.stdout.write(
 export default defineConfig({
   test: {
     root: fileURLToPath(new URL("./packages/memory/", import.meta.url)),
-    include: ["test/HostFileSystem.test.ts", "test/MemoryFileSystem.test.ts"]
+    include: ["compatibility/host/HostFileSystem.test.ts", "test/MemoryFileSystem.test.ts"]
   }
 })

@@ -17,8 +17,8 @@ sources:
     title: Temporary cleanup and unsupported watch profile
   - resource: ../../packages/memory/test/FileSystemTest.ts
     title: Shared observable FileSystem contract cases
-  - resource: ../../packages/memory/test/MinimalFileSystem.test.ts
-    title: Local unsupported-watch profile across both execution modes
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
+    title: Public Memory conformance suites across both execution modes
   - resource: ../../packages/core/src/internal/tree.ts
     title: Existing snapshot validation and numeric limits
   - resource: ../../packages/core/src/internal/volumeState.ts

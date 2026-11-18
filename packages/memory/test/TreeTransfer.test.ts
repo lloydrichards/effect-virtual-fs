@@ -2,7 +2,22 @@ import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Exit, FileSystem, Layer, Predicate, Result, Schema, Stream } from "effect"
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Function,
+  Layer,
+  Option,
+  Predicate,
+  Result,
+  Schema,
+  Stream
+} from "effect"
+import * as ByteSize from "effect/ByteSize"
 import type * as Digest from "effect/crypto/Digest"
 import type * as SecureRandom from "effect/crypto/SecureRandom"
 import * as PlatformError from "effect/PlatformError"
@@ -1429,3 +1444,1063 @@ const fileSystemSuite = (
 fileSystemSuite("Node", NodeFileSystem.layer)
 
 fileSystemSuite("Memory", MemoryFileSystem.layer)
+
+describe("Transfer fidelity", () => {
+  const rejectedRequirements = [
+    { required: { byteNames: true }, field: "byteNames" },
+    { required: { timestampPrecision: "nanosecond" }, field: "timestampPrecision" },
+    { required: { owner: true }, field: "owner" },
+    { required: { changeAndBirthTimes: true }, field: "changeAndBirthTimes" },
+    { required: { symlinkMetadata: true }, field: "symlinkMetadata" },
+    { required: { hardLinks: "exact" }, field: "hardLinks" }
+  ] as const
+
+  it.layer(NodeCrypto.layer)("Transfer fidelity", (it) => {
+    for (const existing of ["reject", "overwrite"] as const) {
+      for (const { required, field } of rejectedRequirements) {
+        it.effect(`should reject required ${field} before FileSystem writes with ${existing} policy`, () =>
+          Effect.gen(function*() {
+            const fs = yield* FileSystem.FileSystem.pipe(Effect.provide(MemoryFileSystem.layer))
+
+            if (existing === "overwrite") {
+              yield* fs.makeDirectory("/copy")
+              yield* fs.writeFileString("/copy/a", "keep")
+            }
+
+            const source = yield* Vfs.fromFixture(FOUR_FILES_FIXTURE)
+
+            const error = yield* Effect.flip(Stream.run(
+              TreeTransfer.fromSnapshot(yield* source.snapshot, "/"),
+              TreeTransfer.toFileSystem(fs, "/copy", { existing, required, unsupported: "skip" })
+            ))
+
+            assert.instanceOf(error, TreeTransfer.TransferError)
+
+            if (error instanceof TreeTransfer.TransferError) {
+              assert.strictEqual(error.code, "UnsupportedFidelity")
+              assert.strictEqual(error.field, field)
+            }
+
+            if (existing === "overwrite") {
+              assert.deepStrictEqual(yield* fs.readDirectory("/copy"), ["a"])
+              assert.strictEqual(yield* fs.readFileString("/copy/a"), "keep")
+            } else assert.isFalse(yield* fs.exists("/copy"))
+          }))
+      }
+    }
+
+    for (
+      const options of [
+        { required: { owner: true } },
+        { required: { changeAndBirthTimes: true } },
+        { required: { specialBits: true } },
+        { times: "none", required: { timestampPrecision: "nanosecond" } },
+        { required: { times: "all" } }
+      ] satisfies ReadonlyArray<TreeTransfer.WriteOptions>
+    ) {
+      it.effect(`should reject incompatible caller fidelity ${JSON.stringify(options)} before changing the destination`, () =>
+        Effect.gen(function*() {
+          const caller = yield* (yield* Vfs.make()).caller()
+          yield* caller.mkdir("/copy")
+          yield* caller.writeFile("/copy/a", new TextEncoder().encode("keep"), { create: "exclusive", access: "write" })
+          const source = yield* Vfs.fromFixture(FOUR_FILES_FIXTURE)
+
+          const error = yield* Effect.flip(Stream.run(
+            TreeTransfer.fromSnapshot(yield* source.snapshot, "/"),
+            TreeTransfer.toCaller(caller, "/copy", { existing: "overwrite", ...options })
+          ))
+
+          assert.instanceOf(error, TreeTransfer.TransferError)
+
+          if (error instanceof TreeTransfer.TransferError) assert.strictEqual(error.code, "UnsupportedFidelity")
+          assert.deepStrictEqual(
+            (yield* caller.readDirectory("/copy")).value.map((entry) => new TextDecoder().decode(entry.name)),
+            ["a"]
+          )
+          assert.deepStrictEqual(yield* caller.readFile("/copy/a"), new TextEncoder().encode("keep"))
+        }))
+    }
+
+    for (
+      const options of [
+        { required: { owner: true } },
+        { required: { specialBits: true } }
+      ] satisfies ReadonlyArray<TreeTransfer.VolumeTransferOptions>
+    ) {
+      it.effect(`should reject disabled volume fidelity ${JSON.stringify(options)} before consuming entries`, () =>
+        Effect.gen(function*() {
+          const error = yield* Effect.flip(TreeTransfer.toVolume(Stream.die("source must not run"), options))
+          assert.instanceOf(error, TreeTransfer.TransferError)
+
+          if (error instanceof TreeTransfer.TransferError) assert.strictEqual(error.code, "UnsupportedFidelity")
+        }))
+    }
+
+    for (const destination of ["caller", "fileSystem"] as const) {
+      it.effect(`should reject unsupported ${destination} fidelity before consuming a failing source`, () =>
+        Effect.gen(function*() {
+          const volume = yield* Vfs.make()
+          const caller = yield* volume.caller()
+          const fs = yield* MemoryFileSystem.bindCaller(caller)
+          const options = { required: { owner: true } }
+
+          const sink = destination === "caller"
+            ? TreeTransfer.toCaller(caller, "/copy", options)
+            : TreeTransfer.toFileSystem(fs, "/copy", options)
+
+          const error = yield* Effect.flip(Stream.run(Stream.die("source must not run"), sink))
+          assert.instanceOf(error, TreeTransfer.TransferError)
+
+          if (error instanceof TreeTransfer.TransferError) {
+            assert.strictEqual(error.code, "UnsupportedFidelity")
+            assert.strictEqual(error.field, "owner")
+          }
+
+          assert.isFalse(yield* fs.exists("/copy"))
+        }))
+    }
+
+    for (const required of [{ hardLinks: "sometimes" }, { owner: "true" }, { unknownGuarantee: true }, null]) {
+      it.effect(`should reject malformed requirements ${JSON.stringify(required)} with a typed error`, () =>
+        Effect.gen(function*() {
+          const error = yield* Effect.flip(TreeTransfer.toVolume(Stream.die("source must not run"), {
+            // @ts-expect-error Deliberately exercise malformed JavaScript input at the public boundary.
+            required
+          }))
+
+          assert.instanceOf(error, TreeTransfer.TransferError)
+
+          if (error instanceof TreeTransfer.TransferError) {
+            assert.strictEqual(error.code, "InvalidArgument")
+            assert.strictEqual(error.field, "required")
+          }
+        }))
+    }
+
+    for (const destination of ["caller", "fileSystem", "nodeFileSystem"] as const) {
+      it.effect(`should preserve a supplied access time without mtime when ${destination} requires all selected times`, () =>
+        Effect.gen(function*() {
+          const caller = yield* (yield* Vfs.make()).caller()
+
+          const fs = destination === "nodeFileSystem"
+            ? yield* FileSystem.FileSystem.pipe(Effect.provide(NodeFileSystem.layer))
+            : yield* MemoryFileSystem.bindCaller(caller)
+
+          const root = destination === "nodeFileSystem"
+            ? `${yield* fs.makeTempDirectoryScoped({ prefix: "transfer-fidelity-" })}/copy`
+            : "/copy"
+
+          const options: TreeTransfer.WriteOptions = { times: "all", required: { times: "all" } }
+
+          const sink = destination === "caller"
+            ? TreeTransfer.toCaller(caller, root, options)
+            : TreeTransfer.toFileSystem(fs, root, options)
+
+          yield* Stream.run(
+            Stream.fromIterable<TreeTransfer.Entry>([
+              { kind: "directory", path: "/" },
+              { kind: "file", path: "/a", bytes: new Uint8Array(), metadata: { atimeNs: 1_234_567_890n } }
+            ]),
+            sink
+          )
+
+          if (destination === "caller") assert.strictEqual((yield* caller.stat(`${root}/a`)).atimeNs, 1_234_567_890n)
+          else assert.strictEqual(Option.getOrThrow((yield* fs.stat(`${root}/a`)).atime).getTime(), 1234)
+        }))
+    }
+
+    for (const destination of ["caller", "fileSystem"] as const) {
+      it.effect(`should retain merged directory modes when ${destination} requires the enabled special-bit policy`, () =>
+        Effect.gen(function*() {
+          const caller = yield* (yield* Vfs.make()).caller()
+          const fs = yield* MemoryFileSystem.bindCaller(caller)
+          yield* fs.makeDirectory("/copy", { mode: 0o700 })
+          const source = yield* Vfs.fromFixture({ ...FOUR_FILES_FIXTURE, rootMetadata: { mode: 0o1777 } })
+          yield* (yield* source.caller()).chmod("/a", 0o4755)
+
+          const options: TreeTransfer.WriteOptions = {
+            existing: "overwrite",
+            specialBits: true,
+            required: { specialBits: true }
+          }
+
+          const sink = destination === "caller"
+            ? TreeTransfer.toCaller(caller, "/copy", options)
+            : TreeTransfer.toFileSystem(fs, "/copy", options)
+
+          yield* Stream.run(TreeTransfer.fromSnapshot(yield* source.snapshot, "/"), sink)
+          assert.strictEqual((yield* caller.stat("/copy")).mode, 0o700)
+          assert.strictEqual((yield* caller.stat("/copy/a")).mode, 0o4755)
+        }))
+    }
+
+    it.effect("should preserve required volume fidelity when owner and special bits are enabled", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        yield* (yield* source.caller()).chown("/src/nested/data.bin", { uid: 123, gid: 456 })
+        const expected = yield* snapshotEntries(source, "/src")
+
+        const copy = yield* TreeTransfer.toVolume(
+          TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
+          {
+            owner: true,
+            specialBits: true,
+            required: { ...TreeTransfer.SinkCapabilities.volume, specialBits: true, times: "all" }
+          }
+        )
+
+        assert.deepStrictEqual(yield* snapshotEntries(copy, "/"), expected)
+      }))
+
+    it.effect("should accept stronger volume capabilities when only millisecond precision and best-effort links are required", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+
+        const copy = yield* TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
+          TreeTransfer.toVolume({
+            required: { timestampPrecision: "millisecond", hardLinks: "bestEffort", owner: false }
+          })
+        )
+
+        const caller = yield* copy.caller()
+        assert.strictEqual((yield* caller.stat("/nested/data.bin")).mtimeNs, 32n)
+        assert.strictEqual(yield* caller.lookup("/relative"), yield* caller.lookup("/relative-alias"))
+      }))
+
+    it.effect("should preserve byte names and exact hard links when caller fidelity is required", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const original = yield* source.caller()
+        yield* original.chmod(Vfs.Target.Path({ path: "/src/relative", followFinalSymlink: false }), 0o540)
+        const caller = yield* (yield* Vfs.make()).caller()
+
+        const report = yield* Stream.run(
+          TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
+          TreeTransfer.toCaller(caller, "/copy", {
+            times: "all",
+            specialBits: true,
+            required: { ...TreeTransfer.SinkCapabilities.caller, specialBits: true, times: "all" }
+          })
+        )
+
+        assert.strictEqual(report.hardLinksDegraded, 0)
+        assert.strictEqual(
+          (yield* caller.stat(Vfs.Target.Path({ path: "/copy/relative", followFinalSymlink: false }))).mode,
+          0o540
+        )
+        assert.strictEqual(yield* caller.lookup("/copy/relative"), yield* caller.lookup("/copy/relative-alias"))
+        const raw = yield* Vfs.pathFromBytes(new Uint8Array([...new TextEncoder().encode("/copy/raw-"), 0xff]))
+        assert.deepStrictEqual(yield* caller.readFile(raw), new TextEncoder().encode("raw"))
+        assert.strictEqual((yield* caller.stat("/copy/nested/data.bin")).mtimeNs, 32n)
+      }))
+
+    it.effect("should accept best-effort hard links and millisecond precision with matching FileSystem options", () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem.pipe(Effect.provide(MemoryFileSystem.layer))
+        const source = yield* Vfs.fromFixture(FOUR_FILES_FIXTURE)
+        yield* (yield* source.caller()).utimes("/a", {
+          access: { kind: "value", nanoseconds: 1_234_567_890n },
+          modification: { kind: "value", nanoseconds: 5_678_901_234n }
+        })
+
+        const report = yield* Stream.run(
+          TreeTransfer.fromSnapshot(yield* source.snapshot, "/").pipe(
+            Stream.concat(Stream.fromIterable<TreeTransfer.Entry>([
+              { kind: "symlink", path: "/link", target: "a" },
+              { kind: "hardLink", path: "/alias", target: "/link" }
+            ]))
+          ),
+          TreeTransfer.toFileSystem(fs, "/copy", {
+            times: "all",
+            required: { ...TreeTransfer.SinkCapabilities.fileSystem, times: "all" }
+          })
+        )
+
+        assert.strictEqual(report.entries, 7)
+        assert.strictEqual(report.hardLinksDegraded, 1)
+        assert.strictEqual(yield* fs.readLink("/copy/alias"), "a")
+        const stat = yield* fs.stat("/copy/a")
+        assert.strictEqual(Option.getOrThrow(stat.mtime).getTime(), 5678)
+        assert.strictEqual(Option.getOrThrow(stat.atime).getTime(), 1234)
+        assert.deepStrictEqual(yield* fs.readDirectory("/copy"), ["a", "alias", "b", "c", "d", "link"])
+      }))
+  })
+})
+
+describe("Transfer cleanup", () => {
+  const text = new TextEncoder()
+
+  const cleanupDestination = Effect.fnUntraced(function*(
+    kind: "Caller" | "Memory" | "Node",
+    options?: {
+      cleanupFails?: boolean
+      metadataFails?: boolean
+      writeFails?: boolean
+      writing?: {
+        started: Deferred.Deferred<void>
+        resume: Deferred.Deferred<void>
+        interrupted: Deferred.Deferred<void>
+      }
+      claiming?: { started: Deferred.Deferred<void>; resume: Deferred.Deferred<void> }
+      finalizing?: { started: Deferred.Deferred<void>; resume: Deferred.Deferred<void> }
+    }
+  ) {
+    let claimObserved = false
+
+    const afterStat = Effect.fnUntraced(function*() {
+      if (claimObserved || options?.claiming === undefined) return
+      claimObserved = true
+      yield* Deferred.succeed(options.claiming.started, undefined)
+      yield* Deferred.await(options.claiming.resume)
+    })
+
+    const callerFailure = Object.assign(new Vfs.VfsError({ code: "AccessDenied", operation: "chmod" }), {
+      code: "AccessDenied" as const
+    })
+
+    const metadataFailure = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "chmod"
+    })
+
+    const writeFailure = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "writeAll"
+    })
+
+    const writing = options?.writing
+
+    const afterWrite = writing === undefined ? Effect.void : Effect.gen(function*() {
+      yield* Deferred.succeed(writing.started, undefined)
+      yield* Deferred.await(writing.resume)
+    }).pipe(Effect.onInterrupt(() => Deferred.succeed(writing.interrupted, undefined)))
+
+    const beforeMode = (mode: number) =>
+      mode === 0o555 && options?.finalizing !== undefined
+        ? Deferred.succeed(options.finalizing.started, undefined).pipe(
+          Effect.andThen(Deferred.await(options.finalizing.resume))
+        )
+        : Effect.void
+
+    if (kind === "Caller") {
+      const volume = yield* Vfs.make()
+      yield* (yield* volume.caller()).chmod("/", 0o777)
+      const caller = yield* volume.caller({ identity: { uid: 1000, gid: 1000, groups: [], privileged: false } })
+
+      return {
+        fs: yield* MemoryFileSystem.bindCaller(caller),
+        root: "/copy",
+        sink: (existing: "reject" | "overwrite") =>
+          TreeTransfer.toCaller(
+            {
+              ...caller,
+              stat: (target) => caller.stat(target).pipe(Effect.tap(afterStat)),
+              rmdir: (path) =>
+                options?.cleanupFails
+                  ? Effect.fail(
+                    Object.assign(new Vfs.VfsError({ code: "AccessDenied", operation: "rmdir" }), {
+                      code: "AccessDenied" as const
+                    })
+                  )
+                  : caller.rmdir(path),
+              chmod: Function.dual(2, (target: Vfs.TargetInput, mode: number) =>
+                options?.metadataFails && mode === 0o540 ?
+                  Effect.fail(callerFailure)
+                  : beforeMode(mode).pipe(Effect.andThen(caller.chmod(target, mode))))
+            },
+            "/copy",
+            { existing }
+          )
+      }
+    }
+
+    const fs = yield* FileSystem.FileSystem.pipe(
+      Effect.provide(kind === "Node" ? NodeFileSystem.layer : MemoryFileSystem.layer)
+    )
+
+    const directory = yield* fs.makeTempDirectoryScoped({ prefix: "transfer-cleanup-" })
+    const root = `${directory}/copy`
+
+    return {
+      fs,
+      root,
+      sink: (existing: "reject" | "overwrite") =>
+        TreeTransfer.toFileSystem(
+          FileSystem.make({
+            ...fs,
+            stat: (path) => fs.stat(path).pipe(Effect.tap(afterStat)),
+            open: (path, openOptions) =>
+              fs.open(path, openOptions).pipe(Effect.map((file) => ({
+                ...file,
+                stat: file.stat.pipe(Effect.tap(afterStat)),
+                writeAll: (contents: Uint8Array) =>
+                  options?.writeFails
+                    ? file.writeAll(contents.subarray(0, 1)).pipe(Effect.andThen(Effect.fail(writeFailure)))
+                    : file.writeAll(contents).pipe(Effect.andThen(afterWrite))
+              }))),
+            writeFile: (path, contents, writeOptions) =>
+              options?.writeFails
+                ? fs.writeFile(path, contents.subarray(0, 1), writeOptions).pipe(
+                  Effect.andThen(Effect.fail(metadataFailure))
+                )
+                : fs.writeFile(path, contents, writeOptions).pipe(Effect.andThen(afterWrite)),
+            remove: (path, removeOptions) =>
+              options?.cleanupFails
+                ? Effect.fail(
+                  PlatformError.systemError({ _tag: "PermissionDenied", module: "FileSystem", method: "remove" })
+                )
+                : fs.remove(path, removeOptions),
+            chmod: (path, mode) =>
+              options?.metadataFails && mode === 0o540 ?
+                Effect.fail(metadataFailure)
+                : beforeMode(mode).pipe(Effect.andThen(fs.chmod(path, mode)))
+          }),
+          root,
+          { existing }
+        )
+    }
+  })
+
+  for (const kind of ["Caller", "Memory", "Node"] as const) {
+    it.layer(NodeCrypto.layer)(`TreeTransfer cleanup (${kind})`, (it) => {
+      it.effect("should remove the created root when its initial metadata fails", () =>
+        Effect.gen(function*() {
+          const { fs, root, sink } = yield* cleanupDestination(kind, { metadataFails: true })
+
+          const entry: TreeTransfer.Entry = kind === "Caller"
+            ? { kind: "symlink", path: "/", target: "missing", metadata: { mode: 0o540 } }
+            : { kind: "file", path: "/", bytes: text.encode("partial"), metadata: { mode: 0o540 } }
+
+          const exit = yield* Effect.exit(Stream.run(Stream.make(entry), sink("reject")))
+          assert.isTrue(Exit.isFailure(exit))
+
+          if (Exit.isFailure(exit)) assert.isTrue(Cause.hasFails(exit.cause))
+          const parent = root.slice(0, root.lastIndexOf("/")) || "/"
+          assert.notInclude(yield* fs.readDirectory(parent), "copy")
+          yield* fs.writeFileString(root, "usable")
+          assert.strictEqual(yield* fs.readFileString(root), "usable")
+        }))
+
+      if (kind !== "Caller") {
+        it.effect("should interrupt a blocked root-file write after ownership has been captured", () =>
+          Effect.gen(function*() {
+            const writing = {
+              started: yield* Deferred.make<void>(),
+              resume: yield* Deferred.make<void>(),
+              interrupted: yield* Deferred.make<void>()
+            }
+
+            const { fs, root, sink } = yield* cleanupDestination(kind, { writing })
+
+            const fiber = yield* Effect.forkChild(Stream.run(
+              Stream.fromIterable<TreeTransfer.Entry>([
+                { kind: "file", path: "/", bytes: text.encode("partial") }
+              ]),
+              sink("reject")
+            ))
+
+            yield* Deferred.await(writing.started)
+            const interrupting = yield* Effect.forkChild(Fiber.interrupt(fiber))
+            yield* Effect.yieldNow
+            const stoppedBeforeRelease = yield* Deferred.isDone(writing.interrupted)
+            yield* Deferred.succeed(writing.resume, undefined)
+            yield* Fiber.join(interrupting)
+            const exit = yield* Fiber.await(fiber)
+            assert.isTrue(stoppedBeforeRelease)
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterruptsOnly(exit.cause))
+            assert.isFalse(yield* fs.exists(root))
+          }))
+
+        it.effect("should retain the handle identity when a root file is moved and replaced during its write", () =>
+          Effect.gen(function*() {
+            const writing = {
+              started: yield* Deferred.make<void>(),
+              resume: yield* Deferred.make<void>(),
+              interrupted: yield* Deferred.make<void>()
+            }
+
+            const { fs, root, sink } = yield* cleanupDestination(kind, { writing, metadataFails: true })
+
+            const fiber = yield* Effect.forkChild(Stream.run(
+              Stream.fromIterable<TreeTransfer.Entry>([
+                { kind: "file", path: "/", bytes: text.encode("original"), metadata: { mode: 0o540 } }
+              ]),
+              sink("reject")
+            ))
+
+            yield* Deferred.await(writing.started)
+            yield* fs.rename(root, `${root}-moved`)
+            yield* fs.writeFileString(root, "replacement")
+            yield* Deferred.succeed(writing.resume, undefined)
+            const exit = yield* Fiber.await(fiber)
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) assert.isTrue(Cause.hasFails(exit.cause))
+            assert.strictEqual(yield* fs.readFileString(root), "replacement")
+            assert.strictEqual(yield* fs.readFileString(`${root}-moved`), "original")
+          }))
+
+        for (const targetExists of [false, true]) {
+          it.effect(`should finish an allowed root symlink when its target ${targetExists ? "exists" : "dangles"}`, () =>
+            Effect.gen(function*() {
+              const { fs, root } = yield* cleanupDestination(kind)
+              const target = `${root}-target`
+
+              if (targetExists) yield* fs.writeFileString(target, "protected")
+
+              const report = yield* Stream.run(
+                Stream.fromIterable<TreeTransfer.Entry>([
+                  { kind: "symlink", path: "/", target }
+                ]),
+                TreeTransfer.toFileSystem(fs, root, { escaping: "allow" })
+              )
+
+              assert.strictEqual(report.entries, 1)
+              assert.strictEqual(yield* fs.readLink(root), target)
+
+              if (targetExists) assert.strictEqual(yield* fs.readFileString(target), "protected")
+              else assert.isFalse(yield* fs.exists(root))
+            }))
+        }
+
+        it.effect("should keep a finalized root symlink when interruption arrives during its creation", () =>
+          Effect.gen(function*() {
+            const { fs, root } = yield* cleanupDestination(kind)
+            const created = yield* Deferred.make<void>()
+            const resume = yield* Deferred.make<void>()
+
+            const delayed = FileSystem.make({
+              ...fs,
+              symlink: (target, path) =>
+                fs.symlink(target, path).pipe(
+                  Effect.andThen(Deferred.succeed(created, undefined)),
+                  Effect.andThen(Deferred.await(resume))
+                )
+            })
+
+            const fiber = yield* Effect.forkChild(Stream.run(
+              Stream.fromIterable<TreeTransfer.Entry>([
+                { kind: "symlink", path: "/", target: "missing" }
+              ]),
+              TreeTransfer.toFileSystem(delayed, root, { escaping: "allow" })
+            ))
+
+            yield* Deferred.await(created)
+            const interrupting = yield* Effect.forkChild(Fiber.interrupt(fiber))
+            yield* Effect.yieldNow
+            yield* Deferred.succeed(resume, undefined)
+            yield* Fiber.join(interrupting)
+            const exit = yield* Fiber.await(fiber)
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) {
+              assert.isTrue(Cause.hasInterruptsOnly(exit.cause))
+            }
+
+            assert.strictEqual(yield* fs.readLink(root), "missing")
+          }))
+
+        it.effect("should remove a root file when its contents fail after creation", () =>
+          Effect.gen(function*() {
+            const { fs, root, sink } = yield* cleanupDestination(kind, { writeFails: true })
+
+            const exit = yield* Effect.exit(Stream.run(
+              Stream.fromIterable<TreeTransfer.Entry>([
+                { kind: "file", path: "/", bytes: text.encode("partial") }
+              ]),
+              sink("reject")
+            ))
+
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) assert.isTrue(Cause.hasFails(exit.cause))
+            assert.isFalse(yield* fs.exists(root))
+            yield* fs.writeFileString(root, "usable")
+            assert.strictEqual(yield* fs.readFileString(root), "usable")
+          }))
+      }
+
+      for (
+        const rootKind of kind === "Caller"
+          ? ["directory", "file", "symlink"] as const
+          : ["directory", "file"] as const
+      ) {
+        it.effect(`should remove a ${rootKind} root when interrupted while recording ownership`, () =>
+          Effect.gen(function*() {
+            const claiming = { started: yield* Deferred.make<void>(), resume: yield* Deferred.make<void>() }
+            const { fs, root, sink } = yield* cleanupDestination(kind, { claiming })
+
+            const entry: TreeTransfer.Entry = rootKind === "file"
+              ? { kind: "file", path: "/", bytes: text.encode("partial") }
+              : rootKind === "symlink"
+              ? { kind: "symlink", path: "/", target: "missing" }
+              : { kind: "directory", path: "/" }
+
+            const fiber = yield* Effect.forkChild(Stream.run(Stream.make(entry), sink("reject")))
+            yield* Deferred.await(claiming.started)
+            const interrupting = yield* Effect.forkChild(Fiber.interrupt(fiber))
+            yield* Effect.yieldNow
+            yield* Deferred.succeed(claiming.resume, undefined)
+            yield* Fiber.join(interrupting)
+            const exit = yield* Fiber.await(fiber)
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterrupts(exit.cause))
+            const parent = root.slice(0, root.lastIndexOf("/")) || "/"
+            assert.notInclude(yield* fs.readDirectory(parent), "copy")
+          }))
+      }
+
+      for (const existing of ["reject", "overwrite"] as const) {
+        for (const stop of ["interrupt", "timeout"] as const) {
+          it.effect(`should finish ${existing} cleanup after ${stop} while waiting for another source entry`, () =>
+            Effect.gen(function*() {
+              const { fs, root, sink } = yield* cleanupDestination(kind, { cleanupFails: existing === "overwrite" })
+              const source = yield* Vfs.fromFixture(FOUR_FILES_FIXTURE)
+              const waiting = yield* Deferred.make<void>()
+
+              const stream = TreeTransfer.fromSnapshot(yield* source.snapshot, "/").pipe(
+                Stream.take(2),
+                Stream.map((entry) =>
+                  entry.kind === "directory"
+                    ? { ...entry, metadata: { ...entry.metadata, mode: 0o555 } }
+                    : entry
+                ),
+                Stream.concat(
+                  Stream.fromEffect(Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Effect.never)))
+                )
+              )
+
+              const transfer = Stream.run(stream, sink(existing))
+
+              const fiber = yield* Effect.forkChild(
+                stop === "timeout" ? transfer.pipe(Effect.timeout("1 second")) : transfer
+              )
+
+              yield* Deferred.await(waiting)
+              assert.deepStrictEqual(yield* fs.readDirectory(root), ["a"])
+
+              if (stop === "timeout") yield* TestClock.adjust("1 second")
+              else yield* Fiber.interrupt(fiber)
+
+              const exit = yield* Fiber.await(fiber)
+              assert.isTrue(Exit.isFailure(exit))
+
+              if (Exit.isFailure(exit)) {
+                assert.isTrue(stop === "timeout" ? Cause.hasFails(exit.cause) : Cause.hasInterrupts(exit.cause))
+                assert.isFalse(Cause.hasDies(exit.cause))
+              }
+
+              assert.strictEqual(yield* fs.exists(root), existing === "overwrite")
+
+              if (existing === "overwrite") {
+                assert.deepStrictEqual(yield* fs.readDirectory(root), ["a"])
+                assert.strictEqual((yield* fs.stat(root)).mode & 0o777, 0o555)
+                yield* fs.chmod(root, 0o755)
+              } else yield* fs.makeDirectory(root)
+              yield* fs.writeFileString(`${root}/after`, "usable")
+              assert.strictEqual(yield* fs.readFileString(`${root}/after`), "usable")
+            }))
+        }
+      }
+
+      for (const stop of ["failure", "interrupt", "timeout"] as const) {
+        it.effect(`should restore every created directory mode when overwrite stops by ${stop} with an unsearchable root`, () =>
+          Effect.gen(function*() {
+            const { fs, root, sink } = yield* cleanupDestination(kind)
+            const waiting = yield* Deferred.make<void>()
+
+            const stream = Stream.fromIterable<TreeTransfer.Entry>([
+              { kind: "directory", path: "/", metadata: { mode: 0o000 } },
+              { kind: "directory", path: "/nested", metadata: { mode: 0o000 } }
+            ]).pipe(Stream.concat(Stream.fromEffect(Effect.gen(function*() {
+              yield* Deferred.succeed(waiting, undefined)
+
+              return yield* stop === "failure" ? Effect.fail("source failed") : Effect.never
+            }))))
+
+            const transfer = Stream.run(stream, sink("overwrite"))
+
+            const fiber = yield* Effect.forkChild(
+              stop === "timeout" ? transfer.pipe(Effect.timeout("1 second")) : transfer
+            )
+
+            yield* Deferred.await(waiting)
+
+            if (stop === "interrupt") yield* Fiber.interrupt(fiber)
+
+            if (stop === "timeout") yield* TestClock.adjust("1 second")
+            const exit = yield* Fiber.await(fiber)
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) {
+              assert.isFalse(Cause.hasDies(exit.cause))
+
+              if (stop === "interrupt") assert.isTrue(Cause.hasInterrupts(exit.cause))
+              else if (stop === "failure") {
+                assert.deepStrictEqual(Cause.findError(exit.cause), Result.succeed("source failed"))
+              } else assert.isTrue(Cause.hasFails(exit.cause))
+            }
+
+            assert.strictEqual((yield* fs.stat(root)).mode & 0o777, 0o000)
+            yield* fs.chmod(root, 0o700)
+            const nestedMode = (yield* fs.stat(`${root}/nested`)).mode & 0o777
+            yield* fs.chmod(`${root}/nested`, 0o700)
+            assert.strictEqual(nestedMode, 0o000)
+            yield* fs.writeFileString(`${root}/nested/after`, "usable")
+            assert.strictEqual(yield* fs.readFileString(`${root}/nested/after`), "usable")
+          }))
+      }
+
+      for (const stop of ["failure", "interrupt"] as const) {
+        it.effect(`should retain the original ${stop} and a cleanup defect when root removal fails`, () =>
+          Effect.gen(function*() {
+            const { fs, root, sink } = yield* cleanupDestination(kind, { cleanupFails: true })
+            const waiting = yield* Deferred.make<void>()
+
+            const stream = Stream.fromIterable<TreeTransfer.Entry>([
+              { kind: "directory", path: "/" },
+              { kind: "file", path: "/data", bytes: text.encode("partial") }
+            ]).pipe(Stream.concat(Stream.fromEffect(Effect.gen(function*() {
+              yield* Deferred.succeed(waiting, undefined)
+
+              return yield* stop === "failure" ? Effect.fail("source failed") : Effect.never
+            }))))
+
+            const fiber = yield* Effect.forkChild(Stream.run(stream, sink("reject")))
+            yield* Deferred.await(waiting)
+
+            if (stop === "interrupt") yield* Fiber.interrupt(fiber)
+            const exit = yield* Fiber.await(fiber)
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) {
+              assert.isTrue(Cause.hasDies(exit.cause))
+
+              if (stop === "interrupt") assert.isTrue(Cause.hasInterrupts(exit.cause))
+              else {
+                assert.isFalse(Cause.hasFails(exit.cause))
+                assert.strictEqual(exit.cause.reasons.find(Cause.isDieReason)?.defect, "source failed")
+              }
+
+              const defects = exit.cause.reasons.filter(Cause.isDieReason)
+              const cleanupDefects = stop === "failure" ? defects.slice(1) : defects
+              assert.strictEqual(defects.length, stop === "failure" ? 2 : 1)
+              assert.deepStrictEqual(
+                cleanupDefects.map((reason) =>
+                  kind === "Caller"
+                    ? Schema.is(Vfs.VfsError)(reason.defect)
+                    : PlatformError.isPlatformError(reason.defect)
+                ),
+                [true]
+              )
+            }
+
+            assert.isTrue(yield* fs.exists(root))
+            yield* fs.writeFileString(`${root}/after`, "usable")
+            assert.strictEqual(yield* fs.readFileString(`${root}/after`), "usable")
+          }))
+      }
+
+      for (const existing of ["reject", "overwrite"] as const) {
+        it.effect(`should finish restrictive directory modes before ${existing} finalization accepts interruption`, () =>
+          Effect.gen(function*() {
+            const finalizing = { started: yield* Deferred.make<void>(), resume: yield* Deferred.make<void>() }
+            const { fs, root, sink } = yield* cleanupDestination(kind, { finalizing })
+
+            const stream = Stream.fromIterable<TreeTransfer.Entry>([
+              { kind: "directory", path: "/", metadata: { mode: 0o555 } },
+              { kind: "directory", path: "/nested", metadata: { mode: 0o555 } },
+              { kind: "file", path: "/nested/data", bytes: text.encode("complete") }
+            ])
+
+            const fiber = yield* Effect.forkChild(Stream.run(stream, sink(existing)))
+            yield* Deferred.await(finalizing.started)
+            const interrupting = yield* Effect.forkChild(Fiber.interrupt(fiber))
+            yield* Effect.yieldNow
+            yield* Deferred.succeed(finalizing.resume, undefined)
+            yield* Fiber.join(interrupting)
+            const exit = yield* Fiber.await(fiber)
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterrupts(exit.cause))
+            assert.strictEqual((yield* fs.stat(root)).mode & 0o777, 0o555)
+            assert.strictEqual((yield* fs.stat(`${root}/nested`)).mode & 0o777, 0o555)
+            assert.strictEqual(yield* fs.readFileString(`${root}/nested/data`), "complete")
+            yield* fs.chmod(root, 0o755)
+            yield* fs.chmod(`${root}/nested`, 0o755)
+            yield* fs.writeFileString(`${root}/nested/after`, "usable")
+            assert.strictEqual(yield* fs.readFileString(`${root}/nested/after`), "usable")
+          }))
+      }
+
+      for (const replacement of ["directory", "symlink"] as const) {
+        it.effect(`should preserve a replacement ${replacement} and the moved claimed tree when the source fails`, () =>
+          Effect.gen(function*() {
+            const { fs, root, sink } = yield* cleanupDestination(kind)
+            const source = yield* Vfs.fromFixture(FOUR_FILES_FIXTURE)
+            const waiting = yield* Deferred.make<void>()
+            const resume = yield* Deferred.make<void>()
+
+            const stream = TreeTransfer.fromSnapshot(yield* source.snapshot, "/").pipe(
+              Stream.take(2),
+              Stream.concat(Stream.fromEffect(Effect.gen(function*() {
+                yield* Deferred.succeed(waiting, undefined)
+                yield* Deferred.await(resume)
+
+                return yield* Effect.fail("source failed")
+              })))
+            )
+
+            const fiber = yield* Effect.forkChild(Stream.run(stream, sink("reject")))
+            yield* Deferred.await(waiting)
+            yield* fs.rename(root, `${root}-moved`)
+            const protectedRoot = replacement === "directory" ? root : `${root}-outside`
+            yield* fs.makeDirectory(protectedRoot)
+            yield* fs.writeFileString(`${protectedRoot}/keep`, "replacement")
+
+            if (replacement === "symlink") yield* fs.symlink(protectedRoot, root)
+            yield* Deferred.succeed(resume, undefined)
+            const exit = yield* Fiber.await(fiber)
+            assert.isTrue(Exit.isFailure(exit))
+
+            if (Exit.isFailure(exit)) {
+              assert.deepStrictEqual(Cause.findError(exit.cause), Result.succeed("source failed"))
+            }
+
+            assert.strictEqual(yield* fs.readFileString(`${protectedRoot}/keep`), "replacement")
+
+            if (replacement === "symlink") assert.strictEqual(yield* fs.readLink(root), protectedRoot)
+            assert.deepStrictEqual(yield* fs.readDirectory(`${root}-moved`), ["a"])
+            yield* fs.writeFileString(`${root}-moved/after`, "usable")
+            assert.strictEqual(yield* fs.readFileString(`${root}-moved/after`), "usable")
+          }))
+      }
+    })
+  }
+
+  it.layer(NodeCrypto.layer)("TreeTransfer confined cleanup", (it) => {
+    it.effect("should write a read-only root file through an unprivileged FileSystem binding", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        yield* (yield* volume.caller()).chmod("/", 0o777)
+        const caller = yield* volume.caller({ identity: { uid: 1000, gid: 1000, groups: [], privileged: false } })
+        const fs = yield* MemoryFileSystem.bindCaller(caller)
+        yield* Stream.run(
+          Stream.fromIterable<TreeTransfer.Entry>([
+            { kind: "file", path: "/", bytes: text.encode("readable"), metadata: { mode: 0o444 } }
+          ]),
+          TreeTransfer.toFileSystem(fs, "/copy")
+        )
+        assert.strictEqual((yield* caller.stat("/copy")).mode, 0o444)
+        assert.strictEqual(yield* fs.readFileString("/copy"), "readable")
+      }))
+
+    it.effect("should preserve outside state when a confined destination moves outside and is replaced by a symlink", () =>
+      Effect.gen(function*() {
+        const admin = yield* (yield* Vfs.make()).caller()
+        yield* admin.mkdir("/jail")
+        yield* admin.mkdir("/outside")
+        yield* admin.writeFile("/outside/keep", text.encode("protected"), { create: "exclusive", access: "write" })
+        const confined = yield* admin.withRoot("/jail")
+        const waiting = yield* Deferred.make<void>()
+        const resume = yield* Deferred.make<void>()
+
+        const stream = Stream.fromIterable<TreeTransfer.Entry>([
+          { kind: "directory", path: "/" },
+          { kind: "file", path: "/data", bytes: text.encode("partial") }
+        ]).pipe(Stream.concat(Stream.fromEffect(Effect.gen(function*() {
+          yield* Deferred.succeed(waiting, undefined)
+          yield* Deferred.await(resume)
+
+          return yield* Effect.fail("source failed")
+        }))))
+
+        const fiber = yield* Effect.forkChild(Stream.run(stream, TreeTransfer.toCaller(confined, "/copy")))
+        yield* Deferred.await(waiting)
+        yield* admin.rename("/jail/copy", "/outside/moved")
+        yield* admin.symlink("/outside", "/jail/copy")
+        yield* Deferred.succeed(resume, undefined)
+        const exit = yield* Fiber.await(fiber)
+        assert.isTrue(Exit.isFailure(exit))
+
+        if (Exit.isFailure(exit)) assert.deepStrictEqual(Cause.findError(exit.cause), Result.succeed("source failed"))
+        assert.deepStrictEqual(yield* admin.readFile("/outside/keep"), text.encode("protected"))
+        assert.deepStrictEqual(yield* admin.readFile("/outside/moved/data"), text.encode("partial"))
+        assert.deepStrictEqual(yield* confined.readLink("/copy"), text.encode("/outside"))
+        assert.strictEqual((yield* Effect.flip(confined.readFile("/copy/keep"))).code, "NotFound")
+        yield* admin.writeFile("/outside/moved/after", text.encode("usable"), { create: "exclusive", access: "write" })
+        assert.deepStrictEqual(yield* admin.readFile("/outside/moved/after"), text.encode("usable"))
+      }))
+  })
+})
+
+describe("Source and sink call styles", () => {
+  const fixture: Vfs.Fixture = { entries: [{ kind: "file", path: "/file", bytes: Uint8Array.of(7) }] }
+
+  const entries = Stream.fromIterable<TreeTransfer.Entry>([
+    { kind: "directory", path: "/" },
+    { kind: "file", path: "/file", bytes: Uint8Array.of(7) }
+  ])
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should stream the selected tree when caller, snapshot, and filesystem sources use either call style", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.fromFixture(fixture)
+        const caller = yield* volume.caller()
+        const snapshot = yield* volume.snapshot
+        const fs = yield* MemoryFileSystem.bind(volume)
+
+        const options: TreeTransfer.ReadOptions = {
+          limits: { ...TreeTransfer.TreeTransferLimits.default, maxEntries: 10 }
+        }
+
+        const sources: Array<
+          Stream.Stream<TreeTransfer.Entry, TreeTransfer.TransferError | Vfs.VfsError | PlatformError.PlatformError>
+        > = [
+          TreeTransfer.fromCaller(caller, "/"),
+          TreeTransfer.fromCaller(caller, "/", undefined),
+          TreeTransfer.fromCaller(caller, "/", options),
+          TreeTransfer.fromCaller("/")(caller),
+          TreeTransfer.fromCaller("/", undefined)(caller),
+          TreeTransfer.fromCaller("/", options)(caller),
+          TreeTransfer.fromSnapshot(snapshot, "/"),
+          TreeTransfer.fromSnapshot(snapshot, "/", undefined),
+          TreeTransfer.fromSnapshot(snapshot, "/", options),
+          TreeTransfer.fromSnapshot("/")(snapshot),
+          TreeTransfer.fromSnapshot("/", undefined)(snapshot),
+          TreeTransfer.fromSnapshot("/", options)(snapshot),
+          TreeTransfer.fromFileSystem(fs, "/"),
+          TreeTransfer.fromFileSystem(fs, "/", undefined),
+          TreeTransfer.fromFileSystem(fs, "/", options),
+          TreeTransfer.fromFileSystem("/")(fs),
+          TreeTransfer.fromFileSystem("/", undefined)(fs),
+          TreeTransfer.fromFileSystem("/", options)(fs)
+        ]
+
+        for (const source of sources) {
+          const rows = yield* Stream.runCollect(source)
+          assert.deepStrictEqual(rows.map((row) => row.path), ["/", "/file"])
+          assert.deepStrictEqual(rows.find((row) => row.kind === "file")?.bytes, Uint8Array.of(7))
+        }
+
+        const root = yield* Vfs.pathFromBytes(Uint8Array.of(47))
+        assert.deepStrictEqual(
+          (yield* Stream.runCollect(TreeTransfer.fromCaller(root)(caller))).map((row) => row.path),
+          ["/", "/file"]
+        )
+        const invalidRoot = "/missing"
+        assert.deepStrictEqual(
+          yield* Effect.flip(Stream.runCollect(TreeTransfer.fromSnapshot(invalidRoot)(snapshot))),
+          yield* Effect.flip(Stream.runCollect(TreeTransfer.fromSnapshot(snapshot, invalidRoot)))
+        )
+      }))
+
+    it.effect("should write the selected destination when caller and filesystem sinks use either call style", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        const fs = yield* MemoryFileSystem.bind(volume)
+        const options: TreeTransfer.WriteOptions = { times: "none" }
+
+        const sinks = [
+          TreeTransfer.toCaller(caller, "/caller-direct"),
+          TreeTransfer.toCaller(caller, "/caller-undefined", undefined),
+          TreeTransfer.toCaller(caller, "/caller-options", options),
+          TreeTransfer.toCaller("/caller-curried")(caller),
+          TreeTransfer.toCaller("/caller-curried-undefined", undefined)(caller),
+          TreeTransfer.toCaller("/caller-curried-options", options)(caller),
+          TreeTransfer.toFileSystem(fs, "/fs-direct"),
+          TreeTransfer.toFileSystem(fs, "/fs-undefined", undefined),
+          TreeTransfer.toFileSystem(fs, "/fs-options", options),
+          TreeTransfer.toFileSystem("/fs-curried")(fs),
+          TreeTransfer.toFileSystem("/fs-curried-undefined", undefined)(fs),
+          TreeTransfer.toFileSystem("/fs-curried-options", options)(fs)
+        ]
+
+        for (const sink of sinks) {
+          const report = yield* entries.pipe(Stream.run(sink))
+          assert.strictEqual(report.entries, 2)
+        }
+
+        const destinations = yield* caller.readDirectory("/")
+        assert.strictEqual(destinations.value.length, sinks.length)
+
+        for (const entry of destinations.value) {
+          const name = new TextDecoder().decode(entry.name)
+          assert.deepStrictEqual(yield* caller.readFile(`/${name}/file`), Uint8Array.of(7))
+        }
+      }))
+  })
+})
+
+describe("Import call styles", () => {
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("imports streams with omitted, undefined, or explicit options in either call style", () =>
+      Effect.gen(function*() {
+        const entries = Stream.fromIterable<TreeTransfer.Entry>([
+          { kind: "directory", path: "/" },
+          { kind: "file", path: "/file", bytes: Uint8Array.of(7), metadata: { mode: 0o4755 } }
+        ])
+
+        const imports = [
+          TreeTransfer.toVolume(entries),
+          TreeTransfer.toVolume(entries, undefined),
+          entries.pipe(TreeTransfer.toVolume()),
+          entries.pipe(TreeTransfer.toVolume(undefined)),
+          TreeTransfer.toVolume(entries, { specialBits: true }),
+          entries.pipe(TreeTransfer.toVolume({ specialBits: true }))
+        ]
+
+        for (const [index, operation] of imports.entries()) {
+          const volume = yield* operation
+          const caller = yield* volume.caller()
+          assert.deepStrictEqual(yield* caller.readFile("/file"), Uint8Array.of(7))
+          assert.strictEqual((yield* caller.stat("/file")).mode, index >= 4 ? 0o4755 : 0o755)
+        }
+
+        assert.strictEqual(
+          yield* Effect.flip(Stream.fail("source failed").pipe(TreeTransfer.toVolume())),
+          "source failed"
+        )
+      }))
+  })
+})
+
+describe("Host inode fidelity", () => {
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should preserve distinct large host identities and bigint hard-link counts", () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        yield* fs.makeDirectory("/source")
+
+        for (const [name, data] of [["a", "first"], ["b", "second"], ["c", "first"]] as const) {
+          yield* fs.writeFileString(`/source/${name}`, data)
+        }
+
+        const host = {
+          ...fs,
+          lstat: (path: string) =>
+            Effect.map(fs.lstat(path), (value) =>
+              value.type !== "File" ? value : ({
+                ...value,
+                dev: 9007199254740993n,
+                ino: Option.some(path.endsWith("/b") ? 9007199254740993n : 9007199254740992n),
+                nlink: Option.some(9007199254740999n)
+              }))
+        }
+
+        const entries = yield* Stream.runCollect(TreeTransfer.fromFileSystem(host, "/source"))
+        assert.deepStrictEqual(entries.map((entry) => [entry.kind, entry.path]), [["directory", "/"], ["file", "/a"], [
+          "file",
+          "/b"
+        ], ["hardLink", "/c"]])
+        const linked = entries.find((entry) => entry.kind === "hardLink")
+        assert.strictEqual(linked?.target, "/a")
+      }))
+  })
+})

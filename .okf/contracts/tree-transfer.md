@@ -24,10 +24,10 @@ sources:
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Tree transfer behavior tests
   - id: fidelity-tests
-    resource: ../../packages/memory/test/TransferFidelity.test.ts
+    resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Required destination fidelity and metadata preservation regressions
   - id: cleanup-tests
-    resource: ../../packages/memory/test/TreeTransferCleanup.test.ts
+    resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Transfer cancellation, root identity, cleanup failures, and restrictive directory modes
   - id: sink-engine
     resource: ../../packages/memory/src/internal/treeTransferEngine.ts

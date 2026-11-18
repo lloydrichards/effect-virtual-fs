@@ -5,12 +5,12 @@ description: Preserves Effect FileSystem behavior while adapting shared core vol
 status: stable
 tags: [effect, adapter, compatibility]
 sources:
-  - resource: ../../packages/memory/test/SyncFileSystem.test.ts
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Public sync memory binding behavior
   - resource: ../../packages/memory/src/internal/fileSystemAdapter.ts
     title: Shared operation-port binding
-  - resource: ../../packages/memory/test/MinimalFileSystem.test.ts
-    title: Private minimal provider qualification
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
+    title: Public fixture defaults and copy behavior
   - resource: ../../packages/core/compatibility/preview-imports/check.mjs
     title: Transitive engine and adapter import audit
   - resource: ../../packages/memory/src/internal/directoryEntries.ts
@@ -31,7 +31,7 @@ sources:
     title: Adapter copy operations
   - resource: ../../packages/memory/src/internal/copyTree.ts
     title: Private Caller-based copy traversal and guarded cleanup
-  - resource: ../../packages/memory/test/CopyCleanup.test.ts
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Copy failure, interruption, replacement and byte-fidelity checks
   - resource: ../../packages/memory/compatibility/copy-imports/check.mjs
     title: Copy runtime import boundary audit

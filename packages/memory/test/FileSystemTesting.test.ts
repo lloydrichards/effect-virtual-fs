@@ -1,19 +1,8 @@
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, describe, it } from "@effect/vitest"
-import {
-  Cause,
-  Context,
-  Deferred,
-  Effect,
-  Exit,
-  Fiber,
-  FileSystem,
-  Layer,
-  Option,
-  PlatformError,
-  Ref,
-  Stream
-} from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Ref, Stream } from "effect"
+import * as PlatformError from "effect/PlatformError"
 import * as FileSystemTesting from "../src/FileSystemTesting.js"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 
@@ -432,5 +421,133 @@ it.layer(memoryLayer)("FileSystemTesting", (it) => {
           assert.strictEqual(failure.reason._tag, "BadResource")
         })
     )
+  })
+})
+
+describe("Decorated glob traversal", () => {
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should preserve recursive glob results through an empty decorator without following globstar links", () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        yield* fs.makeDirectory("/dir/nested", { recursive: true })
+        yield* fs.writeFileString("/dir/file", "x")
+        yield* fs.writeFileString("/dir/nested/deep", "x")
+        yield* fs.symlink("dir", "/alias")
+        yield* fs.symlink("missing", "/dangling")
+
+        const { fileSystem } = yield* FileSystemTesting.make(
+          fs,
+          () => Effect.succeed({ state: undefined, handlers: {} })
+        )
+
+        const expected = ["alias", "dangling", "dir", "dir/file", "dir/nested", "dir/nested/deep", "tmp"]
+
+        assert.deepStrictEqual(yield* fs.glob("**"), expected)
+        assert.deepStrictEqual(yield* fileSystem.glob("**"), expected)
+        assert.deepStrictEqual(yield* fileSystem.glob("alias/*"), ["alias/file", "alias/nested"])
+      }))
+
+    it.effect("should preserve explicit glob handlers and derive traversal from decorated primitives", () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        yield* fs.writeFileString("/file", "x")
+        const calls: Array<string> = []
+
+        const { fileSystem } = yield* FileSystemTesting.make(fs, () =>
+          Effect.succeed({
+            state: undefined,
+            handlers: {
+              glob: () =>
+                Effect.sync(() => {
+                  calls.push("glob")
+                }),
+              readDirectory: () =>
+                Effect.sync(() => {
+                  calls.push("entries")
+                }),
+              stat: () =>
+                Effect.sync(() => {
+                  calls.push("stat")
+                })
+            }
+          }))
+
+        assert.deepStrictEqual(yield* fileSystem.glob("*"), ["file", "tmp"])
+        assert.strictEqual(calls.filter((c) => c === "glob").length, 1)
+        assert.include(calls, "entries")
+        yield* fileSystem.glob("file")
+        assert.include(calls, "stat")
+      }))
+
+    for (const kind of ["directory", "symlink"] as const) {
+      for (const reason of ["BadArgument", "Unknown", "PermissionDenied"] as const) {
+        it.effect(`should propagate ${reason} readLink failures on a ${kind}`, () =>
+          Effect.gen(function*() {
+            const fs = yield* MemoryFileSystem.make
+            yield* fs.makeDirectory("/dir")
+            yield* fs.writeFileString("/dir/file", "kept")
+
+            if (kind === "symlink") yield* fs.symlink("/dir", "/alias")
+
+            const fields = {
+              module: "FileSystem" as const,
+              method: "readLink",
+              description: "Injected provider failure"
+            }
+
+            const failure = reason === "BadArgument"
+              ? PlatformError.badArgument(fields)
+              : PlatformError.systemError({ ...fields, _tag: reason })
+
+            const { fileSystem } = yield* FileSystemTesting.make(
+              fs,
+              () => Effect.succeed({ state: undefined, handlers: { readLink: () => Effect.fail(failure) } })
+            )
+
+            assert.strictEqual(yield* Effect.flip(fileSystem.glob("**")), failure)
+          }))
+      }
+    }
+  })
+
+  it.effect("should recognize native non-link errors during fallback glob traversal", () =>
+    Effect.gen(function*() {
+      const host = yield* FileSystem.FileSystem
+
+      const { fileSystem: fs } = yield* FileSystemTesting.make(host, () =>
+        Effect.succeed({ state: undefined, handlers: {} }))
+
+      const root = yield* fs.makeTempDirectoryScoped()
+      yield* fs.makeDirectory(`${root}/dir`)
+      yield* fs.writeFileString(`${root}/dir/file`, "kept")
+      yield* fs.symlink(`${root}/dir`, `${root}/alias`)
+      assert.deepStrictEqual(yield* fs.glob("**", { root }), ["alias", "dir", "dir/file"])
+      assert.deepStrictEqual(yield* fs.glob("dir/file/*", { root }), [])
+      assert.deepStrictEqual(yield* fs.glob("missing/**", { root }), [])
+    }).pipe(Effect.provide(NodeFileSystem.layer)))
+})
+
+describe("Constructor call styles", () => {
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("allocates independent decorator state each time a reusable curried constructor executes", () =>
+      Effect.gen(function*() {
+        const factory = Effect.fnUntraced(function*() {
+          const state = yield* Ref.make(0)
+
+          return { state, handlers: { writeFile: () => Ref.update(state, (n) => n + 1) } }
+        })
+
+        const decorate = FileSystemTesting.make(factory)
+        const base = yield* MemoryFileSystem.make
+        const first = yield* decorate(base)
+        const second = yield* decorate(base)
+        const direct = yield* FileSystemTesting.make(base, factory)
+        yield* first.fileSystem.writeFileString("/file", "hello")
+        assert.strictEqual(yield* Ref.get(first.state), 1)
+        assert.strictEqual(yield* Ref.get(second.state), 0)
+        assert.strictEqual(yield* Ref.get(direct.state), 0)
+        assert.strictEqual(yield* second.fileSystem.readFileString("/file"), "hello")
+        assert.strictEqual(yield* direct.fileSystem.readFileString("/file"), "hello")
+      }))
   })
 })
