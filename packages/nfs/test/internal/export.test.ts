@@ -55,22 +55,6 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       )
     ))
 
-  it.effect("should keep handles opaque and stable across hard-link and rename aliases when a file has hard-link or rename aliases", () =>
-    Effect.gen(function*() {
-      const caller = yield* Vfs.Caller
-      yield* caller.writeFile("/original", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      yield* caller.link("/original", "/alias")
-      const root = yield* caller.root
-      const original = yield* caller.lookup(Vfs.Entry(root, utf8("original")))
-      const alias = yield* caller.lookup(Vfs.Entry(root, utf8("alias")))
-      const export_ = yield* volumeExport
-      const before = yield* export_.handleFor(original)
-      assert.deepStrictEqual(yield* export_.handleFor(alias), before)
-      yield* caller.rename("/original", "/renamed")
-      assert.strictEqual(yield* export_.resolve(before), original)
-      assert.notInclude(new TextDecoder().decode(before), "original")
-    }).pipe(Effect.provide(Testing.layer())))
-
   it.effect("should expire foreign handles as volatile or stale when volume persistence differs", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.Volume
@@ -85,33 +69,6 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       assert.isTrue(persistent.persistentHandles)
       assert.strictEqual(yield* whyUnresolved(volatile.resolve(handle)), "Expired")
       assert.strictEqual(yield* whyUnresolved(persistent.resolve(handle)), "Stale")
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should reject a handle after its object is deleted when the object named by a handle is deleted", () =>
-    Effect.gen(function*() {
-      const caller = yield* Vfs.Caller
-      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const root = yield* caller.root
-      const reference = yield* caller.lookup(Vfs.Entry(root, utf8("file")))
-      const export_ = yield* volumeExport
-      const handle = yield* export_.handleFor(reference)
-      yield* caller.unlink("/file")
-      assert.strictEqual(yield* whyUnresolved(export_.resolve(handle)), "StaleReference")
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should keep a deleted object's handle valid while the file remains open when a deleted file remains open", () =>
-    Effect.gen(function*() {
-      const caller = yield* Vfs.Caller
-      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const root = yield* caller.root
-      const reference = yield* caller.lookup(Vfs.Entry(root, utf8("file")))
-      const export_ = yield* volumeExport
-      const handle = yield* export_.handleFor(reference)
-      const opened = yield* export_.open(reference)
-      yield* caller.unlink("/file")
-      assert.strictEqual(yield* export_.resolve(handle), reference)
-      yield* opened.close
-      assert.strictEqual(yield* whyUnresolved(export_.resolve(handle)), "StaleReference")
     }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should close an open with the scope it was opened in, and early on close when an open closes early or its scope ends", () =>

@@ -25,6 +25,7 @@ const live = <E>(
   timeout?: number
 ) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
+import * as Socket from "effect/socket/Socket"
 import * as SocketServer from "effect/socket/SocketServer"
 import * as Net from "node:net"
 import {
@@ -38,10 +39,18 @@ import {
   NfsServerLimitOverrides,
   NfsServerLimits,
   type NfsServerOptions
-} from "../src/index.js"
-import { Operation, Status } from "../src/internal/nfs4.js"
-import { encodeRecord, RecordDecoder } from "../src/internal/recordMarking.js"
-import { type DecoderSession, type EncoderSession, make, XdrCodec, type XdrEncodeError } from "../src/internal/xdr.js"
+} from "../src/NfsServer.js"
+import {
+  encodeRecord,
+  Operation,
+  type ReplyReader,
+  replyReader,
+  ReplyRecords,
+  type RequestWriter,
+  requestWriter,
+  Status,
+  Xdr
+} from "./support/wire.js"
 
 /** The bound TCP port of a server; the loopback tests never bind a UNIX-domain socket. */
 const tcpPort = (server: { readonly address: NfsServerAddress }): number => {
@@ -85,18 +94,18 @@ const limits: NfsServerLimits = {
   maxNameBytes: ByteSize.bytes(255)
 }
 
-const writeWords = (writer: EncoderSession, values: ReadonlyArray<number>) =>
-  Effect.forEach(values, (value) => writer.write(XdrCodec.uint32, value), { discard: true })
+const writeWords = (writer: RequestWriter, values: ReadonlyArray<number>) =>
+  Effect.forEach(values, (value) => writer.write(Xdr.uint32, value), { discard: true })
 
-const skipWords = (reader: DecoderSession, count: number) =>
-  Effect.forEach(Array.from({ length: count }), () => reader.read(XdrCodec.uint32), { discard: true })
+const skipWords = (reader: ReplyReader, count: number) =>
+  Effect.forEach(Array.from({ length: count }), () => reader.read(Xdr.uint32), { discard: true })
 
 const rpcNull = Effect.fnUntraced(function*(xid: number) {
-  const writer = yield* make.openWriter(limits, 4_096)
+  const writer = requestWriter()
   yield* writeWords(writer, [xid, 0, 2, 100003, 4, 0, 0])
-  yield* writer.write(XdrCodec.opaque(), new Uint8Array())
-  yield* writer.write(XdrCodec.uint32, 0)
-  yield* writer.write(XdrCodec.opaque(), new Uint8Array())
+  yield* writer.write(Xdr.opaque(), new Uint8Array())
+  yield* writer.write(Xdr.uint32, 0)
+  yield* writer.write(Xdr.opaque(), new Uint8Array())
 
   return encodeRecord(yield* writer.finish)
 })
@@ -111,11 +120,7 @@ const exchange = (
       ? Net.createConnection({ host: "127.0.0.1", port: destination.port })
       : Net.createConnection({ path: destination.path })
 
-    const decoder = new RecordDecoder({
-      maxFragmentBytes: limits.maxFragmentBytes,
-      maxRecordBytes: limits.maxRecordBytes,
-      maxFragmentsPerRecord: limits.maxFragmentsPerRecord
-    })
+    const decoder = new ReplyRecords()
 
     const received: Array<Uint8Array> = []
     socket.on("connect", () => socket.write(request))
@@ -172,24 +177,24 @@ const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
 /** An AUTH_NONE COMPOUND call, record-marked, ready to write to a socket. */
 const rpcCompound = (
   xid: number,
-  operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>,
+  operations: ReadonlyArray<(writer: RequestWriter) => Effect.Effect<void>>,
   credential?: Uint8Array
-): Effect.Effect<Uint8Array, XdrEncodeError> =>
+): Effect.Effect<Uint8Array> =>
   Effect.gen(function*() {
-    const writer = yield* make.openWriter(limits, 4_096)
+    const writer = requestWriter()
 
     yield* writeWords(writer, [xid, 0, 2, 100003, 4, 1])
 
     if (credential === undefined) {
-      yield* writer.write(XdrCodec.uint32, 0)
-      yield* writer.write(XdrCodec.opaque(), new Uint8Array())
+      yield* writer.write(Xdr.uint32, 0)
+      yield* writer.write(Xdr.opaque(), new Uint8Array())
     } else {
       yield* writer.appendEncoded(credential)
     }
 
-    yield* writer.write(XdrCodec.uint32, 0)
-    yield* writer.write(XdrCodec.opaque(), new Uint8Array())
-    yield* writer.write(XdrCodec.string(), "conn")
+    yield* writer.write(Xdr.uint32, 0)
+    yield* writer.write(Xdr.opaque(), new Uint8Array())
+    yield* writer.write(Xdr.string(), "conn")
     yield* writeWords(writer, [1, operations.length])
     yield* Effect.forEach(operations, (operation) => operation(writer), { discard: true })
 
@@ -197,21 +202,21 @@ const rpcCompound = (
   })
 
 const authSysCredential = Effect.fnUntraced(function*(uid: number) {
-  const body = yield* make.openWriter(limits, 1_024)
-  yield* body.write(XdrCodec.uint32, 0)
-  yield* body.write(XdrCodec.string(), "test-client")
+  const body = requestWriter()
+  yield* body.write(Xdr.uint32, 0)
+  yield* body.write(Xdr.string(), "test-client")
   yield* writeWords(body, [uid, uid])
-  yield* body.write(XdrCodec.array(XdrCodec.uint32), [])
-  const writer = yield* make.openWriter(limits, 1_024)
-  yield* writer.write(XdrCodec.uint32, 1)
-  yield* writer.write(XdrCodec.opaque(), yield* body.finish)
+  yield* body.write(Xdr.array(Xdr.uint32), [])
+  const writer = requestWriter()
+  yield* writer.write(Xdr.uint32, 1)
+  yield* writer.write(Xdr.opaque(), yield* body.finish)
 
   return yield* writer.finish
 })
 
 /** Skips the RPC accepted-reply header and returns a reader positioned at the COMPOUND result. */
 const compoundReply = Effect.fnUntraced(function*(record: Uint8Array) {
-  const reader = yield* make.openReader(record, limits)
+  const reader = replyReader(record)
   yield* skipWords(reader, 6)
 
   return reader
@@ -219,11 +224,11 @@ const compoundReply = Effect.fnUntraced(function*(record: Uint8Array) {
 
 const firstOperationStatus = Effect.fnUntraced(function*(record: Uint8Array) {
   const reader = yield* compoundReply(record)
-  yield* reader.read(XdrCodec.uint32)
-  yield* reader.read(XdrCodec.string())
+  yield* reader.read(Xdr.uint32)
+  yield* reader.read(Xdr.string())
   yield* skipWords(reader, 2)
 
-  return yield* reader.read(XdrCodec.uint32)
+  return yield* reader.read(Xdr.uint32)
 })
 
 interface OpenConnection {
@@ -238,11 +243,7 @@ const openConnection = (port: number): Effect.Effect<OpenConnection, TestSocketE
   Effect.callback((resume) => {
     const socket = Net.createConnection({ host: "127.0.0.1", port })
 
-    const decoder = new RecordDecoder({
-      maxFragmentBytes: limits.maxFragmentBytes,
-      maxRecordBytes: limits.maxRecordBytes,
-      maxFragmentsPerRecord: limits.maxFragmentsPerRecord
-    })
+    const decoder = new ReplyRecords()
 
     let received: Array<Uint8Array> = []
     let wanted = 0
@@ -291,6 +292,545 @@ const options = (
 const testSocketServer = SocketServer.SocketServer.of({
   address: NetAddress.inetAddressUnsafe(NetAddress.ipv4Loopback, 0),
   run: () => Effect.never
+})
+
+// Supplies exact read boundaries through the same Socket interface as a real listener.
+const serveChunks = Effect.fnUntraced(
+  function*(
+    chunks: ReadonlyArray<Uint8Array>,
+    override: NfsServerLimitOverrides = {},
+    policy?: NfsIdentityPolicy
+  ) {
+    const volume = yield* Vfs.Volume
+    const caller = yield* Vfs.Caller
+    const done = yield* Deferred.make<void>()
+    const replies: Array<Uint8Array> = []
+    let consumed = 0
+
+    const write: Socket.Writer["write"] = (chunk) =>
+      Effect.sync(() => {
+        if (chunk instanceof Uint8Array) replies.push(chunk)
+      })
+
+    const socket = Socket.make({
+      reader: Effect.succeed({
+        pull: Effect.suspend(() => {
+          const chunk = chunks[consumed]
+
+          if (chunk === undefined) {
+            return Effect.fail(
+              new Socket.SocketError({
+                reason: new Socket.SocketCloseError({ code: 1000 })
+              })
+            )
+          }
+
+          consumed++
+
+          return Effect.succeed([chunk] as const)
+        }),
+        upgrade: () => Effect.void
+      }),
+      writer: Effect.succeed({
+        write,
+        writeAll: (chunks) => Effect.forEach(chunks, write, { discard: true })
+      })
+    })
+
+    const transport = SocketServer.SocketServer.of({
+      address: testSocketServer.address,
+      run: (accept) =>
+        Effect.ignore(accept(socket)).pipe(
+          Effect.andThen(Deferred.succeed(done, undefined)),
+          Effect.andThen(Effect.never)
+        )
+    })
+
+    const serverLimits = { ...limits, ...override }
+
+    yield* NfsServer.make(
+      policy === undefined
+        ? { ...options(volume, caller), limits: serverLimits }
+        : {
+          volume,
+          limits: serverLimits,
+          policy,
+          peer: Effect.succeed({ transport: "tcp", address: "127.0.0.1", port: 1 })
+        }
+    ).pipe(
+      Effect.provideService(SocketServer.SocketServer, transport)
+    )
+    yield* Deferred.await(done)
+
+    return { replies, consumed }
+  }
+)
+
+const fragment = (payload: Uint8Array, last: boolean) => {
+  const encoded = encodeRecord(payload)
+
+  if (!last) new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength).setUint32(0, payload.length)
+
+  return encoded
+}
+
+const replyWords = Effect.fnUntraced(function*(wire: Uint8Array) {
+  const [message] = new ReplyRecords().push(wire)
+  assert.isDefined(message)
+  const reader = replyReader(message)
+
+  return yield* Effect.forEach(Array.from({ length: message.length / 4 }), () => reader.read(Xdr.uint32))
+})
+
+const rpcRequest = Effect.fnUntraced(
+  function*(header: ReadonlyArray<number>, credential = new Uint8Array(8), verifier = new Uint8Array(8)) {
+    const writer = requestWriter()
+    yield* writeWords(writer, header)
+    yield* writer.appendEncoded(credential)
+    yield* writer.appendEncoded(verifier)
+
+    return encodeRecord(yield* writer.finish)
+  }
+)
+
+it.layer(NodeCrypto.layer)("RPC framing over the public listener", (it) => {
+  it.effect("reassembles a bytewise request, zero-length fragment and coalesced records", () =>
+    Effect.gen(function*() {
+      const first = yield* rpcNull(61)
+      const second = yield* rpcNull(62)
+      const body = second.subarray(4)
+
+      const { replies } = yield* serveChunks([
+        ...Array.from(first, (byte) => Uint8Array.of(byte)),
+        concat(
+          fragment(new Uint8Array(), false),
+          fragment(body.subarray(0, 12), false),
+          fragment(body.subarray(12), true),
+          yield* rpcNull(63)
+        )
+      ])
+
+      assert.deepStrictEqual(
+        yield* Effect.forEach(replies, replyWords),
+        [61, 62, 63].map((id) => [
+          id,
+          1,
+          0,
+          0,
+          0,
+          0
+        ])
+      )
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("reports RPC routing and authentication failures on the wire", () =>
+    Effect.gen(function*() {
+      const credential = (flavor: number) => Uint8Array.of(0, 0, 0, flavor, 0, 0, 0, 0)
+
+      const fixtures = [
+        { request: yield* rpcRequest([71, 0, 3, 100003, 4, 0]), reply: [71, 1, 1, 0, 2, 2] },
+        { request: yield* rpcRequest([72, 0, 2, 1, 4, 0]), reply: [72, 1, 0, 0, 0, 1] },
+        { request: yield* rpcRequest([73, 0, 2, 100003, 3, 0]), reply: [73, 1, 0, 0, 0, 2, 4, 4] },
+        { request: yield* rpcRequest([74, 0, 2, 100003, 4, 9]), reply: [74, 1, 0, 0, 0, 3] },
+        { request: yield* rpcRequest([75, 0, 2, 100003, 4, 0], credential(9)), reply: [75, 1, 1, 1, 1] },
+        { request: yield* rpcRequest([76, 0, 2, 100003, 4, 0], credential(0), credential(1)), reply: [76, 1, 1, 1, 3] },
+        { request: yield* rpcRequest([77, 0, 2, 100003, 4, 1], credential(6)), reply: [77, 1, 1, 1, 5] },
+        {
+          request: yield* rpcRequest([78, 0, 2, 100003, 4, 0], credential(0), Uint8Array.of(0, 0, 0)),
+          reply: [78, 1, 1, 1, 3]
+        },
+        {
+          request: yield* rpcRequest([79, 0, 2, 100003, 4, 0], credential(0), Uint8Array.of(0, 0, 0, 0, 0, 0, 0, 4, 1)),
+          reply: [79, 1, 1, 1, 3]
+        },
+        { request: encodeRecord(Uint8Array.of(0, 0, 0, 80, 0, 0, 0, 0)), reply: [80, 1, 0, 0, 0, 4] }
+      ]
+
+      const { replies } = yield* serveChunks([concat(
+        encodeRecord(new Uint8Array()),
+        encodeRecord(Uint8Array.of(1, 2, 3)),
+        ...fixtures.map(({ request }) => request)
+      )])
+
+      assert.deepStrictEqual(yield* Effect.forEach(replies, replyWords), fixtures.map(({ reply }) => reply))
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("passes valid AUTH_SYS groups to the identity policy and rejects an oversized group list", () =>
+    Effect.gen(function*() {
+      const credential = Effect.fnUntraced(function*(groups: ReadonlyArray<number>) {
+        const body = requestWriter()
+        yield* body.write(Xdr.uint32, 1)
+        yield* body.write(Xdr.string(), "machine")
+        yield* writeWords(body, [501, 20])
+        yield* body.write(Xdr.array(Xdr.uint32), groups)
+        const writer = requestWriter()
+        yield* writer.write(Xdr.uint32, 1)
+        yield* writer.write(Xdr.opaque(), yield* body.finish)
+
+        return yield* writer.finish
+      })
+
+      const observed: Array<Parameters<NfsIdentityPolicy>[0]["credential"]> = []
+
+      const inspect: NfsIdentityPolicy = ({ credential }) => {
+        observed.push(credential)
+
+        return null
+      }
+
+      const good = yield* rpcCompound(81, [operation(Operation.PUTROOTFH)], yield* credential([20, 80]))
+      const oversized = yield* rpcCompound(82, [operation(Operation.PUTROOTFH)], yield* credential([1, 2, 3]))
+      const { replies } = yield* serveChunks([good, oversized], { maxSupplementaryGroups: 2 }, inspect)
+      assert.deepStrictEqual(observed, [{ flavor: "sys", uid: 501, gid: 20, groups: [20, 80], machineName: "machine" }])
+      assert.deepStrictEqual(yield* Effect.forEach(replies, replyWords), [[81, 1, 1, 1, 7], [82, 1, 1, 1, 1]])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("does not emit an RPC rejection that exceeds the configured record limit", () =>
+    Effect.gen(function*() {
+      const truncatedCall = encodeRecord(Uint8Array.of(0, 0, 0, 83, 0, 0, 0, 0))
+      const normal = yield* serveChunks([truncatedCall])
+      assert.deepStrictEqual(yield* Effect.forEach(normal.replies, replyWords), [[83, 1, 0, 0, 0, 4]])
+      const limited = yield* serveChunks([truncatedCall], { maxRecordBytes: ByteSize.bytes(20) })
+      assert.deepStrictEqual(limited, { replies: [], consumed: 1 })
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("closes a connection at fragment and record limits before reading the next chunk", () =>
+    Effect.gen(function*() {
+      const next = yield* rpcNull(70)
+      const tooWide = new Uint8Array(4)
+      new DataView(tooWide.buffer).setUint32(0, 0x8000_0000 + 1_025)
+
+      const cases = [
+        { prefix: [tooWide], override: {} },
+        {
+          prefix: [
+            fragment(new Uint8Array(1_024), false),
+            fragment(new Uint8Array(1_024), false),
+            Uint8Array.of(128, 0, 0, 1)
+          ],
+          override: {}
+        },
+        {
+          prefix: Array.from({ length: 3 }, () => fragment(new Uint8Array(), false)),
+          override: { maxFragmentsPerRecord: 2 }
+        }
+      ]
+
+      for (const { prefix, override } of cases) {
+        const result = yield* serveChunks([...prefix, next], override)
+        assert.deepStrictEqual(result, { replies: [], consumed: prefix.length })
+      }
+
+      const { replies } = yield* serveChunks([next])
+      assert.deepStrictEqual(yield* Effect.forEach(replies, replyWords), [[70, 1, 0, 0, 0, 0]])
+    }).pipe(Effect.provide(Testing.layer())))
+})
+
+const exchangeId = (owner: string) => (writer: RequestWriter) =>
+  Effect.gen(function*() {
+    yield* writer.write(Xdr.uint32, Operation.EXCHANGE_ID)
+    yield* writer.write(Xdr.fixedOpaque(8), new Uint8Array(8))
+    yield* writer.write(Xdr.string(), owner)
+    yield* writeWords(writer, [0, 0, 0])
+  })
+
+const createSession = (client: bigint) => (writer: RequestWriter) =>
+  Effect.gen(function*() {
+    yield* writer.write(Xdr.uint32, Operation.CREATE_SESSION)
+    yield* writer.write(Xdr.uint64, client)
+    yield* writeWords(writer, [1, 0])
+    yield* Effect.forEach([2, 0], (slots) => writeWords(writer, [0, 1_024, 1_024, 1_024, 8, slots, 0]), {
+      discard: true
+    })
+    yield* writeWords(writer, [0, 0])
+  })
+
+const afterHeader = Effect.fnUntraced(function*(record: Uint8Array) {
+  const reader = yield* compoundReply(record)
+  yield* reader.read(Xdr.uint32)
+  yield* reader.read(Xdr.string())
+  yield* skipWords(reader, 3)
+
+  return reader
+})
+
+const readOnlySession = Effect.fnUntraced(function*(owner: string) {
+  const volume = yield* Vfs.Volume
+  const caller = yield* Vfs.Caller
+  const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 })
+
+  const server = yield* NfsServer.make(options(volume, caller)).pipe(
+    Effect.provideService(SocketServer.SocketServer, socketServer)
+  )
+
+  const connection = yield* openConnection(tcpPort(server))
+  yield* Effect.addFinalizer(() => connection.close)
+
+  const exchange = Effect.fnUntraced(
+    function*(xid: number, operations: ReadonlyArray<(writer: RequestWriter) => Effect.Effect<void>>) {
+      const [reply] = yield* connection.send(yield* rpcCompound(xid, operations))
+      assert.isDefined(reply)
+
+      return reply
+    }
+  )
+
+  const clientReply = yield* exchange(1, [exchangeId(owner)])
+  assert.strictEqual(yield* firstOperationStatus(clientReply), Status.OK)
+  const client = yield* (yield* afterHeader(clientReply)).read(Xdr.uint64)
+  const sessionReply = yield* exchange(2, [createSession(client)])
+  assert.strictEqual(yield* firstOperationStatus(sessionReply), Status.OK)
+  const session = yield* (yield* afterHeader(sessionReply)).read(Xdr.fixedOpaque(16))
+  let sequence = 0
+
+  const compound = Effect.fnUntraced(
+    function*(...operations: ReadonlyArray<(writer: RequestWriter) => Effect.Effect<void>>) {
+      const index = ++sequence
+
+      const reply = yield* exchange(index + 2, [
+        (writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(Xdr.uint32, Operation.SEQUENCE)
+            yield* writer.write(Xdr.fixedOpaque(16), session)
+            yield* writeWords(writer, [index, 0, 0, 0])
+          }),
+        ...operations
+      ])
+
+      const reader = yield* compoundReply(reply)
+      const status = yield* reader.read(Xdr.uint32)
+      yield* reader.read(Xdr.string())
+      assert.isAtLeast(yield* reader.read(Xdr.uint32), 1)
+      assert.strictEqual(yield* reader.read(Xdr.uint32), Operation.SEQUENCE)
+      assert.strictEqual(yield* reader.read(Xdr.uint32), Status.OK)
+      yield* reader.read(Xdr.fixedOpaque(16))
+      yield* skipWords(reader, 5)
+
+      return { status, reader }
+    }
+  )
+
+  return { caller, compound }
+})
+
+const operation = (code: number) => (writer: RequestWriter) => writer.write(Xdr.uint32, code)
+
+const namedOperation = (code: number, name: string) => (writer: RequestWriter) =>
+  Effect.andThen(writer.write(Xdr.uint32, code), writer.write(Xdr.string(), name))
+
+const readStatus = Effect.fnUntraced(function*(reader: ReplyReader, code: number, status: number = Status.OK) {
+  assert.strictEqual(yield* reader.read(Xdr.uint32), code)
+  assert.strictEqual(yield* reader.read(Xdr.uint32), status)
+})
+
+it.layer(NodeCrypto.layer)("read-only NFS operations over TCP", (it) => {
+  it.effect("compares supplied file attributes with VERIFY and NVERIFY", () =>
+    Effect.gen(function*() {
+      const { caller, compound } = yield* readOnlySession("verify")
+      yield* caller.writeFile("/file", Uint8Array.of(1, 2, 3), { access: "write", create: "exclusive" })
+
+      for (
+        const [code, bit, value, expected] of [
+          [Operation.VERIFY, 4, 3n, Status.OK],
+          [Operation.NVERIFY, 4, 3n, Status.SAME],
+          [Operation.VERIFY, 4, 9n, Status.NOT_SAME],
+          [Operation.NVERIFY, 4, 9n, Status.OK],
+          [Operation.VERIFY, 1, 1, Status.OK],
+          [Operation.VERIFY, 12, 0, Status.ATTRNOTSUPP],
+          [Operation.VERIFY, 11, 0, Status.INVAL]
+        ] as const
+      ) {
+        const attribute = requestWriter()
+
+        if (Predicate.isBigInt(value)) yield* attribute.write(Xdr.uint64, value)
+        else yield* attribute.write(Xdr.uint32, value)
+        const encoded = yield* attribute.finish
+
+        const compare = Effect.fnUntraced(function*(writer: RequestWriter) {
+          yield* writer.write(Xdr.uint32, code)
+          yield* writer.write(Xdr.array(Xdr.uint32), [1 << bit])
+          yield* writer.write(Xdr.opaque(), encoded)
+        })
+
+        const result = yield* compound(
+          operation(Operation.PUTROOTFH),
+          namedOperation(Operation.LOOKUP, "file"),
+          compare,
+          operation(Operation.GETFH)
+        )
+
+        assert.strictEqual(result.status, expected)
+        yield* readStatus(result.reader, Operation.PUTROOTFH)
+        yield* readStatus(result.reader, Operation.LOOKUP)
+        yield* readStatus(result.reader, code, expected)
+
+        if (expected === Status.OK) {
+          yield* readStatus(result.reader, Operation.GETFH)
+          assert.isNotEmpty(yield* result.reader.read(Xdr.opaque()))
+        }
+      }
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("distinguishes reserved, malformed, and missing names", () =>
+    Effect.gen(function*() {
+      const { compound } = yield* readOnlySession("lookup-names")
+      const utf8 = new TextEncoder()
+
+      for (
+        const [name, expected] of [
+          [utf8.encode("."), Status.BADNAME],
+          [utf8.encode(".."), Status.BADNAME],
+          [Uint8Array.of(0xff, 0xfe), Status.INVAL],
+          [utf8.encode("missing"), Status.NOENT]
+        ] as const
+      ) {
+        const lookup = (writer: RequestWriter) =>
+          Effect.andThen(writer.write(Xdr.uint32, Operation.LOOKUP), writer.write(Xdr.opaque(), name))
+
+        const result = yield* compound(operation(Operation.PUTROOTFH), lookup)
+        assert.strictEqual(result.status, expected)
+        yield* readStatus(result.reader, Operation.PUTROOTFH)
+        yield* readStatus(result.reader, Operation.LOOKUP, expected)
+      }
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("scopes RECLAIM_COMPLETE to the current filehandle when one filesystem is requested", () =>
+    Effect.gen(function*() {
+      const { compound } = yield* readOnlySession("reclaim")
+
+      const reclaim = (oneFs: boolean) => (writer: RequestWriter) =>
+        Effect.andThen(writer.write(Xdr.uint32, Operation.RECLAIM_COMPLETE), writer.write(Xdr.boolean, oneFs))
+
+      const selected = yield* compound(operation(Operation.PUTROOTFH), reclaim(true))
+      assert.strictEqual(selected.status, Status.OK)
+      assert.strictEqual((yield* compound(reclaim(true))).status, Status.NOFILEHANDLE)
+      assert.strictEqual((yield* compound(reclaim(false))).status, Status.OK)
+      assert.strictEqual((yield* compound(reclaim(false))).status, Status.COMPLETE_ALREADY)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("selects the root filehandle when a client sends PUTPUBFH", () =>
+    Effect.gen(function*() {
+      const { compound } = yield* readOnlySession("public-filehandle")
+
+      const { status, reader } = yield* compound(
+        operation(Operation.PUTROOTFH),
+        operation(Operation.GETFH),
+        operation(Operation.PUTPUBFH),
+        operation(Operation.GETFH)
+      )
+
+      assert.strictEqual(status, Status.OK)
+      yield* readStatus(reader, Operation.PUTROOTFH)
+      yield* readStatus(reader, Operation.GETFH)
+      const rootHandle = yield* reader.read(Xdr.opaque())
+      yield* readStatus(reader, Operation.PUTPUBFH)
+      yield* readStatus(reader, Operation.GETFH)
+      assert.deepStrictEqual(yield* reader.read(Xdr.opaque()), rootHandle)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("returns a COMMIT verifier for a file and rejects a directory", () =>
+    Effect.gen(function*() {
+      const { caller, compound } = yield* readOnlySession("commit")
+      yield* caller.writeFile("/file", Uint8Array.of(7), { access: "write", create: "exclusive" })
+
+      const commit = Effect.fnUntraced(function*(writer: RequestWriter) {
+        yield* writer.write(Xdr.uint32, Operation.COMMIT)
+        yield* writer.write(Xdr.uint64, 0n)
+        yield* writer.write(Xdr.uint32, 0)
+      })
+
+      const file = yield* compound(operation(Operation.PUTROOTFH), namedOperation(Operation.LOOKUP, "file"), commit)
+      assert.strictEqual(file.status, Status.OK)
+      yield* readStatus(file.reader, Operation.PUTROOTFH)
+      yield* readStatus(file.reader, Operation.LOOKUP)
+      yield* readStatus(file.reader, Operation.COMMIT)
+      assert.strictEqual((yield* file.reader.read(Xdr.fixedOpaque(8))).length, 8)
+
+      const directory = yield* compound(operation(Operation.PUTROOTFH), commit)
+      assert.strictEqual(directory.status, Status.ISDIR)
+      yield* readStatus(directory.reader, Operation.PUTROOTFH)
+      yield* readStatus(directory.reader, Operation.COMMIT, Status.ISDIR)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("reports SECINFO flavors and clears the current filehandle", () =>
+    Effect.gen(function*() {
+      const { caller, compound } = yield* readOnlySession("secinfo")
+      yield* caller.writeFile("/file", Uint8Array.of(7), { access: "write", create: "exclusive" })
+
+      const result = yield* compound(
+        operation(Operation.PUTROOTFH),
+        namedOperation(Operation.SECINFO, "file"),
+        operation(Operation.GETFH)
+      )
+
+      assert.strictEqual(result.status, Status.NOFILEHANDLE)
+      yield* readStatus(result.reader, Operation.PUTROOTFH)
+      yield* readStatus(result.reader, Operation.SECINFO)
+      assert.deepStrictEqual(yield* result.reader.read(Xdr.array(Xdr.uint32)), [1, 0])
+      yield* readStatus(result.reader, Operation.GETFH, Status.NOFILEHANDLE)
+
+      const missing = yield* compound(operation(Operation.PUTROOTFH), namedOperation(Operation.SECINFO, "missing"))
+      assert.strictEqual(missing.status, Status.NOENT)
+      yield* readStatus(missing.reader, Operation.PUTROOTFH)
+      yield* readStatus(missing.reader, Operation.SECINFO, Status.NOENT)
+    }).pipe(Effect.provide(Testing.layer())))
+})
+
+const fileHandle = Effect.fnUntraced(function*(
+  compound: Effect.Success<ReturnType<typeof readOnlySession>>["compound"],
+  name: string
+) {
+  const { status, reader } = yield* compound(
+    operation(Operation.PUTROOTFH),
+    namedOperation(Operation.LOOKUP, name),
+    operation(Operation.GETFH)
+  )
+
+  assert.strictEqual(status, Status.OK)
+  yield* readStatus(reader, Operation.PUTROOTFH)
+  yield* readStatus(reader, Operation.LOOKUP)
+  yield* readStatus(reader, Operation.GETFH)
+
+  return yield* reader.read(Xdr.opaque())
+})
+
+it.layer(NodeCrypto.layer)("filehandle lifetime over TCP", (it) => {
+  it.effect("returns the same opaque filehandle through hard links and after rename", () =>
+    Effect.gen(function*() {
+      const { caller, compound } = yield* readOnlySession("handle-aliases")
+      yield* caller.writeFile("/original", Uint8Array.of(7), { access: "write", create: "exclusive" })
+      yield* caller.link("/original", "/alias")
+
+      const handle = (name: string) => fileHandle(compound, name)
+      const original = yield* handle("original")
+      assert.notInclude(new TextDecoder().decode(original), "original")
+      assert.deepStrictEqual(yield* handle("alias"), original)
+      yield* caller.rename("/original", "/renamed")
+      assert.deepStrictEqual(yield* handle("renamed"), original)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("accepts a filehandle after unlink while the object is open and rejects it after close", () =>
+    Effect.gen(function*() {
+      const { caller, compound } = yield* readOnlySession("held-filehandle")
+      yield* caller.writeFile("/file", Uint8Array.of(7), { access: "write", create: "exclusive" })
+      const opened = yield* caller.open("/file", { access: "read" })
+      const handle = yield* fileHandle(compound, "file")
+
+      const put = (writer: RequestWriter) =>
+        Effect.andThen(writer.write(Xdr.uint32, Operation.PUTFH), writer.write(Xdr.opaque(), handle))
+
+      yield* caller.unlink("/file")
+      const retained = yield* compound(put, operation(Operation.GETFH))
+      assert.strictEqual(retained.status, Status.OK)
+      yield* readStatus(retained.reader, Operation.PUTFH)
+      yield* readStatus(retained.reader, Operation.GETFH)
+      assert.deepStrictEqual(yield* retained.reader.read(Xdr.opaque()), handle)
+
+      yield* opened.close
+      const released = yield* compound(put)
+      assert.strictEqual(released.status, Status.STALE)
+      yield* readStatus(released.reader, Operation.PUTFH, Status.STALE)
+    }).pipe(Effect.provide(Testing.layer())))
 })
 
 it.layer(NodeCrypto.layer)("NfsServer", (it) => {
@@ -637,7 +1177,7 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         const response = yield* exchange(
           { port: tcpPort(server) },
           yield* rpcCompound(71, [
-            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
+            (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH)
           ])
         )
 
@@ -685,7 +1225,7 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         const response = yield* exchange(
           { path },
           yield* rpcCompound(72, [
-            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
+            (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH)
           ])
         )
 
@@ -729,7 +1269,7 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
           const credential = yield* authSysCredential(uid)
 
           return yield* rpcCompound(xid, [
-            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
+            (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH)
           ], credential)
         })
 
@@ -738,9 +1278,9 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         const deniedByLimit = (yield* exchange({ port: tcpPort(server) }, yield* request(83, 3000)))[0]!
 
         const fields = Effect.fnUntraced(function*(bytes: Uint8Array) {
-          const reader = yield* make.openReader(bytes, limits)
+          const reader = replyReader(bytes)
 
-          return yield* Effect.forEach(Array.from({ length: 5 }), () => reader.read(XdrCodec.uint32))
+          return yield* Effect.forEach(Array.from({ length: 5 }), () => reader.read(Xdr.uint32))
         })
 
         assert.deepStrictEqual((yield* fields(allowed)).slice(0, 3), [81, 1, 0])
@@ -840,39 +1380,11 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         Scope.provide(scope)
       )
 
-      const exchangeId = (owner: string) => (writer: EncoderSession) =>
+      const destroySession = (session: Uint8Array) => (writer: RequestWriter) =>
         Effect.gen(function*() {
-          yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
-          yield* writer.write(XdrCodec.fixedOpaque(8), new Uint8Array(8))
-          yield* writer.write(XdrCodec.string(), owner)
-          yield* writeWords(writer, [0, 0, 0])
+          yield* writer.write(Xdr.uint32, Operation.DESTROY_SESSION)
+          yield* writer.write(Xdr.fixedOpaque(16), session)
         })
-
-      const createSession = (client: bigint) => (writer: EncoderSession) =>
-        Effect.gen(function*() {
-          yield* writer.write(XdrCodec.uint32, Operation.CREATE_SESSION)
-          yield* writer.write(XdrCodec.uint64, client)
-          yield* writeWords(writer, [1, 0])
-          yield* Effect.forEach([2, 0], (slots) => writeWords(writer, [0, 1_024, 1_024, 1_024, 8, slots, 0]), {
-            discard: true
-          })
-          yield* writeWords(writer, [0, 0])
-        })
-
-      const destroySession = (session: Uint8Array) => (writer: EncoderSession) =>
-        Effect.gen(function*() {
-          yield* writer.write(XdrCodec.uint32, Operation.DESTROY_SESSION)
-          yield* writer.write(XdrCodec.fixedOpaque(16), session)
-        })
-
-      const afterHeader = Effect.fnUntraced(function*(record: Uint8Array) {
-        const reader = yield* compoundReply(record)
-        yield* reader.read(XdrCodec.uint32)
-        yield* reader.read(XdrCodec.string())
-        yield* skipWords(reader, 3)
-
-        return reader
-      })
 
       // Both sockets stay open for the whole test, so neither one's close can mask the other's
       // identity by disassociating it early.
@@ -880,9 +1392,9 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       const stranger = yield* openConnection(tcpPort(server))
 
       const clientReply = (yield* owner.send(yield* rpcCompound(1, [exchangeId("owner")])))[0]!
-      const client = yield* (yield* afterHeader(clientReply)).read(XdrCodec.uint64)
+      const client = yield* (yield* afterHeader(clientReply)).read(Xdr.uint64)
       const sessionReply = (yield* owner.send(yield* rpcCompound(2, [createSession(client)])))[0]!
-      const session = yield* (yield* afterHeader(sessionReply)).read(XdrCodec.fixedOpaque(16))
+      const session = yield* (yield* afterHeader(sessionReply)).read(Xdr.fixedOpaque(16))
 
       // The stranger socket presents a valid session id it never carried. If every socket shared
       // one Connection this would answer NFS4_OK.
@@ -956,44 +1468,44 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
 
       const client = yield* openConnection(tcpPort(server))
 
-      const exchangeId = Effect.fnUntraced(function*(writer: EncoderSession) {
-        yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
-        yield* writer.write(XdrCodec.fixedOpaque(8), new Uint8Array(8))
-        yield* writer.write(XdrCodec.string(), "cb")
+      const exchangeId = Effect.fnUntraced(function*(writer: RequestWriter) {
+        yield* writer.write(Xdr.uint32, Operation.EXCHANGE_ID)
+        yield* writer.write(Xdr.fixedOpaque(8), new Uint8Array(8))
+        yield* writer.write(Xdr.string(), "cb")
         yield* writeWords(writer, [0, 0, 0])
       })
 
       const identity = yield* client.send(yield* rpcCompound(1, [exchangeId]))
       const idReader = yield* compoundReply(identity[0]!)
-      yield* idReader.read(XdrCodec.uint32)
-      yield* idReader.read(XdrCodec.string())
+      yield* idReader.read(Xdr.uint32)
+      yield* idReader.read(Xdr.string())
       yield* skipWords(idReader, 3)
-      const clientId = yield* idReader.read(XdrCodec.uint64)
+      const clientId = yield* idReader.read(Xdr.uint64)
 
       // CREATE_SESSION asking for CONN_BACK_CHAN, with a real callback program number.
       const created = yield* client.send(
         yield* rpcCompound(2, [(writer) =>
           Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, Operation.CREATE_SESSION)
-            yield* writer.write(XdrCodec.uint64, clientId)
+            yield* writer.write(Xdr.uint32, Operation.CREATE_SESSION)
+            yield* writer.write(Xdr.uint64, clientId)
             yield* writeWords(writer, [1, 2])
             yield* Effect.forEach([2, 2], (slots) => writeWords(writer, [0, 1_024, 1_024, 1_024, 8, slots, 0]), {
               discard: true
             })
 
             // csa_sec_parms authorizing AUTH_NONE for callbacks (Section 18.36.3).
-            yield* writer.write(XdrCodec.uint32, 0x4000_0001)
-            yield* writer.write(XdrCodec.array(XdrCodec.uint32), [0])
+            yield* writer.write(Xdr.uint32, 0x4000_0001)
+            yield* writer.write(Xdr.array(Xdr.uint32), [0])
           })])
       )
 
       const sessionReader = yield* compoundReply(created[0]!)
-      yield* sessionReader.read(XdrCodec.uint32)
-      yield* sessionReader.read(XdrCodec.string())
+      yield* sessionReader.read(Xdr.uint32)
+      yield* sessionReader.read(Xdr.string())
       yield* skipWords(sessionReader, 3)
-      const session = yield* sessionReader.read(XdrCodec.fixedOpaque(16))
-      assert.strictEqual(yield* sessionReader.read(XdrCodec.uint32), 1, "csr_sequence")
-      assert.strictEqual(yield* sessionReader.read(XdrCodec.uint32), 2, "csr_flags echoes CONN_BACK_CHAN")
+      const session = yield* sessionReader.read(Xdr.fixedOpaque(16))
+      assert.strictEqual(yield* sessionReader.read(Xdr.uint32), 1, "csr_sequence")
+      assert.strictEqual(yield* sessionReader.read(Xdr.uint32), 2, "csr_flags echoes CONN_BACK_CHAN")
 
       // The first SEQUENCE triggers the probe, so this exchange yields two records: the SEQUENCE
       // reply and the server's CB_COMPOUND arriving on the same connection.
@@ -1001,10 +1513,10 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         yield* rpcCompound(3, [
           (writer) =>
             Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.SEQUENCE)
-              yield* writer.write(XdrCodec.fixedOpaque(16), session)
+              yield* writer.write(Xdr.uint32, Operation.SEQUENCE)
+              yield* writer.write(Xdr.fixedOpaque(16), session)
               yield* writeWords(writer, [1, 0, 1])
-              yield* writer.write(XdrCodec.boolean, false)
+              yield* writer.write(Xdr.boolean, false)
             })
         ]),
         2
@@ -1017,37 +1529,37 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       })
 
       assert.isDefined(callback, "the server sent a CALL down the backchannel")
-      const cb = yield* make.openReader(callback, limits)
-      const callbackXid = yield* cb.read(XdrCodec.uint32)
-      yield* cb.read(XdrCodec.uint32)
-      assert.strictEqual(yield* cb.read(XdrCodec.uint32), 2, "RPC version")
-      assert.strictEqual(yield* cb.read(XdrCodec.uint32), 0x4000_0001, "callback program")
-      assert.strictEqual(yield* cb.read(XdrCodec.uint32), 1, "callback version is 1 per erratum 2291")
-      assert.strictEqual(yield* cb.read(XdrCodec.uint32), 1, "CB_COMPOUND procedure")
+      const cb = replyReader(callback)
+      const callbackXid = yield* cb.read(Xdr.uint32)
+      yield* cb.read(Xdr.uint32)
+      assert.strictEqual(yield* cb.read(Xdr.uint32), 2, "RPC version")
+      assert.strictEqual(yield* cb.read(Xdr.uint32), 0x4000_0001, "callback program")
+      assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "callback version is 1 per erratum 2291")
+      assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "CB_COMPOUND procedure")
 
       // Read the CB_SEQUENCE the server asked, so the answer echoes the session, sequence and
       // slot it was given. Anything less is not a reply the server may accept.
-      yield* cb.read(XdrCodec.uint32)
-      yield* cb.read(XdrCodec.opaque())
-      yield* cb.read(XdrCodec.uint32)
-      yield* cb.read(XdrCodec.opaque())
-      yield* cb.read(XdrCodec.string())
+      yield* cb.read(Xdr.uint32)
+      yield* cb.read(Xdr.opaque())
+      yield* cb.read(Xdr.uint32)
+      yield* cb.read(Xdr.opaque())
+      yield* cb.read(Xdr.string())
       yield* skipWords(cb, 2)
-      assert.strictEqual(yield* cb.read(XdrCodec.uint32), 1, "one callback operation")
-      assert.strictEqual(yield* cb.read(XdrCodec.uint32), 11, "OP_CB_SEQUENCE")
-      const callbackSession = yield* cb.read(XdrCodec.fixedOpaque(16))
-      const callbackSequence = yield* cb.read(XdrCodec.uint32)
-      const callbackSlot = yield* cb.read(XdrCodec.uint32)
+      assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "one callback operation")
+      assert.strictEqual(yield* cb.read(Xdr.uint32), 11, "OP_CB_SEQUENCE")
+      const callbackSession = yield* cb.read(Xdr.fixedOpaque(16))
+      const callbackSequence = yield* cb.read(Xdr.uint32)
+      const callbackSlot = yield* cb.read(Xdr.uint32)
 
       // Answer it exactly as a client would, and the server must accept the reply rather than
       // treating it as a request.
-      const replyWriter = yield* make.openWriter(limits, 4_096)
+      const replyWriter = requestWriter()
       yield* writeWords(replyWriter, [callbackXid, 1, 0, 0])
-      yield* replyWriter.write(XdrCodec.opaque(), new Uint8Array())
+      yield* replyWriter.write(Xdr.opaque(), new Uint8Array())
       yield* writeWords(replyWriter, [0, 0])
-      yield* replyWriter.write(XdrCodec.string(), "probe")
+      yield* replyWriter.write(Xdr.string(), "probe")
       yield* writeWords(replyWriter, [1, 11, 0])
-      yield* replyWriter.write(XdrCodec.fixedOpaque(16), callbackSession)
+      yield* replyWriter.write(Xdr.fixedOpaque(16), callbackSession)
       yield* writeWords(replyWriter, [callbackSequence, callbackSlot, callbackSlot, callbackSlot])
       const reply = yield* replyWriter.finish
 
@@ -1059,10 +1571,10 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         yield* rpcCompound(4, [
           (writer) =>
             Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, Operation.SEQUENCE)
-              yield* writer.write(XdrCodec.fixedOpaque(16), session)
+              yield* writer.write(Xdr.uint32, Operation.SEQUENCE)
+              yield* writer.write(Xdr.fixedOpaque(16), session)
               yield* writeWords(writer, [2, 0, 1])
-              yield* writer.write(XdrCodec.boolean, false)
+              yield* writer.write(Xdr.boolean, false)
             })
         ])
       )
@@ -1072,13 +1584,13 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       // And the server accepted that reply as a working callback path: sr_status_flags is clear
       // rather than carrying SEQ4_STATUS_CB_PATH_DOWN_SESSION.
       const status = yield* compoundReply(after[0]!)
-      yield* status.read(XdrCodec.uint32)
-      yield* status.read(XdrCodec.string())
+      yield* status.read(Xdr.uint32)
+      yield* status.read(Xdr.string())
       yield* skipWords(status, 3)
-      yield* status.read(XdrCodec.fixedOpaque(16))
+      yield* status.read(Xdr.fixedOpaque(16))
       yield* skipWords(status, 4)
 
-      assert.strictEqual(yield* status.read(XdrCodec.uint32), 0, "the callback path is reported up")
+      assert.strictEqual(yield* status.read(Xdr.uint32), 0, "the callback path is reported up")
 
       yield* client.close
       yield* Scope.close(scope, Exit.void)
