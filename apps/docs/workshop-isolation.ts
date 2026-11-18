@@ -16,7 +16,7 @@ function isolateWorkshop(server: ViteDevServer | PreviewServer) {
     if (
       pathname === workshopPage ||
       pathname?.startsWith("/app/examples/image-tile-workshop/") ||
-      pathname && /^\/assets\/(?:image|workshop)\.worker-[^/]+\.js$/.test(pathname)
+      pathname && /^\/assets\/(?:image|tile|workshop)\.worker-[^/]+\.js$/.test(pathname)
     ) {
       for (const [name, value] of Object.entries(workshopHeaders)) response.setHeader(name, value)
     }

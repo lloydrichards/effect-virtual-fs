@@ -2,7 +2,6 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { FileReply, type TileBounds, WorkerJob, WorkerReply } from "./domain.ts"
-import { filterTile } from "./pixels.ts"
 
 interface Composition {
   readonly canvas: OffscreenCanvas
@@ -30,7 +29,7 @@ function encode(canvas: OffscreenCanvas) {
 }
 
 function reply(port: MessagePort, value: WorkerReply) {
-  const buffer = WorkerReply.guards.bytes(value) || WorkerReply.guards.publish(value) ? value.bytes.buffer : undefined
+  const buffer = WorkerReply.guards.bytes(value) ? value.bytes.buffer : undefined
   port.postMessage(value, buffer instanceof ArrayBuffer ? [buffer] : [])
 }
 
@@ -73,13 +72,6 @@ const apply = Effect.fnUntraced(function*(job: typeof WorkerJob.cases.apply.Type
 
 function execute(job: WorkerJob, port: MessagePort) {
   return WorkerJob.match(job, {
-    filter: Effect.fnUntraced(function*({ bounds, path, source, filter }) {
-      const canvas = new OffscreenCanvas(bounds.width, bounds.height)
-      context(canvas).putImageData(new ImageData(filterTile(source, bounds, filter), bounds.width, bounds.height), 0, 0)
-      const bytes = yield* encode(canvas)
-
-      return WorkerReply.cases.publish.make({ path, bytes })
-    }),
     reset: ({ height, width }) =>
       Effect.sync(() => {
         composition = { canvas: new OffscreenCanvas(width, height), tiles: new Map() }

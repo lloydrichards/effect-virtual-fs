@@ -1,9 +1,12 @@
+import * as BrowserWorker from "@effect/platform-browser/BrowserWorker"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
 import * as Result from "effect/Result"
+import * as RpcClient from "effect/rpc/RpcClient"
 import * as Schema from "effect/Schema"
-import { FileReply, WorkerJob, WorkerReply, WorkshopError } from "./domain.ts"
+import { FileReply, TileRpc, WorkerJob, WorkerReply, WorkshopError } from "./domain.ts"
 
 export const workshopError = (cause: unknown) =>
   Schema.is(WorkshopError)(cause) ? cause : new WorkshopError({ message: String(cause) })
@@ -16,6 +19,25 @@ export const spawnImageWorker = (name: string) =>
     }),
     (worker) => Effect.sync(() => worker.terminate())
   )
+
+export const spawnTileClient = Effect.fnUntraced(function*(id: number) {
+  const worker = yield* Effect.acquireRelease(
+    Effect.try({
+      try: () =>
+        new Worker(new URL("./tile.worker.ts", import.meta.url), { type: "module", name: `Tile worker ${id}` }),
+      catch: workshopError
+    }),
+    (worker) => Effect.sync(() => worker.terminate())
+  )
+
+  const protocol = RpcClient.layerProtocolWorker({ size: 1, concurrency: 1 }).pipe(
+    Layer.provide(BrowserWorker.layer(() => worker))
+  )
+
+  const context = yield* Layer.build(protocol)
+
+  return yield* RpcClient.make(TileRpc).pipe(Effect.provideContext(context))
+})
 
 // A job owns its reply port. The compositor uses it to open the committed tile by path.
 export const runJob = Effect.fnUntraced(

@@ -1,3 +1,4 @@
+import { SharedMemory } from "effect/workers"
 import { largestGrid, maxImageEdge, type Source } from "./domain.ts"
 
 export interface Picture {
@@ -88,7 +89,7 @@ export async function loadPicture(file: File): Promise<Picture> {
 }
 
 export function sharePixels({ canvas }: Picture): Source {
-  if (!crossOriginIsolated || typeof SharedArrayBuffer === "undefined") {
+  if (!SharedMemory.isAvailable()) {
     throw new Error("Shared pixels require a cross-origin isolated page. Open the workshop on localhost or HTTPS.")
   }
 
@@ -97,8 +98,8 @@ export function sharePixels({ canvas }: Picture): Source {
 
   if (!context) throw new Error("The browser could not read the image pixels.")
   const source = context.getImageData(0, 0, width, height).data
-  const pixels = new SharedArrayBuffer(source.byteLength)
-  new Uint8ClampedArray(pixels).set(source)
+  const pixels = SharedMemory.make(Uint8ClampedArray, source.length)
+  pixels.set(source)
 
   return { height, width, pixels }
 }

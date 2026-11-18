@@ -1,6 +1,7 @@
 import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as Schema from "effect/Schema"
+import { SharedMemory, Transferable } from "effect/workers"
 
 export const TileGrid = Schema.Literals(["2x2", "4x3", "6x4"])
 
@@ -24,19 +25,12 @@ export const maxImageEdge = 1200
 
 export const outputPath = "/output/result.png"
 
-// Worker RPC posts structured-clone values. Preserve the native binary fields in its codec.
-const SharedPixels = Schema.declare(
-  (value: unknown): value is SharedArrayBuffer =>
-    typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer,
-  { toCodecJson: () => undefined }
-)
-
 const Png = Schema.Uint8Array.annotate({ toCodecJson: () => undefined })
 
 const Source = Schema.Struct({
   width: Schema.Int.check(Schema.isBetween({ minimum: largestGrid.columns, maximum: maxImageEdge })),
   height: Schema.Int.check(Schema.isBetween({ minimum: largestGrid.rows, maximum: maxImageEdge })),
-  pixels: SharedPixels
+  pixels: SharedMemory.schema(Uint8ClampedArray)
 })
 
 export type Source = typeof Source.Type
@@ -139,8 +133,15 @@ export function tilePath(tile: number, columns: number) {
 
 const Placement = Schema.Struct({ tile: TileId, bounds: TileBounds })
 
+export class TileRpc extends RpcGroup.make(
+  Rpc.make("renderTile", {
+    payload: { source: Source, bounds: TileBounds, filter: Filter },
+    success: Transferable.Uint8Array,
+    error: WorkshopError
+  })
+) {}
+
 export const WorkerJob = Schema.TaggedUnion({
-  filter: { source: Source, bounds: TileBounds, path: Schema.String, filter: Filter },
   reset: { width: Schema.Int, height: Schema.Int },
   apply: { ...Placement.fields, path: Schema.String },
   swap: { first: Placement, second: Placement },
@@ -150,7 +151,6 @@ export const WorkerJob = Schema.TaggedUnion({
 export type WorkerJob = typeof WorkerJob.Type
 
 export const WorkerReply = Schema.TaggedUnion({
-  publish: { path: Schema.String, bytes: Schema.Uint8Array },
   bytes: { bytes: Schema.Uint8Array },
   done: {},
   read: { path: Schema.String },

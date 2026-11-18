@@ -3,8 +3,7 @@ import type { Filter, Source, TileBounds } from "./domain.ts"
 const radius = 6
 
 // The horizontal pass includes rows outside the tile for the vertical pass.
-function blurTile({ height, pixels, width }: Source, bounds: TileBounds) {
-  const input = new Uint8ClampedArray(pixels)
+function blurTile({ height, pixels: input, width }: Source, bounds: TileBounds) {
   const stride = bounds.width * 4
   const horizontal = new Float32Array(stride * (bounds.height + radius * 2))
   const output = new Uint8ClampedArray(stride * bounds.height)
@@ -47,7 +46,7 @@ function blurTile({ height, pixels, width }: Source, bounds: TileBounds) {
 export function filterTile(source: Source, bounds: TileBounds, filter: Filter) {
   if (filter === "blur") return blurTile(source, bounds)
 
-  const input = new Uint8ClampedArray(source.pixels)
+  const input = source.pixels
   const output = new Uint8ClampedArray(bounds.width * bounds.height * 4)
 
   for (let row = 0; row < bounds.height; row++) {

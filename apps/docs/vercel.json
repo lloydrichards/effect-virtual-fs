@@ -24,6 +24,15 @@
       ]
     },
     {
+      "source": "/assets/tile.worker-:hash.js",
+      "headers": [
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "require-corp"
+        }
+      ]
+    },
+    {
       "source": "/assets/workshop.worker-:hash.js",
       "headers": [
         {

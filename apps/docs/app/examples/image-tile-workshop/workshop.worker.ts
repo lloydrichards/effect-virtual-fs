@@ -24,12 +24,12 @@ import {
   type WorkshopError,
   WorkshopRpc
 } from "./domain.ts"
-import { expectBytes, runJob, spawnImageWorker, workshopError } from "./worker-client.ts"
+import { expectBytes, runJob, spawnImageWorker, spawnTileClient, workshopError } from "./worker-client.ts"
 
 interface Session {
   readonly source: Source
   readonly setup: RenderSetup
-  readonly workers: ReadonlyArray<Worker>
+  readonly workers: ReadonlyArray<Effect.Success<ReturnType<typeof spawnTileClient>>>
   readonly scope: Scope.Closeable
   readonly filesystem: Vfs.Caller
   readonly visible: Map<number, TileVersion>
@@ -58,19 +58,15 @@ const handlers = WorkshopRpc.toLayer(Effect.gen(function*() {
       let stage: "compute" | "publish" | "compose" = "compute"
 
       const process = Effect.gen(function*() {
-        const request = yield* runJob(
-          current.workers[worker - 1]!,
-          WorkerJob.cases.filter.make({ source: current.source, bounds, path, filter })
+        const png = yield* current.workers[worker - 1]!.renderTile({ source: current.source, bounds, filter }).pipe(
+          Effect.timeout("15 seconds"),
+          Effect.mapError(workshopError)
         )
-
-        if (!WorkerReply.guards.publish(request) || request.path !== path) {
-          return yield* workshopError("The tile worker requested an unexpected publication.")
-        }
 
         stage = "publish"
         const stagingPath = `/staging/${tile}-${version}.png`
         yield* Effect.acquireRelease(
-          current.filesystem.writeFile(stagingPath, request.bytes, { access: "write", create: "exclusive" }),
+          current.filesystem.writeFile(stagingPath, png, { access: "write", create: "exclusive" }),
           () => current.filesystem.remove(stagingPath, { force: true }).pipe(Effect.ignore)
         ).pipe(
           Effect.andThen(current.filesystem.rename(stagingPath, path)),
@@ -148,7 +144,7 @@ const handlers = WorkshopRpc.toLayer(Effect.gen(function*() {
 
           const workers = yield* Effect.forEach(
             Array.from({ length: setup.workers }, (_, index) => index + 1),
-            (id) => spawnImageWorker(`Tile worker ${id}`)
+            spawnTileClient
           ).pipe(
             Scope.provide(scope),
             Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause)))

@@ -52,13 +52,18 @@ workers get views of the same backing memory, so each can read neighboring
 pixels for blur without a separate copy of the source image. The source buffer
 is read-only by convention once published. Each tile worker writes into its own
 output buffer and transfers the finished PNG as an ordinary `ArrayBuffer`.
-Effect RPC connects the page to the filesystem worker. Within a job, the
-filesystem worker talks to the tile workers and compositor through message ports.
+The page and tile workers exchange typed Effect RPC messages with the filesystem
+worker. The compositor requests committed files through a message port.
 
 ```ts title="Allocate the shared source"
-const pixels = new SharedArrayBuffer(source.byteLength)
-new Uint8ClampedArray(pixels).set(source)
+import { SharedMemory } from "effect/workers"
+
+const pixels = SharedMemory.make(Uint8ClampedArray, source.length)
+pixels.set(source)
 ```
+
+The render RPC declares the pixel field as `SharedMemory.schema(Uint8ClampedArray)`.
+Each tile worker receives a view of the same bytes alongside its tile bounds and effect.
 
 The [filesystem worker](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/workshop.worker.ts)
 writes each tile to a staging path, then renames the completed file onto the

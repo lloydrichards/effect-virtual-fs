@@ -57,6 +57,6 @@
     "@effect/platform-node-shared": "4.1.4",
     "@effect/sql-d1": "4.1.4",
     "dompurify": "3.4.17",
-    "effect": "4.1.4"
+    "effect": "https://pkg.pr.new/effect@30e642ff2f10d9d1cd6513bb6690ffa9ea289b57"
   }
 }

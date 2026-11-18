@@ -1,5 +1,6 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react"
 import * as Schema from "effect/Schema"
+import { SharedMemory } from "effect/workers"
 import { Check } from "lucide-react"
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import { Button } from "~/components/ui/button"
@@ -43,7 +44,7 @@ export function App() {
   const perform = useAtomSet(actionAtom)
   const sourceImage = useRef<HTMLCanvasElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
-  const isolated = sample !== undefined && globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined"
+  const isolated = sample !== undefined && SharedMemory.isAvailable()
   const { height, width } = picture?.canvas ?? sampleImage
   const name = picture?.name ?? sampleImage.name
   const grid = grids[view.setup.grid]

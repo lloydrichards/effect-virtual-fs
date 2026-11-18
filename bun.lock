@@ -346,7 +346,7 @@
     "@effect/platform-node-shared": "4.1.4",
     "@effect/sql-d1": "4.1.4",
     "dompurify": "3.4.17",
-    "effect": "4.1.4",
+    "effect": "https://pkg.pr.new/effect@30e642ff2f10d9d1cd6513bb6690ffa9ea289b57",
   },
   "packages": {
     "@alchemy.run/acme": ["@alchemy.run/acme@2.0.0-beta.85", "", { "dependencies": { "@distilled.cloud/acme": "1.0.0-rc.18" }, "peerDependencies": { "alchemy": "2.0.0-beta.85", "effect": "^4.1.0" } }, "sha512-hOV18VHG6ivrbPnk35hoqlCQPc6bR8b9soGmHlSkbnPIgVZUg7jpliF9AztSSJbJK4GHcBFc9hWetwCRHzGYAg=="],
@@ -1353,7 +1353,7 @@
 
     "dts-resolver": ["dts-resolver@3.0.0", "", { "peerDependencies": { "oxc-resolver": ">=11.0.0" }, "optionalPeers": ["oxc-resolver"] }, "sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q=="],
 
-    "effect": ["effect@4.1.4", "", {}, "sha512-Tgrv/9FN+TZYyOn8XSli+fVqAfwDrDAkiX5Uu9vztINb675VTQdhD0gWI5Kzvhlh9QqzjZvw72iugqw5pwoghQ=="],
+    "effect": ["effect@https://pkg.pr.new/effect@30e642ff2f10d9d1cd6513bb6690ffa9ea289b57", {}, "sha512-hYF8xNurx3z856rUwCa5daWJWdTb9LLVLRASU2qsTnjiNzGP6UFsAwIHNOplK0rPUJbMyih+xxYhdsrh1isRrQ=="],
 
     "effect-boxes": ["effect-boxes@0.18.1", "", { "peerDependencies": { "effect": ">=4.0.0" } }, "sha512-DedSxKnFm9JTLr9UAIkNDs7lr2sp8bxNvwnMkLr+A/DvdZEQnD1kdw/VjImhY4RjGEyoJk+dPJR3DZbXOa/6Yw=="],
 
