@@ -44,6 +44,21 @@ The capture retains the overlay's original base and an immutable view of the tar
 
 The merge checks each snapshot using the shared identity, entry and record limits before scanning lineage. It caps rename groups by the delta record limit, distinct group paths by the entry limit, and their total raw byte length by the decoded delta byte limit. It checks the number of resolution entries against the delta record limit and the number of eligible conflicts. Bytes and metadata come from the verified snapshots. The result applies through `applySnapshotDelta` to the same base. It carries the merged tree in the current encoding.
 
+## Private Code Mode candidate
+
+The candidate exposes `captureOverlayForMerge` and `mergeOverlayCaptures` under `VirtualFileSystem`. The caller
+passes the common base and both retained captures. Each conflict represents one decision and lists the affected
+paths. Its opaque string key remains valid for that ordered pair of captures. Each retry submits all choices
+so far. The merge uses `SnapshotDeltaLimits`.
+
+The trial captures each successful run at completion. It returns a preview while conflicts remain and returns
+a handoff delta after every group has a choice. If the trial process restarts or either run expires, the
+coordinator returns to the usual release workflow.
+
+Build core and run `bun run --cwd apps/demo-agent-tools test:packed-trial` to exercise the candidate through
+Code Mode's MCP tool using a private package archive. A real handoff on the same candidate needs sign-off from
+the release coordinator and core maintainer before the API can ship in a minor release.
+
 ## First supported moves
 
 Accept a move when a base regular file has one name, the same object has exactly one name at capture, the old name is absent, and the destination was absent in the base. Require the same base directories to remain ancestors of every involved path on both sides. Reject an unsupported move before merging if it moves a directory or symlink, involves a file with multiple names on either side, replaces a base destination, or overlaps a move from a different base source. Reject the group if the other side replaces the source with an unrelated object or both removes the source and independently adds a destination. An independent addition at the destination must be a single-link regular file. Reject a directory collision before merging so its descendants never enter the delta as clean changes. Report the involved path and unsupported condition. Plain path changes outside these groups continue through ordinary delta merge.

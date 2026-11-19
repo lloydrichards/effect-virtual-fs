@@ -5,7 +5,7 @@ const encode = (text: string) => new TextEncoder().encode(text)
 
 export const projectRoot = "/projects/release"
 
-export const makeBaseSnapshot = Effect.fn("Workspace.base")(function*() {
+export const makeBaseSnapshot = Effect.fn("Workspace.base")(function*(includeHardLink = false) {
   const template = yield* Vfs.fromFixture({
     entries: [
       { kind: "directory", path: "/projects" },
@@ -22,6 +22,13 @@ export const makeBaseSnapshot = Effect.fn("Workspace.base")(function*() {
         path: "/projects/release/plans/draft.md",
         bytes: encode("# Release plan\n\nRelease on Friday.\n")
       },
+      ...(includeHardLink
+        ? [{
+          kind: "hardLink" as const,
+          path: "/projects/release/BRIEF-copy.md",
+          target: "/projects/release/BRIEF.md"
+        }]
+        : []),
       {
         kind: "file",
         path: "/projects/release/temporary.txt",

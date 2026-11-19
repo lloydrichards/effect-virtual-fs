@@ -2,7 +2,7 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
-import { makeCodeModeHandlers } from "../src/codemode.js"
+import { codeModeHandlers } from "../src/codemode.js"
 import { makeBaseSnapshot, projectRoot } from "../src/workspace.js"
 
 const source = "plans/draft.md"
@@ -43,7 +43,7 @@ it.layer(BunCrypto.layer)((it) => {
   it.effect("should apply the edit at the new path when combining a rename and an edit", () =>
     Effect.gen(function*() {
       const base = yield* makeBaseSnapshot()
-      const handlers = yield* makeCodeModeHandlers()
+      const handlers = yield* codeModeHandlers
       const ours = yield* handlers.execute(renameProgram(moved))
       const theirs = yield* handlers.execute(editProgram)
       const combined = yield* handlers.combine_runs({ ours: ours.runId, theirs: theirs.runId })
@@ -75,7 +75,7 @@ it.layer(BunCrypto.layer)((it) => {
   it.effect("should keep the source until one choice resolves the whole divergent rename", () =>
     Effect.gen(function*() {
       const base = yield* makeBaseSnapshot()
-      const handlers = yield* makeCodeModeHandlers()
+      const handlers = yield* codeModeHandlers
       const oursPath = "plans/a.md"
       const theirsPath = "plans/b.md"
       const ours = yield* handlers.execute(renameProgram(oursPath))
@@ -114,7 +114,7 @@ it.layer(BunCrypto.layer)((it) => {
 
   it.effect("should reject a rename onto an existing file when combining retained runs", () =>
     Effect.gen(function*() {
-      const handlers = yield* makeCodeModeHandlers()
+      const handlers = yield* codeModeHandlers
       const replaced = yield* handlers.execute(renameProgram("BRIEF.md"))
       const editedRun = yield* handlers.execute(editProgram)
       const failure = yield* handlers.combine_runs({ ours: replaced.runId, theirs: editedRun.runId }).pipe(Effect.flip)
