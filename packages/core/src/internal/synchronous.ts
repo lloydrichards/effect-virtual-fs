@@ -297,27 +297,40 @@ export const bind = Effect.fnUntraced(
       chown: (t: Target, owner: OwnerUpdate) => attributes(t, owner),
       utimes: (t: Target, tms: Times) => attributes(t, attributeTimes(tms)),
       open: (path: string, o: OpenOptions, noFollow: boolean, directory: boolean): Handle => {
-        const info = noFollow ? sync.linkStat(path) : sync.stat(path)
+        const openFile = (name: string) =>
+          sync.open(name, {
+            ...o,
+            mode: creationMode(o.mode, 0o777),
+            access: o.access === "readWrite" ? "readwrite" : o.access,
+            create: o.create === "never" ? "existing" : o.create === "ifMissing" ? "ifmissing" : o.create,
+            noFollow,
+            appendCursor: "preserve",
+            truncateCursor: "preserve"
+          })
 
-        if (Result.isFailure(info) && !Predicate.isTagged(info.failure, "NotFound")) throw failure(info.failure)
+        const overwrite = o.access === "write" && o.create === "ifMissing" && o.truncate && !o.append &&
+          !noFollow && !directory
 
-        if (noFollow && Result.isSuccess(info) && info.success.kind === "symlink") {
-          throw Errors.fsFailure("SymlinkLoop", "open")
+        const prepared = overwrite ? Paths.preparePath(path, "path", runtime.owner.limits.expandedPathBytes) : undefined
+        const opened = prepared !== undefined && Result.isSuccess(prepared) ? openFile(path) : undefined
+
+        // A successful checked open has already resolved and validated the file.
+        // On failure, keep the preflight's error precedence and directory mapping.
+        if (opened === undefined || Result.isFailure(opened)) {
+          const info = noFollow ? sync.linkStat(path) : sync.stat(path)
+
+          if (Result.isFailure(info) && !Predicate.isTagged(info.failure, "NotFound")) throw failure(info.failure)
+
+          if (noFollow && Result.isSuccess(info) && info.success.kind === "symlink") {
+            throw Errors.fsFailure("SymlinkLoop", "open")
+          }
+
+          if (!directory && Result.isSuccess(info) && info.success.kind === "directory") {
+            throw Errors.fsFailure("IsDirectory", "open")
+          }
         }
 
-        if (!directory && Result.isSuccess(info) && info.success.kind === "directory") {
-          throw Errors.fsFailure("IsDirectory", "open")
-        }
-
-        const handle = directory ? unwrap(sync.openDirectory(checked(path))) : unwrap(sync.open(checked(path), {
-          ...o,
-          mode: creationMode(o.mode, 0o777),
-          access: o.access === "readWrite" ? "readwrite" : o.access,
-          create: o.create === "never" ? "existing" : o.create === "ifMissing" ? "ifmissing" : o.create,
-          noFollow,
-          appendCursor: "preserve",
-          truncateCursor: "preserve"
-        }))
+        const handle = directory ? unwrap(sync.openDirectory(checked(path))) : unwrap(opened ?? openFile(checked(path)))
 
         runtime.compatibility.track(handle.effect)
         let released = false
