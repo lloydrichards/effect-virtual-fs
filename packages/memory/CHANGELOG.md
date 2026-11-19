@@ -1,5 +1,13 @@
 # @effect-vfs/memory
 
+## 0.12.0
+
+### Patch Changes
+
+- [#374](https://github.com/lloydrichards/effect-virtual-fs/pull/374) [`993226c`](https://github.com/lloydrichards/effect-virtual-fs/commit/993226c01b4f3ef58cf4ffba56d537ce9ec15318) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Tree transfers report filesystem errors when inspecting source entries or reading symlinks, even in skip mode.
+- Updated dependencies [[`d71a8ba`](https://github.com/lloydrichards/effect-virtual-fs/commit/d71a8ba58464afbba59f68e54fcd68c9bda81bcf), [`dd9989d`](https://github.com/lloydrichards/effect-virtual-fs/commit/dd9989d1e69e53ef1f9b532168328828896acf6d), [`bf8f297`](https://github.com/lloydrichards/effect-virtual-fs/commit/bf8f29740412bfd42c793e8c1d73ad87c3d8c9fb)]:
+  - @effect-vfs/core@0.12.0
+
 ## 0.11.1
 
 ### Patch Changes
