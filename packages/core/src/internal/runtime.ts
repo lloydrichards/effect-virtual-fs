@@ -1309,13 +1309,16 @@ const wrapCaller = (
   const followedEntry = Effect.fnUntraced(function*(
     address: P.EntryTarget,
     actor: P.VirtualFileSystem,
-    boundaries: ReadonlyArray<Boundary>
+    boundaries: ReadonlyArray<Boundary>,
+    initial?: Result.Result<P.ObjectObservation, V.FsFailure>
   ): Effect.fn.Return<LocatedEntry, V.FsFailure, Scope.Scope> {
     let current = address
     let selected = actor
 
     for (let count = 0; count <= Paths.MAX_SYMLINK_TRAVERSALS; count++) {
-      const observed = yield* Effect.result(mapped(selected.linkStat(current)))
+      const observed = count === 0 && initial !== undefined
+        ? initial
+        : yield* Effect.result(mapped(selected.linkStat(current)))
 
       if (Result.isFailure(observed) && observed.failure.code !== "NotFound") return yield* observed.failure
 
@@ -2011,9 +2014,20 @@ const wrapCaller = (
           const t = located.target
           const actor = located.caller
 
-          const present = yield* Effect.result(
-            mapped(o.replaceFinalSymlink || o.followFinalSymlink === false ? actor.linkStat(t) : actor.stat(t))
-          )
+          const followFinal = !o.replaceFinalSymlink && o.followFinalSymlink !== false
+
+          const direct = followFinal && o.access !== "read" && Predicate.isString(value) && rootIno === 1n &&
+              inherited.length === 0
+            ? yield* Effect.result(mapped(actor.linkStat(t)))
+            : undefined
+
+          const directFile = direct !== undefined && Result.isSuccess(direct) && direct.success.kind === "file"
+
+          const missing = direct !== undefined && Result.isFailure(direct) && direct.failure.code === "NotFound"
+
+          const present = directFile || missing
+            ? direct
+            : yield* Effect.result(mapped(followFinal ? actor.stat(t) : actor.linkStat(t)))
 
           const replacing = o.replaceFinalSymlink && Result.isSuccess(present) && present.success.kind === "symlink"
 
@@ -2048,8 +2062,10 @@ const wrapCaller = (
 
           const made = yield* namespace(value, (t, actor) =>
             Effect.gen(function*() {
-              if (!o.replaceFinalSymlink && o.followFinalSymlink !== false) {
-                yield* followedEntry(t, actor, boundariesOf(runtime, value))
+              if (followFinal && !directFile) {
+                const initial = direct !== undefined && (Result.isSuccess(direct) || missing) ? direct : undefined
+
+                yield* followedEntry(t, actor, boundariesOf(runtime, value), initial)
               }
 
               if (replacing) yield* refreshGrants(runtime)
