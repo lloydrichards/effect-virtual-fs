@@ -1,5 +1,81 @@
 # @effect-vfs/persistence
 
+## 0.12.0
+
+### Minor Changes
+
+- [#350](https://github.com/lloydrichards/effect-virtual-fs/pull/350) [`62173cd`](https://github.com/lloydrichards/effect-virtual-fs/commit/62173cd399cc736facb789cc1056a2fbad508910) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Store live filesystem images in Cloudflare D1 with an Effect D1 client.
+
+  Install the optional `@effect/sql-d1` peer and apply the packaged D1 migration before opening a store.
+
+  ```ts
+  import * as D1LiveImageStore from "@effect-vfs/persistence/D1LiveImageStore"
+  import * as D1Client from "@effect/sql-d1/D1Client"
+  import { ByteSize, Layer } from "effect"
+
+  const store = (db: D1Client.D1ClientConfig["db"]) =>
+    D1LiveImageStore.layer({
+      key: "workspace-123",
+      maxImageBytes: ByteSize.kibibytes(512)
+    }).pipe(Layer.provide(D1Client.layer({ db })))
+  ```
+
+  Keep one active owner per store key. Stores with distinct keys can share a client that serves requests from the primary. Drain each store’s pending writes before handoff. D1 caps images at 1 MiB and reports the `memory-only` guarantee.
+
+- [#394](https://github.com/lloydrichards/effect-virtual-fs/pull/394) [`5aba3d6`](https://github.com/lloydrichards/effect-virtual-fs/commit/5aba3d6fc0ac1473b23b7e117af9eb612a50be5b) Thanks [@lloydrichards](https://github.com/lloydrichards)! - R2 live-image stores enforce `maxImageBytes` while reading through the S3 adapter.
+
+  If you supply a custom R2 transport, implement the optional `readBounded(key, maxImageBytes)` operation to enforce the limit during the read.
+
+- [#405](https://github.com/lloydrichards/effect-virtual-fs/pull/405) [`e9d83d5`](https://github.com/lloydrichards/effect-virtual-fs/commit/e9d83d5836b06223a2582e94f2e0feb1f38eabe8) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Use R2 live-image storage with a custom client without loading the AWS SDK. Import `layer` and `Client` from `@effect-vfs/persistence/R2Store` to configure the store.
+
+  If you use the AWS SDK, import `fromS3` from `@effect-vfs/persistence/R2S3Transport` and call `fromS3(s3, bucket)`. The existing `R2LiveImageStore` entry point still exports both the store and adapter.
+
+- [#346](https://github.com/lloydrichards/effect-virtual-fs/pull/346) [`050dc12`](https://github.com/lloydrichards/effect-virtual-fs/commit/050dc129753bd10b40aae3e9e9143361b7ddd2a5) Thanks [@lloydrichards](https://github.com/lloydrichards)! - R2 live-image stores now take their client through an Effect layer. If you currently set `Options.client`, provide the client as a service when you build the store.
+
+  ```ts
+  import * as R2Store from "@effect-vfs/persistence/R2Store"
+  import { ByteSize, Layer } from "effect"
+
+  const store = (client: R2Store.R2Client) =>
+    R2Store.layer({
+      key: "workspace-123",
+      maxImageBytes: ByteSize.mebibytes(4)
+    }).pipe(Layer.provide(Layer.succeed(R2Store.Client, client)))
+  ```
+
+  The application owns the client. SQLite's supplied-client API is unchanged.
+
+  SQLite and R2 live-image stores now reject concurrent initialization, freeze after uncertain or cancelled writes, and return `InvalidArgument` for oversized initial input ([#238](https://github.com/lloydrichards/effect-virtual-fs/issues/238)).
+
+- [#349](https://github.com/lloydrichards/effect-virtual-fs/pull/349) [`808b765`](https://github.com/lloydrichards/effect-virtual-fs/commit/808b765099fb748fe071a60a7a18d3bc690ed983) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Store live filesystem images in PostgreSQL with an Effect PostgreSQL client.
+
+  Install the optional `@effect/sql-pg` peer and run the packaged PostgreSQL migration before opening a store.
+
+  ```ts
+  import * as PgLiveImageStore from "@effect-vfs/persistence/PgLiveImageStore"
+  import * as PgClient from "@effect/sql-pg/PgClient"
+  import { ByteSize, Layer, Redacted } from "effect"
+
+  const Client = PgClient.layerFrom(PgClient.makeClient({
+    url: Redacted.make("postgresql://localhost/app"),
+    multiplex: false
+  }))
+  const store = PgLiveImageStore.layer({
+    key: "workspace-123",
+    maxImageBytes: ByteSize.mebibytes(4)
+  }).pipe(Layer.provide(Client))
+  ```
+
+  Reserve one single-connection client for each store. Set its receive budget to at least `max(16 MiB, maxImageBytes + 90 bytes)`. Close the store and its client before reopening the store. PostgreSQL reports the `memory-only` guarantee, which is below the durability required for writable NFS.
+
+### Patch Changes
+
+- [#373](https://github.com/lloydrichards/effect-virtual-fs/pull/373) [`f488c2f`](https://github.com/lloydrichards/effect-virtual-fs/commit/f488c2f9d0d3ca361ef32544f1b19e83dc526bd1) Thanks [@lloydrichards](https://github.com/lloydrichards)! - SQLite checkpoints preserve leading byte order marks in names.
+
+- [#375](https://github.com/lloydrichards/effect-virtual-fs/pull/375) [`f65a9cd`](https://github.com/lloydrichards/effect-virtual-fs/commit/f65a9cd36db91539ef8e2e33b0fc78fbe0e286be) Thanks [@lloydrichards](https://github.com/lloydrichards)! - R2 live-image stores drain pending requests before closing so writes finish before ownership handoff.
+- Updated dependencies [[`d71a8ba`](https://github.com/lloydrichards/effect-virtual-fs/commit/d71a8ba58464afbba59f68e54fcd68c9bda81bcf), [`dd9989d`](https://github.com/lloydrichards/effect-virtual-fs/commit/dd9989d1e69e53ef1f9b532168328828896acf6d), [`bf8f297`](https://github.com/lloydrichards/effect-virtual-fs/commit/bf8f29740412bfd42c793e8c1d73ad87c3d8c9fb)]:
+  - @effect-vfs/core@0.12.0
+
 ## 0.11.1
 
 ### Patch Changes

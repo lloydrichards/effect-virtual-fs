@@ -1,5 +1,29 @@
 # @effect-vfs/nfs
 
+## 0.12.0
+
+### Minor Changes
+
+- [#377](https://github.com/lloydrichards/effect-virtual-fs/pull/377) [`f9c5f6f`](https://github.com/lloydrichards/effect-virtual-fs/commit/f9c5f6f8e392c5ae35839bddfcc288b5a07d7b82) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Wait for the NFS listener to stop with `server.awaitTermination`. The effect fails with `NfsServerError` if the listener fails and succeeds on scoped shutdown.
+
+  Run the effect in the scope that owns the server.
+
+  ```ts
+  const serve = Effect.scoped(Effect.gen(function*() {
+    const server = yield* NfsServer.make({ volume, caller })
+
+    yield* server.awaitTermination
+  }))
+  ```
+
+  If you supply a custom `NfsServer` layer or fixture, include an `awaitTermination` effect in its service value.
+
+### Patch Changes
+
+- [#442](https://github.com/lloydrichards/effect-virtual-fs/pull/442) [`2bb88ca`](https://github.com/lloydrichards/effect-virtual-fs/commit/2bb88cadde8df06a436f9dd439df33f5c3fe1a63) Thanks [@lloydrichards](https://github.com/lloydrichards)! - NFS preserves client capacity when an EXCHANGE_ID reply exceeds the RPC record limit ([#440](https://github.com/lloydrichards/effect-virtual-fs/issues/440)).
+- Updated dependencies [[`d71a8ba`](https://github.com/lloydrichards/effect-virtual-fs/commit/d71a8ba58464afbba59f68e54fcd68c9bda81bcf), [`dd9989d`](https://github.com/lloydrichards/effect-virtual-fs/commit/dd9989d1e69e53ef1f9b532168328828896acf6d), [`bf8f297`](https://github.com/lloydrichards/effect-virtual-fs/commit/bf8f29740412bfd42c793e8c1d73ad87c3d8c9fb)]:
+  - @effect-vfs/core@0.12.0
+
 ## 0.11.1
 
 ### Patch Changes

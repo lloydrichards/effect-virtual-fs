@@ -1,5 +1,13 @@
 # @effect-vfs/node
 
+## 0.3.2
+
+### Patch Changes
+
+- [#370](https://github.com/lloydrichards/effect-virtual-fs/pull/370) [`2d3063e`](https://github.com/lloydrichards/effect-virtual-fs/commit/2d3063ebcd2947ac346de6d2154a7e2012681958) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Node read methods infer strings, buffers, or directory entries from literal options ([#358](https://github.com/lloydrichards/effect-virtual-fs/issues/358)).
+- Updated dependencies [[`d71a8ba`](https://github.com/lloydrichards/effect-virtual-fs/commit/d71a8ba58464afbba59f68e54fcd68c9bda81bcf), [`dd9989d`](https://github.com/lloydrichards/effect-virtual-fs/commit/dd9989d1e69e53ef1f9b532168328828896acf6d), [`bf8f297`](https://github.com/lloydrichards/effect-virtual-fs/commit/bf8f29740412bfd42c793e8c1d73ad87c3d8c9fb)]:
+  - @effect-vfs/core@0.12.0
+
 ## 0.3.1
 
 ### Patch Changes

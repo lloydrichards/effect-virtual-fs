@@ -1,5 +1,33 @@
 # @effect-vfs/core
 
+## 0.12.0
+
+### Minor Changes
+
+- [#430](https://github.com/lloydrichards/effect-virtual-fs/pull/430) [`dd9989d`](https://github.com/lloydrichards/effect-virtual-fs/commit/dd9989d1e69e53ef1f9b532168328828896acf6d) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Merge two overlays so edits to a file follow its rename. When two overlays move the same file to different destinations, the merge reports one conflict covering the original path and both destinations.
+
+  Start both overlays from the same snapshot. Capture them after editing, then merge and apply the delta if there are no conflicts.
+
+  ```ts
+  const handoff = Effect.gen(function*() {
+    const ours = yield* Vfs.captureOverlayForMerge(leftOverlay)
+    const theirs = yield* Vfs.captureOverlayForMerge(rightOverlay)
+    const result = yield* Vfs.mergeOverlayCaptures(base, ours, theirs)
+
+    if (result.conflicts.length !== 0) return { ours, theirs, conflicts: result.conflicts }
+
+    return yield* Vfs.applySnapshotDelta(base, result.delta)
+  })
+  ```
+
+  Keep the captures in the same process to resolve conflicts. Retry with the same base and captures in the same order. Pass every choice so far in `resolutions`. Each choice pairs a returned conflict `key` with `take` set to `"ours"`, `"theirs"`, or `"base"`.
+
+### Patch Changes
+
+- [#417](https://github.com/lloydrichards/effect-virtual-fs/pull/417) [`d71a8ba`](https://github.com/lloydrichards/effect-virtual-fs/commit/d71a8ba58464afbba59f68e54fcd68c9bda81bcf) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Snapshot captures reuse cached results after `stat`, `access`, and file-handle sync ([#365](https://github.com/lloydrichards/effect-virtual-fs/issues/365)).
+
+- [#388](https://github.com/lloydrichards/effect-virtual-fs/pull/388) [`bf8f297`](https://github.com/lloydrichards/effect-virtual-fs/commit/bf8f29740412bfd42c793e8c1d73ad87c3d8c9fb) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Long-lived volumes release compatibility state for retired filesystem objects and closed handles.
+
 ## 0.11.1
 
 ### Patch Changes
