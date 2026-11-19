@@ -904,6 +904,7 @@ describe("line encoding", () => {
 
             for (const chunk of chunks) {
               assert.isAtMost(newlines(chunk), 128)
+              assert.isTrue(chunk.length <= 64 * KIB || newlines(chunk) === 1, "chunk byte limit")
             }
           })
       )
