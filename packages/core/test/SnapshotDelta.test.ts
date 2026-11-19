@@ -2265,7 +2265,8 @@ describe("snapshot merges", () => {
   const Script = Schema.Array(Step).check(Schema.isMaxLength(7))
 
   // Each law runs with a fixed seed so CI is reproducible; a failure prints the replay token of its exact case.
-  const law = (seed: number) => ({ arbitrary: { runs: 150, seed } })
+  // Vitest applies one deadline to all 150 filesystem scenarios in a law.
+  const law = (seed: number) => ({ timeout: 30_000, arbitrary: { runs: 150, seed } })
 
   const propertyFixture = Vfs.fromFixture({
     entries: [
