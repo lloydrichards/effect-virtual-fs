@@ -4,7 +4,15 @@ import { ByteSize, Clock, Deferred, Duration, Effect, Fiber } from "effect"
 import { assert, test } from "vitest"
 import { Operation, Status } from "../src/internal/nfs4.js"
 import { XdrCodec } from "../src/internal/xdr.js"
-import { call, connection, makeHandler, parseOpen, sequence, startSession, statuses } from "../test/support/harness.js"
+import {
+  call,
+  connection,
+  makeHandler,
+  parseOpen,
+  sequence,
+  startSession,
+  statuses
+} from "./support/clientScheduling.js"
 
 const elapsedMs = (start: bigint, end: bigint) => Number(end - start) / 1_000_000
 

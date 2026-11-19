@@ -12,6 +12,7 @@ import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as NetAddress from "effect/net/NetAddress"
 import * as Option from "effect/Option"
@@ -36,6 +37,7 @@ import {
   NfsServerLimits,
   type NfsServerOptions
 } from "../src/NfsServer.js"
+import { scriptedSocketServer } from "./support/scriptedSocket.js"
 import {
   encodeRecord,
   Operation,
@@ -675,7 +677,7 @@ it.layer(NodeCrypto.layer)("read-only NFS operations over TCP", (it) => {
 
   it.effect("distinguishes reserved, malformed, and missing names", () =>
     Effect.gen(function*() {
-      const { compound } = yield* readOnlySession("lookup-names")
+      const { caller, compound } = yield* readOnlySession("lookup-names")
       const utf8 = new TextEncoder()
 
       for (
@@ -683,6 +685,9 @@ it.layer(NodeCrypto.layer)("read-only NFS operations over TCP", (it) => {
           [utf8.encode("."), Status.BADNAME],
           [utf8.encode(".."), Status.BADNAME],
           [Uint8Array.of(0xff, 0xfe), Status.INVAL],
+          [new Uint8Array(), Status.INVAL],
+          [utf8.encode("a/b"), Status.BADCHAR],
+          [Uint8Array.of(0), Status.BADCHAR],
           [utf8.encode("missing"), Status.NOENT]
         ] as const
       ) {
@@ -693,6 +698,13 @@ it.layer(NodeCrypto.layer)("read-only NFS operations over TCP", (it) => {
         assert.strictEqual(result.status, expected)
         yield* readStatus(result.reader, Operation.PUTROOTFH)
         yield* readStatus(result.reader, Operation.LOOKUP, expected)
+      }
+
+      yield* caller.writeFile("/e\u0301", Uint8Array.of(1), { access: "write", create: "exclusive" })
+
+      for (const [name, expected] of [["e\u0301", Status.OK], ["é", Status.NOENT]] as const) {
+        const result = yield* compound(operation(Operation.PUTROOTFH), namedOperation(Operation.LOOKUP, name))
+        assert.strictEqual(result.status, expected, name)
       }
     }).pipe(Effect.provide(Testing.layer())))
 
@@ -1645,6 +1657,953 @@ const call = Effect.fnUntraced(
   }
 )
 
+type ScriptedConnection = Effect.Success<ReturnType<Effect.Success<typeof scriptedSocketServer>["connect"]>>
+
+const scriptedCompound = Effect.fnUntraced(function*(
+  connection: ScriptedConnection,
+  xid: number,
+  operations: ReadonlyArray<WriteOperation>
+) {
+  yield* connection.send(yield* rpcCompound(xid, operations))
+  const record = yield* connection.receive
+  const reader = replyReader(record)
+  assert.strictEqual(yield* reader.read(Xdr.uint32), xid)
+
+  return yield* compoundReply(record)
+})
+
+const scriptedSession = Effect.fnUntraced(function*(
+  connection: ScriptedConnection,
+  backSlots: number,
+  writeSecurity: WriteOperation,
+  maxCallbackRequest = 1_024,
+  maxForeReply = 1_024
+) {
+  const exchange = yield* scriptedCompound(connection, 1, [exchangeId("backchannel")])
+  assert.strictEqual(yield* exchange.read(Xdr.uint32), Status.OK)
+  yield* exchange.read(Xdr.string())
+  yield* skipWords(exchange, 3)
+  const clientId = yield* exchange.read(Xdr.uint64)
+
+  const create = Effect.fnUntraced(function*(writer: RequestWriter) {
+    yield* writer.write(Xdr.uint32, Operation.CREATE_SESSION)
+    yield* writer.write(Xdr.uint64, clientId)
+    yield* writeWords(writer, [1, backSlots === 0 ? 0 : 2])
+    yield* writeWords(writer, [0, 1_024, maxForeReply, maxForeReply, 8, 2, 0])
+    yield* writeWords(writer, [0, maxCallbackRequest, 1_024, 1_024, 8, backSlots, 0])
+    yield* writer.write(Xdr.uint32, 0x4000_0001)
+    yield* writeSecurity(writer)
+  })
+
+  const created = yield* scriptedCompound(connection, 2, [create])
+  assert.strictEqual(yield* created.read(Xdr.uint32), Status.OK)
+  yield* created.read(Xdr.string())
+  yield* skipWords(created, 3)
+
+  return { session: yield* created.read(Xdr.fixedOpaque(16)), clientId }
+})
+
+const scriptedServer = Effect.fnUntraced(function*(
+  caller: Vfs.Caller,
+  writableLimits?: NfsServerLimitOverrides
+) {
+  const volume = yield* Vfs.Volume
+  const transport = yield* scriptedSocketServer
+
+  yield* NfsServer.make(
+    writableLimits === undefined ? options(volume, caller) : {
+      volume: { ...volume, durability: "survives-power-loss", caller: () => Effect.succeed(caller) },
+      writable: true,
+      acceptedFlavors: ["none"],
+      limits: { ...limits, ...writableLimits },
+      policy: () => ({ uid: 0, gid: 0, groups: [], privileged: true }),
+      peer: Effect.succeed({ transport: "tcp", address: "127.0.0.1", port: 1 })
+    }
+  ).pipe(Effect.provideService(SocketServer.SocketServer, transport.server))
+
+  return transport
+})
+
+const sequenceFlags = Effect.fnUntraced(function*(reader: ReplyReader) {
+  assert.strictEqual(yield* reader.read(Xdr.uint32), Status.OK)
+  yield* reader.read(Xdr.string())
+  yield* skipWords(reader, 3)
+  yield* reader.read(Xdr.fixedOpaque(16))
+  yield* skipWords(reader, 4)
+
+  return yield* reader.read(Xdr.uint32)
+})
+
+const readCallback = Effect.fnUntraced(function*(record: Uint8Array) {
+  const call = replyReader(record)
+  const xid = yield* call.read(Xdr.uint32)
+  assert.strictEqual(yield* call.read(Xdr.uint32), 0)
+  yield* skipWords(call, 1)
+  const program = yield* call.read(Xdr.uint32)
+  yield* skipWords(call, 2)
+  yield* skipWords(call, 1)
+  yield* call.read(Xdr.opaque())
+  yield* skipWords(call, 1)
+  yield* call.read(Xdr.opaque())
+  const tag = yield* call.read(Xdr.string())
+  yield* skipWords(call, 3)
+  assert.strictEqual(yield* call.read(Xdr.uint32), 11)
+  const session = yield* call.read(Xdr.fixedOpaque(16))
+  const sequenceId = yield* call.read(Xdr.uint32)
+  const slot = yield* call.read(Xdr.uint32)
+
+  return { xid, program, tag, session, sequenceId, slot }
+})
+
+type CallbackReply = "valid" | "oversized verifier" | "wrong result count" | "truncated result" | "trailing bytes"
+
+const acceptCallback = Effect.fnUntraced(function*(record: Uint8Array, defect: CallbackReply = "valid") {
+  const { xid, tag, session, sequenceId, slot } = yield* readCallback(record)
+  const reply = requestWriter()
+  yield* writeWords(reply, [xid, 1, 0, 0])
+  yield* reply.write(Xdr.opaque(), new Uint8Array(defect === "oversized verifier" ? 500 : 0))
+  yield* writeWords(reply, [0, 0])
+  yield* reply.write(Xdr.string(), tag)
+  yield* writeWords(reply, [defect === "wrong result count" ? 2 : 1, 11, 0])
+  yield* reply.write(Xdr.fixedOpaque(16), session)
+  yield* writeWords(reply, [sequenceId, slot])
+
+  if (defect !== "truncated result") yield* writeWords(reply, [slot, slot])
+
+  if (defect === "trailing bytes") yield* reply.write(Xdr.uint32, 0xdead_beef)
+
+  return encodeRecord(yield* reply.finish)
+})
+
+const receiveCallback = Effect.fnUntraced(function*(carrier: ScriptedConnection) {
+  const first = yield* carrier.receive
+  const second = yield* carrier.receive
+
+  return new DataView(first.buffer, first.byteOffset).getUint32(4) === 0 ? first : second
+})
+
+const bindBackchannel = (session: Uint8Array, direction: number): WriteOperation => (writer) =>
+  Effect.gen(function*() {
+    yield* writer.write(Xdr.uint32, Operation.BIND_CONN_TO_SESSION)
+    yield* writer.write(Xdr.fixedOpaque(16), session)
+    yield* writer.write(Xdr.uint32, direction)
+    yield* writer.write(Xdr.boolean, false)
+  })
+
+const backchannelControl = (program: number): WriteOperation => (writer) =>
+  writeWords(writer, [Operation.BACKCHANNEL_CTL, program, 1, 0])
+
+it.layer(NodeCrypto.layer)("scripted callback transport", (it) => {
+  it.effect("leaves the callback program and slot unchanged when a BACKCHANNEL_CTL compound cannot fit", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      const transport = yield* scriptedServer(caller)
+      const carrier = yield* transport.connect()
+      const { session } = yield* scriptedSession(carrier, 2, (writer) => writeWords(writer, [1, 0]), 1_024, 320)
+
+      const allAttributes = (writer: RequestWriter) =>
+        writeWords(writer, [
+          Operation.GETATTR,
+          3,
+          0xffff_ffff,
+          0xffff_ffff,
+          0xffff
+        ])
+
+      const rejected = yield* scriptedCompound(carrier, 3, [
+        sequence(session, 1),
+        backchannelControl(0x4000_0002),
+        operation(Operation.PUTROOTFH),
+        allAttributes
+      ])
+
+      assert.strictEqual(yield* rejected.read(Xdr.uint32), Status.REP_TOO_BIG)
+
+      yield* carrier.send(yield* rpcCompound(4, [sequence(session, 1)]))
+      const callback = yield* receiveCallback(carrier)
+      assert.strictEqual((yield* readCallback(callback)).program, 0x4000_0001)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  for (const backSlots of [1, 2]) {
+    it.effect(`re-arms with ${backSlots} callback slots while an old probe is outstanding`, () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        const volume = yield* Vfs.Volume
+        const transport = yield* scriptedSocketServer
+        yield* NfsServer.make({ ...options(volume, caller), callbackTimeoutSeconds: 1 }).pipe(
+          Effect.provideService(SocketServer.SocketServer, transport.server)
+        )
+
+        const carrier = yield* transport.connect()
+        const { session } = yield* scriptedSession(carrier, backSlots, (writer) => writeWords(writer, [1, 0]))
+        yield* carrier.send(yield* rpcCompound(3, [sequence(session, 1)]))
+        const stale = yield* receiveCallback(carrier)
+        assert.strictEqual((yield* readCallback(stale)).program, 0x4000_0001)
+
+        const repaired = yield* scriptedCompound(carrier, 4, [sequence(session, 2), backchannelControl(0x4000_0002)])
+        yield* sequenceFlags(repaired)
+        yield* readStatus(repaired, Operation.BACKCHANNEL_CTL)
+
+        let next = 3
+
+        if (backSlots === 1) {
+          const blocked = yield* scriptedCompound(carrier, 5, [sequence(session, next++)])
+          yield* sequenceFlags(blocked)
+          assert.deepStrictEqual(yield* carrier.drain, [])
+          yield* TestClock.adjust("2 seconds")
+        }
+
+        yield* carrier.send(yield* rpcCompound(6, [sequence(session, next++)]))
+        const fresh = yield* receiveCallback(carrier)
+        assert.strictEqual((yield* readCallback(fresh)).program, 0x4000_0002)
+        yield* carrier.send(yield* acceptCallback(fresh))
+        const online = yield* scriptedCompound(carrier, 7, [sequence(session, next++)])
+        assert.strictEqual(yield* sequenceFlags(online), 0)
+
+        yield* TestClock.adjust("2 seconds")
+        const healthy = yield* scriptedCompound(carrier, 8, [sequence(session, next)])
+        assert.strictEqual(yield* sequenceFlags(healthy), 0)
+      }).pipe(Effect.provide(Testing.layer())))
+  }
+
+  it.effect("re-arms the probe with the program advertised in BACKCHANNEL_CTL", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
+      const transport = yield* scriptedSocketServer
+      yield* NfsServer.make({ ...options(volume, caller), callbackTimeoutSeconds: 1 }).pipe(
+        Effect.provideService(SocketServer.SocketServer, transport.server)
+      )
+
+      const carrier = yield* transport.connect()
+      const { session } = yield* scriptedSession(carrier, 2, (writer) => writeWords(writer, [1, 0]))
+      yield* carrier.send(yield* rpcCompound(3, [sequence(session, 1)]))
+      assert.strictEqual((yield* readCallback(yield* receiveCallback(carrier))).program, 0x4000_0001)
+      yield* TestClock.adjust("2 seconds")
+
+      const down = yield* scriptedCompound(carrier, 4, [sequence(session, 2)])
+      assert.strictEqual((yield* sequenceFlags(down)) & 0x200, 0x200)
+      assert.deepStrictEqual(yield* carrier.drain, [])
+
+      const repaired = yield* scriptedCompound(carrier, 5, [sequence(session, 3), backchannelControl(0x4000_0002)])
+      yield* sequenceFlags(repaired)
+      yield* readStatus(repaired, Operation.BACKCHANNEL_CTL)
+      yield* carrier.send(yield* rpcCompound(6, [sequence(session, 4)]))
+      const callback = yield* receiveCallback(carrier)
+      assert.strictEqual((yield* readCallback(callback)).program, 0x4000_0002)
+      yield* carrier.send(yield* acceptCallback(callback))
+      assert.strictEqual(yield* sequenceFlags(yield* scriptedCompound(carrier, 7, [sequence(session, 5)])), 0)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  for (const firstCarrier of ["silent", "rejecting"] as const) {
+    it.effect(`accepts a healthy carrier while another carrier is ${firstCarrier}`, () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        const transport = yield* scriptedServer(caller)
+        const first = yield* transport.connect()
+        const healthy = yield* transport.connect()
+        const { session } = yield* scriptedSession(first, 2, (writer) => writeWords(writer, [1, 0]))
+        const bound = yield* scriptedCompound(healthy, 3, [bindBackchannel(session, 2)])
+        assert.strictEqual(yield* bound.read(Xdr.uint32), Status.OK)
+
+        yield* first.send(yield* rpcCompound(4, [sequence(session, 1)]))
+        const other = yield* receiveCallback(first)
+        const answer = yield* healthy.receive
+
+        if (firstCarrier === "rejecting") {
+          const { xid } = yield* readCallback(other)
+          const reply = requestWriter()
+          yield* writeWords(reply, [xid, 1, 0, 0, 0, 1])
+          yield* first.send(encodeRecord(yield* reply.finish))
+          yield* first.send(yield* rpcNull(90))
+          yield* first.receive
+        }
+
+        yield* healthy.send(yield* acceptCallback(answer))
+        const response = yield* scriptedCompound(healthy, 5, [sequence(session, 2)])
+        assert.strictEqual(yield* sequenceFlags(response), 0)
+      }).pipe(Effect.provide(Testing.layer())))
+  }
+
+  it.effect("retries an unanswered callback on a rebound carrier and reports when that carrier disconnects", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
+      const transport = yield* scriptedSocketServer
+      yield* NfsServer.make({ ...options(volume, caller), callbackTimeoutSeconds: 1 }).pipe(
+        Effect.provideService(SocketServer.SocketServer, transport.server)
+      )
+
+      const initial = yield* transport.connect()
+      const { session } = yield* scriptedSession(initial, 2, (writer) => writeWords(writer, [1, 0]))
+
+      const probeOn = Effect.fnUntraced(function*(carrier: ScriptedConnection, xid: number, sequenceId: number) {
+        yield* carrier.send(yield* rpcCompound(xid, [sequence(session, sequenceId)]))
+        const first = yield* carrier.receive
+        const second = yield* carrier.receive
+
+        return new DataView(first.buffer, first.byteOffset).getUint32(4) === 0 ? first : second
+      })
+
+      const original = yield* readCallback(yield* probeOn(initial, 3, 1))
+      yield* TestClock.adjust("2 seconds")
+      yield* initial.disconnect
+
+      const rebound = yield* transport.connect()
+
+      const bind = Effect.fnUntraced(function*(writer: RequestWriter) {
+        yield* writer.write(Xdr.uint32, Operation.BIND_CONN_TO_SESSION)
+        yield* writer.write(Xdr.fixedOpaque(16), session)
+        yield* writer.write(Xdr.uint32, 7)
+        yield* writer.write(Xdr.boolean, false)
+      })
+
+      const bound = yield* scriptedCompound(rebound, 4, [bind])
+      assert.strictEqual(yield* bound.read(Xdr.uint32), Status.OK)
+
+      const retried = yield* probeOn(rebound, 5, 2)
+      const retry = yield* readCallback(retried)
+      assert.strictEqual(retry.sequenceId, original.sequenceId)
+      assert.strictEqual(retry.slot, original.slot)
+      yield* rebound.send(yield* acceptCallback(retried))
+      assert.strictEqual(yield* sequenceFlags(yield* scriptedCompound(rebound, 6, [sequence(session, 3)])), 0)
+
+      yield* rebound.disconnect
+      const foreOnly = yield* transport.connect()
+      const down = yield* scriptedCompound(foreOnly, 7, [sequence(session, 4)])
+      assert.strictEqual((yield* sequenceFlags(down)) & 0x200, 0x200)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("reports callback path down after a callback write fails", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
+      const transport = yield* scriptedSocketServer
+      yield* NfsServer.make(options(volume, caller)).pipe(
+        Effect.provideService(SocketServer.SocketServer, transport.server)
+      )
+
+      const carrier = yield* transport.connect(true)
+      const { session } = yield* scriptedSession(carrier, 2, (writer) => writeWords(writer, [1, 0]))
+      yield* scriptedCompound(carrier, 3, [sequence(session, 1)])
+      const response = yield* scriptedCompound(carrier, 4, [sequence(session, 2)])
+      assert.strictEqual((yield* sequenceFlags(response)) & 0x200, 0x200)
+      assert.deepStrictEqual(yield* carrier.drain, [])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  for (const reason of ["not negotiated", "no credentials", "oversized credentials", "record limit"] as const) {
+    it.effect(`omits callbacks when the backchannel has ${reason}`, () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
+        const transport = yield* scriptedSocketServer
+        yield* NfsServer.make({ ...options(volume, caller), callbackTimeoutSeconds: 1 }).pipe(
+          Effect.provideService(SocketServer.SocketServer, transport.server)
+        )
+
+        const connection = yield* transport.connect()
+
+        const security = Effect.fnUntraced(function*(writer: RequestWriter) {
+          if (reason === "no credentials") yield* writer.write(Xdr.uint32, 0)
+          else if (reason === "oversized credentials") {
+            yield* writeWords(writer, [1, 1, 0])
+            yield* writer.write(Xdr.string(), "x".repeat(255))
+            yield* writeWords(writer, [0, 0])
+            yield* writer.write(Xdr.array(Xdr.uint32), Array.from({ length: 32 }, (_, index) => index))
+          } else yield* writeWords(writer, [1, 0])
+        })
+
+        const { session } = yield* scriptedSession(
+          connection,
+          reason === "not negotiated" ? 0 : 2,
+          security,
+          reason === "record limit" ? 96 : 1_024
+        )
+
+        yield* scriptedCompound(connection, 3, [sequence(session, 1)])
+        yield* TestClock.adjust("2 seconds")
+        const flags = yield* sequenceFlags(yield* scriptedCompound(connection, 4, [sequence(session, 2)]))
+        assert.strictEqual(flags & 0x200, reason === "not negotiated" ? 0 : 0x200)
+        assert.deepStrictEqual(yield* connection.drain, [])
+      }).pipe(Effect.provide(Testing.layer())))
+  }
+
+  for (
+    const outcome of [
+      "timeout",
+      "wrong connection",
+      "RPC rejection",
+      "oversized verifier",
+      "wrong result count",
+      "truncated result",
+      "trailing bytes"
+    ] as const
+  ) {
+    it.effect(`reports the callback path down after ${outcome}`, () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
+        const transport = yield* scriptedSocketServer
+        yield* NfsServer.make({ ...options(volume, caller), callbackTimeoutSeconds: 1 }).pipe(
+          Effect.provideService(SocketServer.SocketServer, transport.server)
+        )
+        const carrier = yield* transport.connect()
+        const { session } = yield* scriptedSession(carrier, 2, (writer) => writeWords(writer, [1, 0]))
+        yield* carrier.send(yield* rpcCompound(3, [sequence(session, 1)]))
+        const first = yield* carrier.receive
+        const second = yield* carrier.receive
+        const callback = new DataView(first.buffer, first.byteOffset).getUint32(4) === 0 ? first : second
+
+        if (outcome === "wrong connection") {
+          const stranger = yield* transport.connect()
+          yield* stranger.send(yield* acceptCallback(callback))
+          yield* stranger.send(yield* rpcNull(90))
+          const barrier = replyReader(yield* stranger.receive)
+          assert.strictEqual(yield* barrier.read(Xdr.uint32), 90)
+        } else if (outcome === "RPC rejection") {
+          const reply = requestWriter()
+          const xid = new DataView(callback.buffer, callback.byteOffset).getUint32(0)
+          yield* writeWords(reply, [xid, 1, 0, 0, 0, 1])
+          yield* carrier.send(encodeRecord(yield* reply.finish))
+        } else if (outcome !== "timeout") {
+          yield* carrier.send(yield* acceptCallback(callback, outcome))
+        }
+
+        yield* TestClock.adjust("2 seconds")
+        const flags = yield* sequenceFlags(yield* scriptedCompound(carrier, 4, [sequence(session, 2)]))
+        assert.strictEqual(flags & 0x200, 0x200)
+      }).pipe(Effect.provide(Testing.layer())))
+  }
+})
+
+it.layer(NodeCrypto.layer)("filesystem failures over TCP", (it) => {
+  const expected = {
+    NotFound: Status.NOENT,
+    AlreadyExists: Status.EXIST,
+    NotEmpty: 66,
+    NotDirectory: Status.NOTDIR,
+    AccessDenied: Status.ACCESS,
+    NotPermitted: Status.PERM,
+    InvalidHandle: Status.SERVERFAULT,
+    ForeignHandle: Status.SERVERFAULT,
+    InvalidReference: Status.SERVERFAULT,
+    ForeignReference: Status.SERVERFAULT,
+    StaleReference: Status.STALE,
+    ClosedCaller: Status.SERVERFAULT,
+    InvalidArgument: Status.INVAL,
+    InvalidPathEncoding: Status.INVAL,
+    PathTooLong: Status.NAMETOOLONG,
+    NoSpace: Status.NOSPC,
+    IsDirectory: Status.ISDIR,
+    FileTooLarge: Status.FBIG,
+    NoData: Status.SERVERFAULT,
+    StorageRejected: Status.IO,
+    OutcomeUnknown: Status.IO,
+    VolumeUnavailable: Status.IO,
+    VolumeBusy: Status.DELAY,
+    SymlinkLoop: Status.INVAL,
+    UnrepresentableName: Status.INVAL,
+    InvalidEncoding: Status.SERVERFAULT,
+    UnsupportedVersion: Status.SERVERFAULT,
+    InvalidStructure: Status.SERVERFAULT,
+    LimitExceeded: Status.SERVERFAULT,
+    BaseMismatch: Status.SERVERFAULT,
+    Storage: Status.IO,
+    Ownership: Status.IO,
+    IncompatibleStore: Status.IO,
+    CorruptStore: Status.IO
+  } satisfies Readonly<Record<Vfs.VfsCode, number>>
+
+  it.effect("maps provider failures to SETATTR status and handles unknown provider codes", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      yield* caller.writeFile("/file", Uint8Array.of(1), { access: "write", create: "exclusive" })
+
+      let failure: Vfs.FsFailure = Object.assign(new Vfs.VfsError({ code: "NotFound", operation: "setattr" }), {
+        code: "NotFound" as const
+      })
+
+      const handler = yield* wireClient(caller, {
+        writable: true,
+        mappedCaller: {
+          ...caller,
+          setattr: dual(2, (..._args: Parameters<Vfs.Caller["setattr"]>) => Effect.fail(failure))
+        }
+      })
+
+      const { session } = yield* startSession(handler, "provider-failures")
+      const mode = requestWriter()
+      yield* mode.write(Xdr.uint32, 0o640)
+      const encoded = yield* mode.finish
+
+      const setMode = Effect.fnUntraced(function*(writer: RequestWriter) {
+        yield* writer.write(Xdr.uint32, Operation.SETATTR)
+        yield* writer.write(Xdr.fixedOpaque(16), new Uint8Array(16))
+        yield* writer.write(Xdr.array(Xdr.uint32), [0, 1 << 1])
+        yield* writer.write(Xdr.opaque(), encoded)
+      })
+
+      const cases = [
+        ...Vfs.VfsCode.literals.map((code) => [code, expected[code]] as const),
+        ["FutureCode", Status.SERVERFAULT] as const,
+        ["toString", Status.SERVERFAULT] as const
+      ]
+
+      for (const [index, [code, status]] of cases.entries()) {
+        // SAFETY: Exercise runtime errors returned by providers built against a different Core version.
+        // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off
+        failure = Object.assign(new Vfs.VfsError({ code: "NotFound", operation: "setattr" }), { code }) as Vfs.FsFailure
+
+        const reply = replyReader(
+          yield* handler.send(
+            yield* call([
+              sequence(session, index + 1),
+              operation(Operation.PUTROOTFH),
+              namedOperation(Operation.LOOKUP, "file"),
+              setMode
+            ])
+          )
+        )
+
+        assert.strictEqual(yield* reply.read(Xdr.uint32), status, code)
+      }
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("reports NotPermitted using each operation's allowed status", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      yield* caller.writeFile("/file", Uint8Array.of(1), { access: "write", create: "exclusive" })
+
+      const permission = Object.assign(new Vfs.VfsError({ code: "NotPermitted", operation: "test provider" }), {
+        code: "NotPermitted" as const
+      })
+
+      const denied = Effect.fail(permission)
+      let rejectOpen = true
+
+      const provider: Vfs.Caller = {
+        ...caller,
+        mkdir: () => denied,
+        remove: () => denied,
+        link: dual(2, (..._args: Parameters<Vfs.Caller["link"]>) => denied),
+        rename: dual(2, (..._args: Parameters<Vfs.Caller["rename"]>) => denied)
+      }
+
+      const instrumented = instrumentOpen(provider, {
+        before: Effect.suspend(() => rejectOpen ? denied : Effect.void),
+        mapHandle: (handle) => ({
+          ...handle,
+          pwrite: dual(2, (..._args: Parameters<Vfs.FileHandle["pwrite"]>) => denied)
+        })
+      })
+
+      const handler = yield* wireClient(caller, { writable: true, mappedCaller: instrumented })
+      const { session, client } = yield* startSession(handler, "permission-codes")
+      const root = operation(Operation.PUTROOTFH)
+      const save = operation(Operation.SAVEFH)
+      const lookup = namedOperation(Operation.LOOKUP, "file")
+
+      const createDirectory = Effect.fnUntraced(function*(writer: RequestWriter) {
+        yield* writeWords(writer, [Operation.CREATE, 2])
+        yield* writer.write(Xdr.string(), "directory")
+        yield* writeWords(writer, [0, 0])
+      })
+
+      const rename = Effect.fnUntraced(function*(writer: RequestWriter) {
+        yield* writer.write(Xdr.uint32, Operation.RENAME)
+        yield* writer.write(Xdr.string(), "file")
+        yield* writer.write(Xdr.string(), "renamed")
+      })
+
+      const cases = [
+        { name: "CREATE", operations: [root, createDirectory], status: Status.PERM },
+        { name: "OPEN", operations: [root, openReadOnly(client, "file")], status: Status.PERM },
+        { name: "REMOVE", operations: [root, namedOperation(Operation.REMOVE, "file")], status: Status.ACCESS },
+        { name: "RENAME", operations: [root, save, rename], status: Status.ACCESS },
+        {
+          name: "LINK",
+          operations: [root, lookup, save, root, namedOperation(Operation.LINK, "alias")],
+          status: Status.ACCESS
+        }
+      ]
+
+      for (const [index, { name, operations, status }] of cases.entries()) {
+        const reply = replyReader(yield* handler.send(yield* call([sequence(session, index + 1), ...operations])))
+        assert.strictEqual(yield* reply.read(Xdr.uint32), status, name)
+      }
+
+      rejectOpen = false
+
+      const opened = yield* parseOpen(
+        yield* handler.send(
+          yield* call([
+            sequence(session, 6),
+            root,
+            openByName(client, "file", 2),
+            operation(Operation.GETFH)
+          ])
+        )
+      )
+
+      const put = (writer: RequestWriter) =>
+        Effect.andThen(writer.write(Xdr.uint32, Operation.PUTFH), writer.write(Xdr.opaque(), opened.filehandle))
+
+      const write = Effect.fnUntraced(function*(writer: RequestWriter) {
+        yield* writer.write(Xdr.uint32, Operation.WRITE)
+        yield* writer.write(Xdr.fixedOpaque(16), opened.stateid)
+        yield* writer.write(Xdr.uint64, 0n)
+        yield* writer.write(Xdr.uint32, 0)
+        yield* writer.write(Xdr.opaque(), Uint8Array.of(2))
+      })
+
+      const response = replyReader(yield* handler.send(yield* call([sequence(session, 7), put, write])))
+      assert.strictEqual(yield* response.read(Xdr.uint32), Status.ACCESS, "WRITE")
+    }).pipe(Effect.provide(Testing.layer())))
+})
+
+it.layer(NodeCrypto.layer)("SECINFO reply admission", (it) => {
+  it.effect("accounts for every advertised security flavor before executing OPEN", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      yield* caller.writeFile("/file", Uint8Array.of(1), { access: "write", create: "exclusive" })
+      let opens = 0
+
+      const observed = instrumentOpen(caller, {
+        onOpen: () => {
+          opens++
+        }
+      })
+
+      for (const acceptedFlavors of [["none", "sys"], ["none"]] as const) {
+        const handler = yield* wireClient(caller, { acceptedFlavors, mappedCaller: observed })
+        const { session, client } = yield* startSession(handler, "secinfo-bound", { maxCachedResponse: 206 })
+        const root = operation(Operation.PUTROOTFH)
+
+        const reply = replyReader(
+          yield* handler.send(
+            yield* call([
+              sequence(session, 1, true),
+              root,
+              openReadOnly(client, "file"),
+              root,
+              namedOperation(Operation.SECINFO, "file")
+            ])
+          )
+        )
+
+        const fits = acceptedFlavors.length === 1
+        assert.strictEqual(yield* reply.read(Xdr.uint32), fits ? Status.OK : Status.REP_TOO_BIG_TO_CACHE)
+        assert.strictEqual(opens, fits ? 1 : 0)
+      }
+    }).pipe(Effect.provide(Testing.layer())))
+})
+
+it.layer(NodeCrypto.layer)("negotiated channel limits over TCP", (it) => {
+  it.effect("keeps the client table available when the EXCHANGE_ID result body fails to encode", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      const handler = yield* wireClient(caller, { limits: { maxClients: 1, maxOpaqueBytes: ByteSize.bytes(12) } })
+
+      for (const owner of ["first", "second"]) {
+        const reply = replyReader(yield* handler.send(yield* call([ownerExchange(owner)])))
+        assert.strictEqual(yield* reply.read(Xdr.uint32), Status.SERVERFAULT)
+      }
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("rejects the full RPC request, operation count, and reply bounds before taking the slot", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      const handler = yield* wireClient(caller, { limits: { maxRecordBytes: ByteSize.bytes(2_048) } })
+      const root = operation(Operation.PUTROOTFH)
+      const getHandle = operation(Operation.GETFH)
+
+      const cases = [
+        {
+          fore: { maxRequest: 128 },
+          extra: [root, namedOperation(Operation.LOOKUP, "x".repeat(48))],
+          cache: false,
+          expected: 10065
+        },
+        { fore: { maxOperations: 2 }, extra: [root, getHandle], cache: false, expected: Status.TOO_MANY_OPS },
+        { fore: { maxResponse: 128 }, extra: [root, getHandle], cache: false, expected: 10066 },
+        { fore: { maxCachedResponse: 100 }, extra: [root, getHandle], cache: true, expected: 10067 }
+      ]
+
+      for (const [index, entry] of cases.entries()) {
+        const { session } = yield* startSession(handler, `channel-limit-${index}`, entry.fore)
+        const oversized = yield* call([sequence(session, 1, entry.cache), ...entry.extra])
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const reply = replyReader(yield* handler.send(oversized))
+          assert.strictEqual(yield* reply.read(Xdr.uint32), entry.expected)
+        }
+
+        const admitted = replyReader(yield* handler.send(yield* call([sequence(session, 1), root])))
+        assert.strictEqual(yield* admitted.read(Xdr.uint32), Status.OK)
+      }
+    }).pipe(Effect.provide(Testing.layer())))
+})
+
+describe("interruption over scripted connections", () => {
+  for (const stalledOperation of ["GETATTR", "OPEN"] as const) {
+    live(`disconnecting during ${stalledOperation} preserves the consumed slot`, () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/file", Uint8Array.of(1), { access: "write", create: "exclusive" })
+        const entered = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+        const stall = Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
+        let opens = 0
+
+        const instrumented = instrumentOpen({
+          ...caller,
+          stat: (target) =>
+            stalledOperation === "GETATTR"
+              ? Effect.andThen(stall, caller.stat(target))
+              : caller.stat(target)
+        }, {
+          onOpen: () => {
+            opens++
+          },
+          after: stalledOperation === "OPEN" ? stall : Effect.void
+        })
+
+        const transport = yield* scriptedServer(instrumented)
+        const departing = yield* transport.connect()
+        const { session, clientId } = yield* scriptedSession(departing, 0, (writer) => writeWords(writer, [0]))
+        const read = (writer: RequestWriter) => writeWords(writer, [Operation.GETATTR, 1, 1 << 1])
+
+        const operations = [
+          sequence(session, 1),
+          operation(Operation.PUTROOTFH),
+          ...(stalledOperation === "GETATTR" ? [read] : []),
+          openReadOnly(clientId, "file")
+        ]
+
+        yield* departing.send(yield* rpcCompound(3, operations))
+        yield* Deferred.await(entered)
+
+        const disconnect = yield* departing.disconnect.pipe(Effect.forkChild)
+        const finished = yield* Fiber.join(disconnect).pipe(Effect.timeoutOption("2 seconds"))
+        yield* Deferred.succeed(release, undefined)
+        assert.isTrue(Option.isSome(finished))
+
+        const replacement = yield* transport.connect()
+        const retry = yield* scriptedCompound(replacement, 4, operations)
+        assert.strictEqual(yield* retry.read(Xdr.uint32), Status.RETRY_UNCACHED_REP)
+        assert.strictEqual(opens, stalledOperation === "OPEN" ? 1 : 0)
+      }).pipe(Effect.provide(Testing.layer())))
+  }
+
+  live("interrupts a writable upgrade without closing the existing read open", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      yield* caller.writeFile("/file", Uint8Array.of(7), { access: "write", create: "exclusive" })
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      let opens = 0
+
+      const beforeUpgrade = Effect.suspend(() =>
+        opens === 2
+          ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
+          : Effect.void
+      )
+
+      const instrumented = instrumentOpen(caller, {
+        onOpen: () => {
+          opens++
+        },
+        before: beforeUpgrade
+      })
+
+      const transport = yield* scriptedServer(instrumented, {})
+      const carrier = yield* transport.connect()
+      const { session, clientId } = yield* scriptedSession(carrier, 0, (writer) => writeWords(writer, [0]))
+      const root = operation(Operation.PUTROOTFH)
+
+      const first = yield* scriptedCompound(carrier, 3, [
+        sequence(session, 1),
+        root,
+        openByName(clientId, "file", 1),
+        operation(Operation.GETFH)
+      ])
+
+      assert.strictEqual(yield* first.read(Xdr.uint32), Status.OK)
+      yield* first.read(Xdr.string())
+      yield* skipWords(first, 3)
+      yield* first.read(Xdr.fixedOpaque(16))
+      yield* skipWords(first, 5)
+      yield* readStatus(first, Operation.PUTROOTFH)
+      yield* readStatus(first, Operation.OPEN)
+      const state = yield* first.read(Xdr.fixedOpaque(16))
+      yield* first.read(Xdr.boolean)
+      yield* first.read(Xdr.uint64)
+      yield* first.read(Xdr.uint64)
+      yield* first.read(Xdr.uint32)
+      yield* first.read(Xdr.array(Xdr.uint32))
+      yield* first.read(Xdr.uint32)
+      yield* readStatus(first, Operation.GETFH)
+      const handle = yield* first.read(Xdr.opaque())
+
+      yield* carrier.send(yield* rpcCompound(4, [sequence(session, 2), root, openByName(clientId, "file", 2)]))
+      yield* Deferred.await(entered)
+      const disconnect = yield* carrier.disconnect.pipe(Effect.forkChild)
+      const finished = yield* Fiber.join(disconnect).pipe(Effect.timeoutOption("2 seconds"))
+      yield* Deferred.succeed(release, undefined)
+      assert.isTrue(Option.isSome(finished))
+
+      const replacement = yield* transport.connect()
+
+      const read = yield* scriptedCompound(replacement, 5, [
+        sequence(session, 3),
+        (writer) => Effect.andThen(writer.write(Xdr.uint32, Operation.PUTFH), writer.write(Xdr.opaque(), handle)),
+        (writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(Xdr.uint32, Operation.READ)
+            yield* writer.write(Xdr.fixedOpaque(16), state)
+            yield* writer.write(Xdr.uint64, 0n)
+            yield* writer.write(Xdr.uint32, 1)
+          })
+      ])
+
+      assert.strictEqual(yield* read.read(Xdr.uint32), Status.OK)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  for (const trigger of ["CLOSE", "client restart"] as const) {
+    live(`reclaims an unlinked open when disconnected during ${trigger}`, () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/file", Uint8Array.of(1), { access: "write", create: "exclusive" })
+        const reference = yield* caller.lookup("/file")
+        const entered = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+
+        yield* Effect.scoped(
+          Effect.gen(function*() {
+            const finishOpen = Effect.addFinalizer(() =>
+              Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
+            )
+
+            const transport = yield* scriptedServer(instrumentOpen(caller, { after: finishOpen }))
+            const carrier = yield* transport.connect()
+            const { session, clientId } = yield* scriptedSession(carrier, 0, (writer) => writeWords(writer, [0]))
+            const root = operation(Operation.PUTROOTFH)
+
+            const open = yield* scriptedCompound(carrier, 3, [
+              sequence(session, 1),
+              root,
+              openReadOnly(clientId, "file"),
+              operation(Operation.GETFH)
+            ])
+
+            yield* sequenceFlags(open)
+            yield* readStatus(open, Operation.PUTROOTFH)
+            yield* readStatus(open, Operation.OPEN)
+            const stateid = yield* open.read(Xdr.fixedOpaque(16))
+            yield* open.read(Xdr.boolean)
+            yield* open.read(Xdr.uint64)
+            yield* open.read(Xdr.uint64)
+            yield* open.read(Xdr.uint32)
+            yield* open.read(Xdr.array(Xdr.uint32))
+            yield* open.read(Xdr.uint32)
+            yield* readStatus(open, Operation.GETFH)
+            const handle = yield* open.read(Xdr.opaque())
+            yield* caller.unlink("/file")
+            assert.strictEqual((yield* caller.stat(reference)).nlink, 0)
+
+            if (trigger === "CLOSE") {
+              const close = Effect.fnUntraced(function*(writer: RequestWriter) {
+                yield* writeWords(writer, [Operation.CLOSE, 0])
+                yield* writer.write(Xdr.fixedOpaque(16), stateid)
+              })
+
+              const put = (writer: RequestWriter) =>
+                Effect.andThen(writer.write(Xdr.uint32, Operation.PUTFH), writer.write(Xdr.opaque(), handle))
+
+              yield* carrier.send(yield* rpcCompound(4, [sequence(session, 2), put, close]))
+            } else {
+              const exchanged = yield* scriptedCompound(carrier, 4, [
+                ownerExchange("backchannel", Uint8Array.of(1, 0, 0, 0, 0, 0, 0, 0))
+              ])
+
+              assert.strictEqual(yield* exchanged.read(Xdr.uint32), Status.OK)
+              yield* exchanged.read(Xdr.string())
+              yield* skipWords(exchanged, 3)
+              const newClient = yield* exchanged.read(Xdr.uint64)
+              yield* carrier.send(yield* rpcCompound(5, [createSession(newClient)]))
+            }
+
+            yield* Deferred.await(entered).pipe(Effect.timeout("2 seconds"))
+            yield* carrier.interrupt
+            yield* Deferred.succeed(release, undefined)
+            yield* carrier.awaitClosed.pipe(Effect.timeout("2 seconds"))
+            assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
+          }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)))
+        )
+      }).pipe(Effect.provide(Testing.layer())))
+  }
+
+  live("a provider defect ends the connection without reopening its consumed slot", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      yield* caller.writeFile("/file", Uint8Array.of(1), { access: "write", create: "exclusive" })
+      let opens = 0
+
+      const observed = instrumentOpen(caller, {
+        onOpen: () => {
+          opens++
+        },
+        after: Effect.die(new Error("scripted provider defect"))
+      })
+
+      const transport = yield* scriptedServer(observed)
+      const carrier = yield* transport.connect()
+      const { session, clientId } = yield* scriptedSession(carrier, 0, (writer) => writeWords(writer, [0]))
+      const operations = [sequence(session, 1), operation(Operation.PUTROOTFH), openReadOnly(clientId, "file")]
+
+      yield* carrier.send(yield* rpcCompound(3, operations))
+      yield* carrier.awaitClosed.pipe(Effect.timeout("2 seconds"))
+      assert.deepStrictEqual(yield* carrier.drain, [])
+
+      const replacement = yield* transport.connect()
+      const retry = yield* scriptedCompound(replacement, 4, operations)
+      assert.strictEqual(yield* retry.read(Xdr.uint32), Status.RETRY_UNCACHED_REP)
+      assert.strictEqual(opens, 1)
+    }).pipe(Effect.provide(Testing.layer())))
+
+  live("disconnects a second client while another client's OPEN is stalled", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      yield* caller.writeFile("/file", Uint8Array.of(1), { access: "write", create: "exclusive" })
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const stalled = Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
+      const transport = yield* scriptedServer(instrumentOpen(caller, { after: stalled }))
+      const carrier = yield* transport.connect()
+      const departing = yield* transport.connect()
+      const { session, clientId } = yield* scriptedSession(carrier, 0, (writer) => writeWords(writer, [0]))
+
+      yield* departing.send(yield* rpcNull(10))
+      yield* departing.receive
+      yield* carrier.send(
+        yield* rpcCompound(3, [
+          sequence(session, 1),
+          operation(Operation.PUTROOTFH),
+          openReadOnly(clientId, "file")
+        ])
+      )
+      yield* Deferred.await(entered)
+
+      const disconnect = yield* departing.disconnect.pipe(Effect.forkChild)
+      const finished = yield* Fiber.join(disconnect).pipe(Effect.timeoutOption("2 seconds"))
+      yield* Deferred.succeed(release, undefined)
+      assert.isTrue(Option.isSome(finished))
+
+      const reply = yield* compoundReply(yield* carrier.receive)
+      assert.strictEqual(yield* reply.read(Xdr.uint32), Status.OK)
+    }).pipe(Effect.provide(Testing.layer())))
+})
+
 const callbackProgram = 0x4000_0001
 
 const sessionLimits: NfsServerLimitOverrides = {
@@ -1863,6 +2822,8 @@ const wireClient = Effect.fnUntraced(function*(caller: Vfs.Caller, configuration
   readonly limits?: NfsServerLimitOverrides
   readonly writable?: boolean
   readonly mappedCaller?: Vfs.Caller
+  readonly policy?: NfsIdentityPolicy
+  readonly acceptedFlavors?: ReadonlyArray<"none" | "sys">
   readonly leaseDurationSeconds?: number
   readonly now?: () => number
   readonly generation?: Uint8Array
@@ -1884,34 +2845,35 @@ const wireClient = Effect.fnUntraced(function*(caller: Vfs.Caller, configuration
     ...configuration.limits
   }
 
+  const network = {
+    // For in-memory fixtures this flag only opens the writable protocol profile.
+    // Tests that assert commit outcomes use LiveVolume with a scripted store.
+    volume: {
+      ...volume,
+      durability: configuration.writable ? "survives-power-loss" : volume.durability,
+      caller: (selected) =>
+        selected?.identity !== undefined && configuration.mappedCaller !== undefined
+          ? Effect.succeed(configuration.mappedCaller)
+          : volume.caller(selected)
+    },
+    limits: serverLimits,
+    leaseDurationSeconds: configuration.leaseDurationSeconds ?? 30,
+    acceptedFlavors: configuration.acceptedFlavors ?? ["none", "sys"],
+    peer: Effect.succeed({ transport: "tcp", address: "127.0.0.1", port: 1 }),
+    policy: configuration.policy ?? (() => ({ uid: 0, gid: 0, groups: [], privileged: true }))
+  } satisfies NfsServerOptions
+
+  const local = {
+    ...options(volume, caller),
+    limits: serverLimits,
+    leaseDurationSeconds: configuration.leaseDurationSeconds ?? 30
+  }
+
+  const networked = configuration.policy !== undefined || configuration.acceptedFlavors !== undefined
+
   const makeServer = NfsServer.make(
-    configuration.writable
-      ? {
-        // For in-memory fixtures this flag only opens the writable protocol profile.
-        // Tests that assert commit outcomes use LiveVolume with a scripted store.
-        volume: {
-          ...volume,
-          durability: "survives-power-loss",
-          caller: (selected) =>
-            selected?.identity !== undefined && configuration.mappedCaller !== undefined
-              ? Effect.succeed(configuration.mappedCaller)
-              : volume.caller(selected)
-        },
-        writable: true,
-        limits: serverLimits,
-        leaseDurationSeconds: configuration.leaseDurationSeconds ?? 30,
-        acceptedFlavors: ["none", "sys"],
-        peer: Effect.succeed({ transport: "tcp", address: "127.0.0.1", port: 1 }),
-        policy: () => ({ uid: 0, gid: 0, groups: [], privileged: true })
-      }
-      : {
-        ...options(volume, caller),
-        limits: serverLimits,
-        leaseDurationSeconds: configuration.leaseDurationSeconds ?? 30
-      }
-  ).pipe(
-    Effect.provideService(SocketServer.SocketServer, listener)
-  )
+    configuration.writable ? { ...network, writable: true } : networked ? network : local
+  ).pipe(Effect.provideService(SocketServer.SocketServer, listener))
 
   const generation = configuration.generation
 
@@ -2678,7 +3640,20 @@ describe("Locks over TCP", () => {
   })
 })
 
-const observeOpen = (caller: Vfs.Caller, observe: () => void): Vfs.Caller => {
+const instrumentOpen = (
+  caller: Vfs.Caller,
+  {
+    onOpen,
+    after = Effect.void,
+    before = Effect.void,
+    mapHandle = (handle) => handle
+  }: {
+    readonly onOpen?: () => void
+    readonly after?: Effect.Effect<void, never, Scope.Scope>
+    readonly before?: Effect.Effect<void, Vfs.FsFailure>
+    readonly mapHandle?: (handle: Vfs.FileHandle) => Vfs.FileHandle
+  }
+): Vfs.Caller => {
   type OpenTarget = Vfs.Target | Vfs.PathInput | Vfs.ObjectReference | Vfs.FileHandle
 
   function open(
@@ -2690,9 +3665,15 @@ const observeOpen = (caller: Vfs.Caller, observe: () => void): Vfs.Caller => {
     options: Vfs.OpenEntryOptions
   ): Effect.Effect<Vfs.OpenEntryResult, Vfs.FsFailure, Scope.Scope>
   function open(target: OpenTarget | Vfs.Entry, options: Vfs.OpenEntryOptions) {
-    observe()
+    onOpen?.()
 
-    return Vfs.isEntry(target) ? caller.open(target, options) : caller.open(target, options)
+    return Vfs.isEntry(target)
+      ? before.pipe(
+        Effect.andThen(caller.open(target, options)),
+        Effect.tap(() => after),
+        Effect.map((opened) => ({ ...opened, handle: mapHandle(opened.handle) }))
+      )
+      : before.pipe(Effect.andThen(caller.open(target, options)), Effect.tap(() => after), Effect.map(mapHandle))
   }
 
   return { ...caller, open }
@@ -4023,8 +5004,10 @@ describe("Session replay over TCP", () => {
 
         let opens = 0
 
-        const handler = yield* wireClient(observeOpen(caller, () => {
-          opens++
+        const handler = yield* wireClient(instrumentOpen(caller, {
+          onOpen: () => {
+            opens++
+          }
         }))
 
         const {
@@ -4060,8 +5043,10 @@ describe("Session replay over TCP", () => {
 
         let opens = 0
 
-        const handler = yield* wireClient(observeOpen(caller, () => {
-          opens++
+        const handler = yield* wireClient(instrumentOpen(caller, {
+          onOpen: () => {
+            opens++
+          }
         }))
 
         const {
@@ -4090,8 +5075,10 @@ describe("Session replay over TCP", () => {
 
         let opens = 0
 
-        const handler = yield* wireClient(observeOpen(caller, () => {
-          opens++
+        const handler = yield* wireClient(instrumentOpen(caller, {
+          onOpen: () => {
+            opens++
+          }
         }))
 
         const {
@@ -4792,6 +5779,233 @@ describe("CompoundBasics over TCP", () => {
         // The slot was consumed, so the retry is served from the reply cache.
         assert.deepStrictEqual(yield* handler.send(request), first)
       }).pipe(Effect.provide(Testing.layer())))
+  })
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should use the mapped caller for ACCESS and OPEN when ACCESS and OPEN are sent for a mapped identity", () =>
+      Effect.gen(function*() {
+        const admin = yield* Vfs.Caller
+
+        yield* admin.writeFile("/secret", new Uint8Array([1]), {
+          access: "write",
+          create: "exclusive",
+          mode: 0o600
+        })
+        yield* admin.chown("/secret", {
+          uid: 1000,
+          gid: 1000
+        })
+        yield* admin.chmod("/", 0o111)
+
+        const ownerConnection = connection(101)
+        const guestConnection = connection(102)
+        let downgradeOwner = false
+
+        const sys = (uid: number): Credentials => ({
+          _tag: "Sys",
+          stamp: 0,
+          machineName: "test-client",
+          uid,
+          gid: uid,
+          supplementaryGroups: []
+        })
+
+        const handler = yield* wireClient(admin, {
+          acceptedFlavors: ["sys"],
+          policy: ({ credential }) => {
+            if (credential.flavor !== "sys") return null
+            const uid = credential.uid === 1_000 && !downgradeOwner ? 1_000 : 2_000
+
+            return { uid, gid: uid, groups: [], privileged: false }
+          }
+        })
+
+        const first = yield* startSession(
+          handler,
+          "mapped-owner",
+          {},
+          new Uint8Array(8),
+          ownerConnection,
+          0,
+          undefined,
+          sys(1000)
+        )
+
+        const second = yield* startSession(
+          handler,
+          "mapped-guest",
+          {},
+          new Uint8Array(8),
+          guestConnection,
+          0,
+          undefined,
+          sys(2000)
+        )
+
+        const check = Effect.fnUntraced(function*(session: Uint8Array, on: typeof ownerConnection, uid: number) {
+          return yield* handler.send(
+            yield* call(
+              [
+                sequence(session, 1, true),
+                (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+                (writer) =>
+                  Effect.gen(function*() {
+                    yield* writer.write(Xdr.uint32, Operation.LOOKUP)
+                    yield* writer.write(Xdr.string(), "secret")
+                  }),
+                (writer) =>
+                  Effect.gen(function*() {
+                    yield* writer.write(Xdr.uint32, Operation.ACCESS)
+                    yield* writer.write(Xdr.uint32, 1)
+                  })
+              ],
+              "mapped-access",
+              on,
+              sys(uid)
+            )
+          )
+        })
+
+        const ownerAccess = replyReader(yield* check(first.session, ownerConnection, 1000))
+        const guestAccess = replyReader(yield* check(second.session, guestConnection, 2000))
+
+        for (const [reader, granted] of [[ownerAccess, 1], [guestAccess, 0]] as const) {
+          assert.strictEqual(yield* reader.read(Xdr.uint32), Status.OK)
+          yield* reader.read(Xdr.string())
+          assert.strictEqual(yield* reader.read(Xdr.uint32), 4)
+          yield* reader.read(Xdr.uint32)
+          yield* reader.read(Xdr.uint32)
+          yield* reader.read(Xdr.fixedOpaque(16))
+
+          for (let field = 0; field < 5; field++) yield* reader.read(Xdr.uint32)
+
+          for (const operation of [Operation.PUTROOTFH, Operation.LOOKUP]) {
+            assert.strictEqual(yield* reader.read(Xdr.uint32), operation)
+            assert.strictEqual(yield* reader.read(Xdr.uint32), Status.OK)
+          }
+
+          assert.strictEqual(yield* reader.read(Xdr.uint32), Operation.ACCESS)
+          assert.strictEqual(yield* reader.read(Xdr.uint32), Status.OK)
+          assert.strictEqual(yield* reader.read(Xdr.uint32), 1)
+          assert.strictEqual(yield* reader.read(Xdr.uint32), granted)
+          yield* reader.finish
+        }
+
+        downgradeOwner = true
+        const replay = yield* Effect.exit(check(first.session, ownerConnection, 1000))
+        assert.strictEqual(Exit.isFailure(replay), true)
+        downgradeOwner = false
+
+        const opened = yield* handler.send(
+          yield* call(
+            [
+              sequence(first.session, 2),
+              (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+              openReadOnly(first.client, "secret"),
+              (writer) => writer.write(Xdr.uint32, Operation.GETFH)
+            ],
+            "owner-open",
+            ownerConnection,
+            sys(1000)
+          )
+        )
+
+        assert.strictEqual((yield* statuses(opened)).status, Status.OK)
+        const ownedOpen = yield* parseOpen(opened)
+        downgradeOwner = true
+
+        const read = yield* handler.send(
+          yield* call(
+            [sequence(first.session, 3), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(Xdr.uint32, Operation.PUTFH)
+                yield* writer.write(Xdr.opaque(), ownedOpen.filehandle)
+              }), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(Xdr.uint32, Operation.READ)
+                yield* writer.write(Xdr.fixedOpaque(ownedOpen.stateid.length), ownedOpen.stateid)
+                yield* writer.write(Xdr.uint64, 0n)
+                yield* writer.write(Xdr.uint32, 1)
+              })],
+            "downgraded-read",
+            ownerConnection,
+            sys(1000)
+          )
+        )
+
+        assert.strictEqual((yield* statuses(read)).status, Status.ACCESS)
+
+        const reopened = yield* handler.send(
+          yield* call(
+            [
+              sequence(first.session, 4),
+              (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+              openReadOnly(first.client, "secret")
+            ],
+            "downgraded-open",
+            ownerConnection,
+            sys(1000)
+          )
+        )
+
+        assert.strictEqual((yield* statuses(reopened)).status, Status.ACCESS)
+
+        for (const [index, operation] of [Operation.SECINFO, Operation.SECINFO_NO_NAME].entries()) {
+          const response = replyReader(
+            yield* handler.send(
+              yield* call(
+                [
+                  sequence(first.session, 5 + index),
+                  (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+                  (writer) =>
+                    operation === Operation.SECINFO ?
+                      Effect.gen(function*() {
+                        yield* writer.write(Xdr.uint32, operation)
+                        yield* writer.write(Xdr.string(), "secret")
+                      }) :
+                      Effect.gen(function*() {
+                        yield* writer.write(Xdr.uint32, operation)
+                        yield* writer.write(Xdr.uint32, 0)
+                      })
+                ],
+                "network-security-flavors",
+                ownerConnection,
+                sys(1000)
+              )
+            )
+          )
+
+          assert.strictEqual(yield* response.read(Xdr.uint32), Status.OK)
+          yield* response.read(Xdr.string())
+          assert.strictEqual(yield* response.read(Xdr.uint32), 3)
+          yield* response.read(Xdr.uint32)
+          yield* response.read(Xdr.uint32)
+          yield* response.read(Xdr.fixedOpaque(16))
+
+          for (let field = 0; field < 5; field++) yield* response.read(Xdr.uint32)
+          yield* response.read(Xdr.uint32)
+          yield* response.read(Xdr.uint32)
+          assert.strictEqual(yield* response.read(Xdr.uint32), operation)
+          assert.strictEqual(yield* response.read(Xdr.uint32), Status.OK)
+          assert.deepStrictEqual(yield* response.read(Xdr.array(Xdr.uint32)), [1])
+          yield* response.finish
+        }
+
+        const refused = yield* handler.send(
+          yield* call(
+            [
+              sequence(second.session, 2),
+              (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+              openReadOnly(second.client, "secret")
+            ],
+            "guest-open",
+            guestConnection,
+            sys(2000)
+          )
+        )
+
+        assert.strictEqual((yield* statuses(refused)).status, Status.ACCESS)
+      }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   })
 })
 
@@ -8494,6 +9708,91 @@ describe("Write over TCP", () => {
         Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(4), maxFileBytes: ByteSize.bytes(4) } }))
       ))
   })
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should reuse the held write handle across downgrade and upgrade cycles when an OPEN downgrades and upgrades repeatedly", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/file", new Uint8Array([1]), {
+          access: "write",
+          create: "exclusive"
+        })
+
+        let openedHandles = 0
+
+        const instrumented = instrumentOpen(caller, {
+          onOpen: () => {
+            openedHandles++
+          }
+        })
+
+        const handler = yield* wireClient(caller, { writable: true, mappedCaller: instrumented })
+
+        const {
+          client,
+          session
+        } = yield* startSession(handler, "write-handle-reuse")
+
+        let sequenceId = 1
+
+        let opened = yield* parseOpen(
+          yield* handler.send(
+            yield* call([
+              sequence(session, sequenceId++),
+              (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+              openByName(client, "file", 3),
+              (writer) => writer.write(Xdr.uint32, Operation.GETFH)
+            ])
+          )
+        )
+
+        for (let cycle = 0; cycle < 3; cycle++) {
+          const downgraded = replyReader(
+            yield* handler.send(
+              yield* call([sequence(session, sequenceId++), (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(Xdr.uint32, Operation.PUTFH)
+                  yield* writer.write(Xdr.opaque(), opened.filehandle)
+                }), (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(Xdr.uint32, Operation.OPEN_DOWNGRADE)
+                  yield* writer.write(Xdr.fixedOpaque(opened.stateid.length), opened.stateid)
+                  yield* writer.write(Xdr.uint32, 0)
+                  yield* writer.write(Xdr.uint32, 1)
+                  yield* writer.write(Xdr.uint32, 0)
+                })])
+            )
+          )
+
+          assert.strictEqual(yield* downgraded.read(Xdr.uint32), Status.OK)
+          opened = yield* parseOpen(
+            yield* handler.send(
+              yield* call([
+                sequence(session, sequenceId++),
+                (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+                openByName(client, "file", 2),
+                (writer) => writer.write(Xdr.uint32, Operation.GETFH)
+              ])
+            )
+          )
+
+          const result = yield* readWriteResult(
+            yield* handler.send(
+              yield* call([sequence(session, sequenceId++), (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(Xdr.uint32, Operation.PUTFH)
+                  yield* writer.write(Xdr.opaque(), opened.filehandle)
+                }), write(opened.stateid, new Uint8Array([cycle + 2]), 0n)])
+            )
+          )
+
+          assert.strictEqual(result.status, Status.OK)
+        }
+
+        assert.strictEqual(openedHandles, 1)
+        assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4]))
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 })
 
 describe("Create over TCP", () => {
@@ -8684,7 +9983,160 @@ describe("Create over TCP", () => {
       owner
     )
 
+  for (const phase of ["waiting for the commit gate", "during commit"] as const) {
+    live(`interrupts a CREATE ${phase} and releases its open capacity`, () =>
+      Effect.gen(function*() {
+        const committing = yield* Deferred.make<void>()
+        const openEntered = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+        let hold = false
+
+        const store = Layer.succeed(
+          LiveVolume.LiveImageStore,
+          LiveVolume.LiveImageStore.of({
+            loadOrCreate: Effect.succeed,
+            commit: () =>
+              hold
+                ? Deferred.succeed(committing, undefined).pipe(
+                  Effect.andThen(Deferred.await(release)),
+                  Effect.as("committed" as const)
+                )
+                : Effect.succeed("committed" as const)
+          })
+        )
+
+        yield* Effect.scoped(
+          Effect.gen(function*() {
+            const volume = yield* LiveVolume.open(liveOptions)
+            const caller = yield* volume.caller()
+
+            const observed = {
+              ...caller,
+              root: Deferred.succeed(openEntered, undefined).pipe(Effect.andThen(caller.root))
+            }
+
+            const transport = yield* scriptedServer(observed, { maxOpens: 1 }).pipe(
+              Effect.provideService(Vfs.Volume, volume)
+            )
+
+            const carrier = yield* transport.connect()
+            const { session, clientId } = yield* scriptedSession(carrier, 0, (writer) => writeWords(writer, [0]))
+            const root = operation(Operation.PUTROOTFH)
+
+            const operations = [
+              sequence(session, 1),
+              root,
+              create(clientId, "cancelled", 3, [[4, (writer) => writer.write(Xdr.uint64, 8n)]])
+            ]
+
+            hold = true
+
+            if (phase === "waiting for the commit gate") {
+              const blocked = yield* caller.writeFile("/block", Uint8Array.of(1), {
+                access: "write",
+                create: "exclusive"
+              }).pipe(
+                Effect.forkChild({ startImmediately: true })
+              )
+
+              yield* Deferred.await(committing)
+              yield* carrier.send(yield* rpcCompound(3, operations))
+              yield* Deferred.await(openEntered)
+              const disconnected = yield* carrier.disconnect.pipe(Effect.timeoutOption("2 seconds"))
+              yield* Deferred.succeed(release, undefined)
+              yield* Fiber.join(blocked)
+              assert.isTrue(Option.isSome(disconnected))
+            } else {
+              yield* carrier.send(yield* rpcCompound(3, operations))
+              yield* Deferred.await(committing)
+              yield* carrier.interrupt
+              yield* Deferred.succeed(release, undefined)
+              yield* carrier.awaitClosed.pipe(Effect.timeout("2 seconds"))
+              assert.strictEqual((yield* caller.stat("/cancelled")).size, 8n)
+              yield* caller.unlink("/cancelled")
+              assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+            }
+
+            assert.strictEqual((yield* Effect.flip(caller.stat("/cancelled"))).code, "NotFound")
+            const replacement = yield* transport.connect()
+            const retry = yield* scriptedCompound(replacement, 4, operations)
+            assert.strictEqual(yield* retry.read(Xdr.uint32), Status.RETRY_UNCACHED_REP)
+
+            const next = yield* scriptedCompound(replacement, 5, [
+              sequence(session, 2),
+              root,
+              create(clientId, "next", 1)
+            ])
+
+            assert.strictEqual(yield* next.read(Xdr.uint32), Status.OK)
+          }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)))
+        ).pipe(Effect.provide(store))
+      }))
+  }
+
   it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should reject a replaced child before truncation or an extra open reservation when a child is replaced during create lookup", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/victim", new Uint8Array([1]), {
+          access: "write",
+          create: "exclusive"
+        })
+
+        let replace = false
+
+        const instrumented: Vfs.Caller = {
+          ...caller,
+          lookup: (entry) =>
+            caller.lookup(entry).pipe(Effect.tap(() =>
+              replace ?
+                Effect.gen(function*() {
+                  replace = false
+                  yield* caller.unlink("/victim")
+                  yield* caller.writeFile("/victim", new Uint8Array([7]), {
+                    access: "write",
+                    create: "exclusive"
+                  })
+                }) :
+                Effect.void
+            ))
+        }
+
+        const handler = yield* wireClient(caller, {
+          limits: { maxOpens: 1 },
+          writable: true,
+          mappedCaller: instrumented
+        })
+
+        const {
+          client,
+          session
+        } = yield* startSession(handler, "replaced")
+
+        yield* parseOpen(
+          yield* handler.send(
+            yield* call([
+              sequence(session, 1),
+              (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+              openByName(client, "victim"),
+              (writer) => writer.write(Xdr.uint32, Operation.GETFH)
+            ])
+          )
+        )
+        replace = true
+
+        const reply = yield* handler.send(
+          yield* call([
+            sequence(session, 2),
+            (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+            simpleCreate(client, "victim", 0, 2, "owner", [[4, 0n]])
+          ])
+        )
+
+        assert.strictEqual(yield* responseStatus(reply), Status.DELAY)
+        assert.deepStrictEqual(yield* caller.readFile("/victim"), new Uint8Array([7]))
+      }).pipe(Effect.provide(Testing.layer())))
+
     it.effect("should leave the file unpublished when its requested size exceeds the core limit", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.Volume
@@ -11653,6 +13105,215 @@ describe("Filehandles over TCP", () => {
     })
 
   it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should encode every advertised GETATTR value from one file observation when GETATTR requests all advertised attributes", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), {
+          access: "write",
+          create: "exclusive"
+        })
+        yield* caller.link("/file", "/alias")
+        yield* caller.chmod("/file", 0o640)
+        yield* caller.chown("/file", {
+          uid: 501,
+          gid: 20
+        })
+
+        const root = yield* caller.root
+        const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
+        const observation = yield* caller.stat(reference)
+
+        const handler = yield* wireClient(caller)
+
+        const {
+          session
+        } = yield* startSession(handler, "all-attributes")
+
+        const requested = [3_826_978_815, 12_099_646, 6_144]
+
+        const expectedHandle = yield* lookupHandle(handler, session, 1, "/file")
+
+        const response = replyReader(
+          yield* handler.send(
+            yield* call([
+              sequence(session, 2),
+              operation(Operation.PUTROOTFH),
+              namedOperation(Operation.LOOKUP, "file"),
+              (writer) => writeWords(writer, [Operation.GETATTR, requested.length, ...requested])
+            ])
+          )
+        )
+
+        assert.strictEqual(yield* response.read(Xdr.uint32), Status.OK)
+        yield* response.read(Xdr.string())
+        yield* response.read(Xdr.uint32)
+        yield* response.read(Xdr.uint32)
+        yield* response.read(Xdr.uint32)
+        yield* response.read(Xdr.fixedOpaque(16))
+
+        for (let field = 0; field < 5; field++) {
+          yield* response.read(Xdr.uint32)
+        }
+
+        yield* response.read(Xdr.uint32)
+        yield* response.read(Xdr.uint32)
+        yield* response.read(Xdr.uint32)
+        yield* response.read(Xdr.uint32)
+        assert.strictEqual(yield* response.read(Xdr.uint32), Operation.GETATTR)
+        assert.strictEqual(yield* response.read(Xdr.uint32), Status.OK)
+        assert.deepStrictEqual(yield* response.read(Xdr.array(Xdr.uint32)), requested)
+        const values = replyReader(yield* response.read(Xdr.opaque()))
+        // The supported set adds maxfilesize (27), which this request leaves out.
+        assert.deepStrictEqual(yield* values.read(Xdr.array(Xdr.uint32)), [
+          3_961_196_543,
+          12_099_646,
+          6_144
+        ])
+        assert.strictEqual(yield* values.read(Xdr.uint32), 1)
+        assert.strictEqual(yield* values.read(Xdr.uint32), 0x3)
+        assert.strictEqual(yield* values.read(Xdr.uint64), observation.revision)
+        assert.strictEqual(yield* values.read(Xdr.uint64), 3n)
+        assert.isTrue(yield* values.read(Xdr.boolean))
+        assert.isTrue(yield* values.read(Xdr.boolean))
+        assert.isFalse(yield* values.read(Xdr.boolean))
+        assert.deepStrictEqual([yield* values.read(Xdr.uint64), yield* values.read(Xdr.uint64)], [
+          0x0001_0203_0405_0607n,
+          0x0809_0a0b_0c0d_0e0fn
+        ])
+        assert.isTrue(yield* values.read(Xdr.boolean))
+        assert.strictEqual(yield* values.read(Xdr.uint32), 30)
+        assert.strictEqual(yield* values.read(Xdr.uint32), Status.OK)
+        assert.isFalse(yield* values.read(Xdr.boolean), "case_insensitive")
+        assert.isTrue(yield* values.read(Xdr.boolean), "case_preserving")
+        assert.deepStrictEqual(yield* values.read(Xdr.opaque()), expectedHandle)
+        assert.strictEqual(yield* values.read(Xdr.uint64), observation.ino)
+        assert.isTrue(yield* values.read(Xdr.boolean), "homogeneous")
+        assert.strictEqual(yield* values.read(Xdr.uint32), ByteSize.toNumberUnsafe(limits.maxNameBytes))
+        assert.strictEqual(yield* values.read(Xdr.uint64), 4_096n)
+        assert.strictEqual(yield* values.read(Xdr.uint64), 4_096n)
+        assert.strictEqual(yield* values.read(Xdr.uint32), 0o640)
+        assert.isTrue(yield* values.read(Xdr.boolean), "no_trunc")
+        assert.strictEqual(yield* values.read(Xdr.uint32), 2)
+        assert.strictEqual(yield* values.read(Xdr.string()), "501")
+        assert.strictEqual(yield* values.read(Xdr.string()), "20")
+        assert.strictEqual(yield* values.read(Xdr.uint64), 3n)
+
+        const readTime = Effect.fnUntraced(function*() {
+          const seconds = yield* values.read(Xdr.uint64)
+          const nanoseconds = yield* values.read(Xdr.uint32)
+
+          return {
+            seconds,
+            nanoseconds
+          }
+        })
+
+        const expectTime = Effect.fnUntraced(function*(timestamp: bigint) {
+          assert.deepStrictEqual(yield* readTime(), {
+            seconds: timestamp / 1_000_000_000n,
+            nanoseconds: Number(timestamp % 1_000_000_000n)
+          })
+        })
+
+        yield* expectTime(observation.atimeNs)
+        assert.deepStrictEqual(yield* readTime(), {
+          seconds: 0n,
+          nanoseconds: 1
+        }, "time_delta")
+        yield* expectTime(observation.ctimeNs)
+        yield* expectTime(observation.mtimeNs)
+        assert.strictEqual(yield* values.read(Xdr.uint64), observation.ino)
+        assert.deepStrictEqual(yield* values.read(Xdr.array(Xdr.uint32)), [])
+        assert.strictEqual(yield* values.read(Xdr.uint32), 0x2, "fs_charset_cap: FSCHARSET_CAP4_ALLOWS_ONLY_UTF8")
+        yield* values.finish
+        yield* response.finish
+      }).pipe(
+        Effect.provide(
+          Testing.layer({ volume: { identity: Vfs.VolumeIdentity.make("000102030405060708090a0b0c0d0e0f") } })
+        )
+      ))
+
+    it.effect("reports the same FSID for the same volume identity across restarts", () =>
+      Effect.gen(function*() {
+        const identity = Vfs.VolumeIdentity.make("000102030405060708090a0b0c0d0e0f")
+        const volume = yield* Vfs.make({ identity })
+        const restored = yield* Vfs.fromSnapshot(yield* volume.snapshot, { identity })
+
+        for (const instance of [volume, restored]) {
+          const server = yield* serve(instance, "stable-fsid")
+          const reader = replyReader(yield* server.compound([op(Operation.PUTROOTFH), getattr(8)]))
+          assert.strictEqual(yield* reader.read(Xdr.uint32), Status.OK)
+          yield* reader.read(Xdr.string())
+          yield* skipWords(reader, 3)
+          yield* reader.read(Xdr.fixedOpaque(16))
+          yield* skipWords(reader, 5)
+          yield* readStatus(reader, Operation.PUTROOTFH)
+          yield* readStatus(reader, Operation.GETATTR)
+          assert.deepStrictEqual(yield* reader.read(Xdr.array(Xdr.uint32)), [1 << 8])
+          const values = replyReader(yield* reader.read(Xdr.opaque()))
+          assert.deepStrictEqual([yield* values.read(Xdr.uint64), yield* values.read(Xdr.uint64)], [
+            0x0001_0203_0405_0607n,
+            0x0809_0a0b_0c0d_0e0fn
+          ])
+          yield* values.finish
+          yield* reader.finish
+        }
+      }))
+
+    it.effect("releases an unlinked file on NFS CLOSE or server shutdown", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+
+        for (const release of ["close", "shutdown"] as const) {
+          const name = `release-${release}`
+          const path = `/${name}`
+
+          yield* caller.writeFile(path, Uint8Array.of(1), { access: "write", create: "exclusive" })
+          const reference = yield* caller.lookup(path)
+
+          yield* Effect.scoped(Effect.gen(function*() {
+            const handler = yield* wireClient(caller)
+            const { client, session } = yield* startSession(handler, name)
+
+            const opened = yield* parseOpen(
+              yield* handler.send(
+                yield* call([
+                  sequence(session, 1),
+                  op(Operation.PUTROOTFH),
+                  openReadOnly(client, name),
+                  getfh
+                ])
+              )
+            )
+
+            yield* caller.unlink(path)
+            assert.strictEqual((yield* caller.stat(reference)).nlink, 0)
+
+            if (release === "close") {
+              const close = Effect.fnUntraced(function*(writer: RequestWriter) {
+                yield* writeWords(writer, [Operation.CLOSE, 0])
+                yield* writer.write(Xdr.fixedOpaque(16), opened.stateid)
+              })
+
+              const reply = yield* decodeCompound(
+                yield* handler.send(
+                  yield* call([
+                    sequence(session, 2),
+                    putfh(opened.filehandle),
+                    close
+                  ])
+                )
+              )
+
+              assert.strictEqual(reply.status, Status.OK)
+              assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
+            }
+          }))
+
+          assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
+        }
+      }).pipe(Effect.provide(Testing.layer())))
+
     it.effect("should require a fresh session to read through a persistent filehandle after restart", () =>
       Effect.gen(function*() {
         const content = new Uint8Array([1, 2, 3])
@@ -11749,7 +13410,12 @@ describe("Filehandles over TCP", () => {
 
         let sequenceId = 1
 
-        for (const handle of [forged, altered]) {
+        const wrongVersion = root.slice()
+        wrongVersion[0] = 0
+        const zeroInode = root.slice()
+        new DataView(zeroInode.buffer).setBigUint64(33, 0n)
+
+        for (const handle of [root.subarray(0, 41), wrongVersion, zeroInode, forged, altered]) {
           const reply = yield* replyStatuses(
             yield* handler.send(yield* call([sequence(session, ++sequenceId), putfh(handle), read]))
           )

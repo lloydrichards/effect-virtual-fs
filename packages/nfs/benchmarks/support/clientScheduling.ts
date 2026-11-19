@@ -1,6 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { type ExportLimits, makeExport, type NfsExport } from "../../src/internal/export.js"
 import {
@@ -14,12 +15,12 @@ import {
 import type { Connection, Credentials } from "../../src/internal/rpc.js"
 import { type EncoderSession, make, XdrCodec, type XdrEncodeError } from "../../src/internal/xdr.js"
 
-export const generation = new Uint8Array(16).fill(7)
+const generation = new Uint8Array(16).fill(7)
 
 /** An arbitrary callback program number, in the transient range clients pick from. */
-export const callbackProgram = 0x4000_0001
+const callbackProgram = 0x4000_0001
 
-export const limits: Nfs4Limits = {
+const limits: Nfs4Limits = {
   maxOpaqueBytes: ByteSize.bytes(65_536),
   maxStringBytes: ByteSize.bytes(1_024),
   maxArrayElements: 128,
@@ -43,9 +44,9 @@ export const limits: Nfs4Limits = {
   maxNameBytes: ByteSize.bytes(255)
 }
 
-export const EXPORT_LIMITS: ExportLimits = { maxNameBytes: ByteSize.bytes(255) }
+const EXPORT_LIMITS: ExportLimits = { maxNameBytes: ByteSize.bytes(255) }
 
-export const HANDLER_OPTIONS: Nfs4Options = {
+const HANDLER_OPTIONS: Nfs4Options = {
   leaseDurationSeconds: 30,
   callbackTimeout: "1 second",
   generation,
@@ -54,22 +55,22 @@ export const HANDLER_OPTIONS: Nfs4Options = {
 }
 
 /** What a test changes about the export. */
-export interface ExportOverrides {
+interface ExportOverrides {
   readonly limits?: Partial<ExportLimits>
 }
 
-export interface HandlerOverrides extends Partial<Nfs4Options> {
+interface HandlerOverrides extends Partial<Nfs4Options> {
   readonly export?: ExportOverrides
 }
 
 /** The export of the volume in context, read through `caller`. */
-export const exportFor = Effect.fnUntraced(function*(caller: Vfs.Caller, overrides: ExportOverrides = {}) {
+const exportFor = Effect.fnUntraced(function*(caller: Vfs.Caller, overrides: ExportOverrides = {}) {
   const volume = yield* Vfs.Volume
 
   return makeExport(volume, caller, { ...EXPORT_LIMITS, ...overrides.limits })
 })
 
-export const handlerFor = (export_: NfsExport, overrides: Partial<Nfs4Options> = {}) =>
+const handlerFor = (export_: NfsExport, overrides: Partial<Nfs4Options> = {}) =>
   makeNfs4Handler(export_, { ...HANDLER_OPTIONS, ...overrides })
 
 /** The export over `caller` and the handler serving it. */
@@ -88,14 +89,16 @@ export const connection = (
 
 const defaultConnection = connection()
 
-export type WriteOperation = (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>
+const authNone = Data.taggedEnum<Credentials>().None()
+
+type WriteOperation = (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>
 
 export const call = Effect.fnUntraced(
   function*(
     operations: ReadonlyArray<WriteOperation>,
     tag = "probe",
     on: Connection = defaultConnection,
-    credentials: Credentials = { _tag: "None" }
+    credentials: Credentials = authNone
   ) {
     const writer = yield* make.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxCompoundBytes))
     yield* writer.write(XdrCodec.string(), tag)
@@ -132,7 +135,7 @@ export const statuses = Effect.fnUntraced(function*(response: Uint8Array) {
   return { status, tag, operations }
 })
 
-export const exchangeId = (owner: string, verifier = new Uint8Array(8)): WriteOperation => (writer) =>
+const exchangeId = (owner: string, verifier = new Uint8Array(8)): WriteOperation => (writer) =>
   Effect.gen(function*() {
     yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
     yield* writer.write(XdrCodec.fixedOpaque(8), verifier)
@@ -142,7 +145,7 @@ export const exchangeId = (owner: string, verifier = new Uint8Array(8)): WriteOp
     yield* writer.write(XdrCodec.uint32, 0)
   })
 
-export const channel = Effect.fnUntraced(function*(writer: EncoderSession, slots: number, options: Partial<{
+const channel = Effect.fnUntraced(function*(writer: EncoderSession, slots: number, options: Partial<{
   readonly maxRequest: number
   readonly maxResponse: number
   readonly maxCachedResponse: number
@@ -157,15 +160,6 @@ export const channel = Effect.fnUntraced(function*(writer: EncoderSession, slots
   yield* writer.write(XdrCodec.uint32, 0)
 })
 
-export const authSysCallback = Effect.fnUntraced(function*(writer: EncoderSession) {
-  yield* writer.write(XdrCodec.uint32, 1)
-  yield* writer.write(XdrCodec.uint32, 0x6aa6_6b2d)
-  yield* writer.write(XdrCodec.string(), "Lloyds-Mech.local")
-  yield* writer.write(XdrCodec.uint32, 0)
-  yield* writer.write(XdrCodec.uint32, 0)
-  yield* writer.write(XdrCodec.array(XdrCodec.uint32), Array.from({ length: 16 }, (_, index) => index))
-})
-
 export const startSession = Effect.fnUntraced(
   function*(
     handler: Nfs4Handler,
@@ -175,7 +169,7 @@ export const startSession = Effect.fnUntraced(
     on: Connection = defaultConnection,
     backSlots = 0,
     security: WriteOperation = (writer) => writer.write(XdrCodec.array(XdrCodec.uint32), [0]),
-    credentials: Credentials = { _tag: "None" }
+    credentials: Credentials = authNone
   ) {
     const exchange = yield* make.openReader(
       yield* handler.compound(yield* call([exchangeId(owner, verifier)], "probe", on, credentials)),
@@ -229,21 +223,6 @@ export const sequence = (session: Uint8Array, sequence: number, cache = false, s
     yield* writer.write(XdrCodec.boolean, cache)
   })
 
-export const openByName = (client: bigint, name: string, access = 1, deny = 0): WriteOperation => (writer) =>
-  Effect.gen(function*() {
-    yield* writer.write(XdrCodec.uint32, Operation.OPEN)
-    yield* writer.write(XdrCodec.uint32, 0)
-    yield* writer.write(XdrCodec.uint32, access)
-    yield* writer.write(XdrCodec.uint32, deny)
-    yield* writer.write(XdrCodec.uint64, client)
-    yield* writer.write(XdrCodec.string(), "owner")
-    yield* writer.write(XdrCodec.uint32, 0)
-    yield* writer.write(XdrCodec.uint32, 0)
-    yield* writer.write(XdrCodec.string(), name)
-  })
-
-export const openReadOnly = (client: bigint, name: string) => openByName(client, name)
-
 export const parseOpen = Effect.fnUntraced(function*(bytes: Uint8Array) {
   const reader = yield* make.openReader(bytes, limits)
   assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
@@ -270,21 +249,3 @@ export const parseOpen = Effect.fnUntraced(function*(bytes: Uint8Array) {
 
   return { stateid, atomic, filehandle: yield* reader.read(XdrCodec.opaque()) }
 })
-
-export const stateidWithSequence = (stateid: Uint8Array, sequence: number) => {
-  const copy = new Uint8Array(stateid)
-  new DataView(copy.buffer).setUint32(0, sequence)
-
-  return copy
-}
-
-/** The export over `caller`, the handler serving it, and a confirmed session for `owner`. */
-export const openSession = Effect.fnUntraced(
-  function*(caller: Vfs.Caller, owner: string, overrides: HandlerOverrides = {}) {
-    const { export: exportOverrides, ...options } = overrides
-    const export_ = yield* exportFor(caller, exportOverrides)
-    const handler = yield* handlerFor(export_, options)
-
-    return { export_, handler, ...(yield* startSession(handler, owner)) }
-  }
-)
