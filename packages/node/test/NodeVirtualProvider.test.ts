@@ -79,6 +79,18 @@ describe("direct Node provider", () => {
       )
     ).toMatchObject({ _tag: "Failure", failure: { code: "InvalidArgument", field: "options" } })
   })
+  it("should read through file symlinks and preserve whole-file errors for directories and missing targets", async () => {
+    const { provider } = await make()
+    provider.mkdirSync("/dir")
+    provider.writeFileSync("/dir/file", "bytes")
+    provider.symlinkSync("/dir/file", "/alias")
+    provider.symlinkSync("/dir", "/directory")
+    provider.symlinkSync("/missing", "/dangling")
+
+    expect(provider.readFileSync("/alias", "utf8")).toBe("bytes")
+    expect(() => provider.readFileSync("/directory")).toThrow(error("EISDIR", "read", "/directory"))
+    expect(() => provider.readFileSync("/dangling")).toThrow(error("ENOENT", "open", "/dangling"))
+  })
   it("should bind overlays to their existing engine", async () => {
     const { volume, provider, scope } = await make()
     provider.writeFileSync("/file", "base")
