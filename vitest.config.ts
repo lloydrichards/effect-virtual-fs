@@ -15,6 +15,12 @@ export default defineConfig({
   test: {
     exclude: ["**/node_modules/**", "**/dist/**", "**/.reference/**"],
     // All projects run under Bun so the root test script can use one Vitest process.
-    projects: sharedTestProjects.map(({ directory, name }) => project(name, `./${directory}/`))
+    projects: sharedTestProjects.map(({ directory, name }) => {
+      const config = project(name, `./${directory}/`)
+
+      if (name === "nfs") config.test.include.push("benchmarks/*.test.ts")
+
+      return config
+    })
   }
 })

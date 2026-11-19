@@ -2,9 +2,17 @@ import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Clock, Deferred, Duration, Effect, Fiber } from "effect"
 import { assert, test } from "vitest"
-import { Operation, Status } from "../../src/internal/nfs4.js"
-import { XdrCodec } from "../../src/internal/xdr.js"
-import { call, connection, makeHandler, parseOpen, sequence, startSession, statuses } from "../support/harness.js"
+import { Operation, Status } from "../src/internal/nfs4.js"
+import { XdrCodec } from "../src/internal/xdr.js"
+import {
+  call,
+  connection,
+  makeHandler,
+  parseOpen,
+  sequence,
+  startSession,
+  statuses
+} from "./support/clientScheduling.js"
 
 const elapsedMs = (start: bigint, end: bigint) => Number(end - start) / 1_000_000
 
@@ -143,8 +151,7 @@ const sample = Effect.fnUntraced(function*(delayMs: number) {
   }
 })
 
-// oxlint-disable-next-line effecttsgo/process-env -- Vitest registers this measurement only when requested.
-test.runIf(process.env["NFS_MEASURE_CLIENT_SCHEDULING"] === "1")(
+test(
   "measure normal cross-client scheduling with a controlled storage delay",
   () =>
     Effect.runPromise(

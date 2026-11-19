@@ -11,7 +11,7 @@ sources:
     title: Session replay and state ownership work
   - resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: Compound admission and lease sweep gate
-  - resource: ../../../packages/nfs/test/internal/clientScheduling.test.ts
+  - resource: ../../../packages/nfs/benchmarks/clientScheduling.measure.ts
     title: Reproducible in-process experiment
   - resource: ../../../packages/core/src/LiveVolume.ts
     title: Live volume store contract
@@ -30,7 +30,7 @@ Build the NFS package and its dependencies, then run the opt-in measurement:
 ```sh
 bun install --frozen-lockfile
 bun run build --filter=@effect-vfs/nfs
-NFS_MEASURE_CLIENT_SCHEDULING=1 bun run --cwd packages/nfs test clientScheduling.test.ts --pool=threads --maxWorkers=1
+bun run --cwd packages/nfs benchmark:scheduling --pool=threads --maxWorkers=1
 ```
 
 Each invocation writes raw JSON samples to stdout. It warms up once per setting, then alternates ten samples with
@@ -39,7 +39,7 @@ connection doubles establish distinct sessions using the existing test harness. 
 creates a file, which submits an image to a fake LiveImageStore. After the store is entered, the runner submits
 SEQUENCE alone from the second session and a direct core read of an existing unrelated file. The store waits until
 both probes have been submitted, then sleeps for the configured duration and acknowledges the image. Responses and
-file contents are checked. The shared CI suite skips this opt-in measurement.
+file contents are checked. The dedicated scheduling command runs separately from the shared test suite.
 
 ## Separate the waits
 

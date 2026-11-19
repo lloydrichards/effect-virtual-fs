@@ -10,7 +10,7 @@ import {
   XdrCodec,
   XdrDecodeError,
   XdrEncodeError
-} from "../benchmarks/xdr-effect-proposal.js"
+} from "./xdr-effect-proposal.js"
 
 const limits = {
   maxOpaqueBytes: ByteSize.bytes(16),
