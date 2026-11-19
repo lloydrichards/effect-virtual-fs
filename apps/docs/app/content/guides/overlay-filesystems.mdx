@@ -117,6 +117,8 @@ must match. A mutation can commit between those observations.
 
 ## Merge two workspaces
 
+To carry edits to a new filename, follow [Merge overlays across file renames](/guides/merge-overlay-renames).
+
 When several workspaces start from one base, combine their results with `mergeSnapshotDeltas`. It takes the base and
 one delta per side, applies every change the two sides do not dispute, and reports path-level conflicts as data instead
 of failing. The merged delta is bound to the same base and applies with `applySnapshotDelta`.

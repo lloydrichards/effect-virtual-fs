@@ -1,0 +1,89 @@
+# Merge overlays across file renames
+
+Use `mergeOverlayCaptures` when two workspaces start from the same snapshot and edits need to follow a renamed file.
+This guide uses Bun. Install core and Bun Crypto as described in [Build and transport filesystem snapshots](/guides/fixtures-and-snapshots#create-a-volume-from-a-fixture).
+
+## Carry an edit to the new path
+
+Create both overlays from one base. Rename the file in one overlay and edit it at its original path in the other.
+Capture each overlay after its work finishes, then merge the captures against the base.
+
+```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const encoder = new TextEncoder()
+
+const program = Effect.gen(function* () {
+	const volume = yield* Vfs.fromFixture({
+		entries: [{ kind: "file", path: "/draft.md", bytes: encoder.encode("Draft") }]
+	})
+	const base = yield* volume.snapshot
+	const left = yield* Vfs.makeOverlay(base)
+	const right = yield* Vfs.makeOverlay(base)
+
+	const leftFs = yield* left.caller()
+	yield* leftFs.rename("/draft.md", "/release.md")
+
+	const rightFs = yield* right.caller()
+	yield* rightFs.writeFile("/draft.md", encoder.encode("QA approved"), {
+		access: "write",
+		truncate: true
+	})
+
+	const ours = yield* Vfs.captureOverlayForMerge(left)
+	const theirs = yield* Vfs.captureOverlayForMerge(right)
+	const result = yield* Vfs.mergeOverlayCaptures(base, ours, theirs)
+
+	if (result.conflicts.length > 0) throw new Error("Resolve conflicts before handoff.")
+
+	const snapshot = yield* Vfs.applySnapshotDelta(base, result.delta)
+	const merged = yield* Vfs.fromSnapshot(snapshot)
+	const reader = yield* merged.caller()
+
+	return new TextDecoder().decode(yield* reader.readFile("/release.md"))
+})
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
+```
+
+The program prints `QA approved`. The merged snapshot contains `/release.md` in place of `/draft.md`. Both overlays
+and the base remain available for inspection.
+
+## Resolve competing destinations
+
+If both overlays rename `/draft.md` to different paths, the merge returns one conflict for all three paths.
+Inspect the conflict's `affectedPaths` and the destinations in `detail.ours` and `detail.theirs` when its kind is
+`rename`. The preview delta keeps the affected paths at their base state and includes unrelated changes.
+
+To take the left overlay's version, pass the conflict key back with `take: "ours"`. Use the same base and ordered
+pair of captures on every retry.
+
+```ts
+const resolve = Effect.gen(function* () {
+	const resolved = yield* Vfs.mergeOverlayCaptures(base, ours, theirs, {
+		resolutions: [{ key: conflict.key, take: "ours" }]
+	})
+
+	if (resolved.conflicts.length === 0) {
+		return yield* Vfs.applySnapshotDelta(base, resolved.delta)
+	}
+
+	return resolved
+})
+```
+
+Choose `theirs` for the right overlay's version or `base` to keep the original. Each choice covers the paths and
+contents for the whole conflict group. Include all earlier choices when you resolve another group.
+
+## Keep the captures for the review
+
+Keep the captures in the process that issued them. Later overlay writes leave the captured state intact, but
+taking a fresh capture or swapping the two inputs invalidates the old conflict keys.
+
+Use a single-link regular file and a destination absent from the base for a supported move. If the merge fails
+with `BaseMismatch`, supply the snapshot both overlays started from. If it fails with `LimitExceeded`, inspect the
+error's `field` and the [snapshot delta limits](/api/core/snapshot-delta#snapshotdeltalimits).
+
+See the [merge API reference](/api/core/virtual-file-system#mergeoverlaycaptures) for the full signature.
