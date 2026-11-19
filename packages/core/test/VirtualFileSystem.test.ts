@@ -2913,6 +2913,17 @@ for (const execution of ["cooperative", "sync"] as const) {
           "NotFound"
         )
 
+        yield* caller.mkdir("/links")
+        yield* caller.symlink("../file", "/links/relative")
+        const parentBefore = yield* caller.readDirectory("/links")
+        assert.strictEqual(
+          yield* caller.writeFile("/links/relative", new Uint8Array([5]), { access: "write", truncate: true }),
+          reference
+        )
+        assert.deepStrictEqual(yield* caller.readFile(reference), new Uint8Array([5]))
+        assert.deepStrictEqual(yield* caller.readLink("/links/relative"), new TextEncoder().encode("../file"))
+        assert.strictEqual((yield* caller.readDirectory("/links")).revision, parentBefore.revision)
+
         const link = yield* caller.symlink("/file", "/link")
 
         const replaced = yield* caller.writeFile("/link", new Uint8Array([3]), {
