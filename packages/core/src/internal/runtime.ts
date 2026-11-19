@@ -1310,7 +1310,8 @@ const wrapCaller = (
     address: P.EntryTarget,
     actor: P.VirtualFileSystem,
     boundaries: ReadonlyArray<Boundary>,
-    initial?: Result.Result<P.ObjectObservation, V.FsFailure>
+    initial?: Result.Result<P.ObjectObservation, V.FsFailure>,
+    initialParent?: P.ObjectObservation
   ): Effect.fn.Return<LocatedEntry, V.FsFailure, Scope.Scope> {
     let current = address
     let selected = actor
@@ -1341,7 +1342,11 @@ const wrapCaller = (
       const data = runtime.compatibility.links.get(observed.success.metadata.objectNumber)
 
       if (data === undefined) return yield* Errors.fsFailure("StaleReference", "open")
-      const parent = yield* parentEntry(current, selected)
+
+      const parent = count === 0 && initialParent !== undefined
+        ? initialParent
+        : yield* parentEntry(current, selected)
+
       selected = yield* mapped(selected.withCurrentDirectory(parent.reference))
       current = yield* Effect.fromResult(Path.fromBytes(data)).pipe(
         Effect.mapError((cause) => Errors.fsFailure("InvalidPathEncoding", "open", { cause }))
@@ -1356,10 +1361,12 @@ const wrapCaller = (
       value: V.EntryInput,
       use: (
         t: P.EntryTarget,
-        actor: P.VirtualFileSystem
+        actor: P.VirtualFileSystem,
+        parent: P.ObjectObservation | undefined
       ) => Effect.Effect<A, P.VirtualFileSystemError | V.FsFailure, Scope.Scope>,
       recursive = false,
-      removed = false
+      removed = false,
+      preservesParent = false
     ) {
       return yield* Effect.scoped(Effect.gen(function*() {
         const located = yield* entryActor(runtime, caller, value)
@@ -1381,7 +1388,7 @@ const wrapCaller = (
         // Save the last reachable authority before an open object loses a binding.
         if (removed) yield* refreshGrants(runtime)
 
-        const result = yield* mapped(use(t, actor)).pipe(
+        const result = yield* mapped(use(t, actor, Result.isSuccess(prior) ? prior.success : undefined)).pipe(
           Effect.mapError((error) =>
             recursive && Result.isFailure(prior) && prior.failure.code === "NotFound" && error.code === "NotDirectory"
               ? prior.failure :
@@ -1389,7 +1396,7 @@ const wrapCaller = (
           )
         )
 
-        const after = yield* parentEntry(t, actor)
+        const after = preservesParent && Result.isSuccess(prior) ? prior.success : yield* parentEntry(t, actor)
 
         if (Result.isFailure(prior) || !P.equalsObjectRevision(prior.success.revision, after.revision)) {
           runtime.revision++
@@ -2060,21 +2067,31 @@ const wrapCaller = (
             placement: o.append ? "append" : o.truncate ? "replace" : "start"
           }
 
-          const made = yield* namespace(value, (t, actor) =>
-            Effect.gen(function*() {
-              if (followFinal && !directFile) {
-                const initial = direct !== undefined && (Result.isSuccess(direct) || missing) ? direct : undefined
+          const preservesParent = direct !== undefined && Result.isSuccess(direct) &&
+            Result.isSuccess(present) && present.success.kind === "file"
 
-                yield* followedEntry(t, actor, boundariesOf(runtime, value), initial)
-              }
+          const made = yield* namespace(
+            value,
+            (t, actor, parent) =>
+              Effect.gen(function*() {
+                if (followFinal && !directFile) {
+                  const initial = direct !== undefined && (Result.isSuccess(direct) || missing) ? direct : undefined
 
-              if (replacing) yield* refreshGrants(runtime)
+                  yield* followedEntry(t, actor, boundariesOf(runtime, value), initial, parent)
+                }
 
-              if (Predicate.isString(t) || Path.isBytePath(t)) yield* actor.writeFile(t, data, options)
-              else yield* actor.writeFile(t, data, options)
+                if (replacing) yield* refreshGrants(runtime)
 
-              return yield* actor.stat(t)
-            }))
+                if (Predicate.isString(t) || Path.isBytePath(t)) yield* actor.writeFile(t, data, options)
+                else yield* actor.writeFile(t, data, options)
+
+                return yield* actor.stat(t)
+              }),
+            false,
+            false,
+            // The coordinated write of an existing regular file cannot change its parent binding.
+            preservesParent
+          )
 
           return token(runtime, made.result).core
         }))
