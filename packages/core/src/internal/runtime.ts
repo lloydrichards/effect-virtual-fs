@@ -1342,9 +1342,11 @@ const wrapCaller = (
       const data = runtime.compatibility.links.get(observed.success.metadata.objectNumber)
 
       if (data === undefined) return yield* Errors.fsFailure("StaleReference", "open")
+
       const parent = count === 0 && initialParent !== undefined
         ? initialParent
         : yield* parentEntry(current, selected)
+
       selected = yield* mapped(selected.withCurrentDirectory(parent.reference))
       current = yield* Effect.fromResult(Path.fromBytes(data)).pipe(
         Effect.mapError((cause) => Errors.fsFailure("InvalidPathEncoding", "open", { cause }))
