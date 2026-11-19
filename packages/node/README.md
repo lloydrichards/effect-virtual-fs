@@ -81,6 +81,9 @@ built package through its public exports.
 
 ## Mounted Node profile
 
+To compare mounted file operations against Node's built-in memory provider, see the
+[benchmark guide](benchmarks/README.md).
+
 The separate `test:mounted` suite exercises real `node:fs` sync, callback and promise routing on Node 26.11.1 with
 `--experimental-vfs`. It covers synthetic descriptors, native promise `FileHandle` wrappers, path and handle streams,
 shared Effect/Node writes, unlink/rename lifetime, and isolated CJS/ESM loading. It does not change the Effect

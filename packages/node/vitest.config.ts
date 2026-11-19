@@ -1,3 +1,10 @@
 import { defineConfig } from "vitest/config"
 
-export default defineConfig({ test: { include: ["test/**/*.test.ts"], execArgv: ["--experimental-vfs"] } })
+export default defineConfig({
+  root: import.meta.dirname,
+  test: {
+    include: ["test/**/*.test.ts"],
+    benchmark: { include: ["benchmarks/**/*.bench.ts"] },
+    execArgv: ["--experimental-vfs"]
+  }
+})

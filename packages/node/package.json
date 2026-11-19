@@ -23,7 +23,8 @@
     "type-check": "tsc --noEmit",
     "test": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts",
     "test:consumer": "node --experimental-vfs compatibility/consumer.mjs",
-    "test:mounted": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs run --config vitest.mounted.config.ts"
+    "test:mounted": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs run --config vitest.mounted.config.ts",
+    "benchmark": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs bench --run --config vitest.config.ts --no-file-parallelism"
   },
   "peerDependencies": {
     "effect": "~4.1.4"

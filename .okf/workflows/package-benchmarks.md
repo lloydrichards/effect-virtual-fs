@@ -1,7 +1,7 @@
 ---
 type: Workflow
 title: Package benchmarks
-description: Defines repeatable Vitest timing, Effect configuration and resource lifetimes, and correctness-only benchmark qualification.
+description: Defines repeatable Vitest timing, Effect configuration and resource lifetimes, correctness qualification, and CI timing history.
 status: stable
 tags: [benchmarks, testing, effect, performance]
 sources:
@@ -11,17 +11,25 @@ sources:
     title: Independent source bundle preparation
   - resource: ../../packages/nfs/benchmarks/xdr-effect.bench.ts
     title: Production and experimental XDR measurements
+  - resource: ../../packages/node/benchmarks/mountedMemory.bench.ts
+    title: Mounted filesystem comparison with Node MemoryProvider
   - resource: ../../vitest.config.ts
     title: Package benchmark projects
   - resource: ../../.github/workflows/pr-validation.yml
     title: Correctness smoke qualification
+  - resource: ../../.github/workflows/package-benchmarks.yml
+    title: CI timing and artifact collection
+  - resource: https://github.com/benchmark-action/github-action-benchmark/blob/master/README.md
+    title: Custom metrics for a benchmark history dashboard
+  - resource: https://cli.github.com/manual/gh_run_download
+    title: Download timing artifacts for a selected run
   - resource: https://vitest.dev/guide/benchmarking
     title: Vitest benchmark fixture
   - resource: https://vitest.dev/guide/migration/
     title: Vitest 5 migration
   - resource: ../../bun.lock
     title: Installed runner versions
-generated: { by: codex/okf, at: 2026-10-05T08:20:00Z }
+generated: { by: codex/okf, at: "2026-11-19T16:21:59+01:00" }
 ---
 
 # Package benchmarks
@@ -29,7 +37,7 @@ generated: { by: codex/okf, at: 2026-10-05T08:20:00Z }
 Benchmarks belong in the owning package's `benchmarks` directory. Run its
 `benchmark` script after building its production declarations. Vitest 5 exposes
 `bench` through a regular test's context. Benchmark projects match `*.bench.ts`;
-ordinary tests run separately. Both core and NFS benchmark sources are type-checked
+ordinary tests run separately. Benchmark sources are type-checked
 without becoming production build inputs. Core's native build tools use a separate
 Node-typed benchmark project.
 
@@ -57,10 +65,13 @@ candidate order between comparisons. Fixture encoding is outside timing; checksu
 assertions and Effect runtime execution are inside. Its wrapped production cases
 intentionally include an additional runtime boundary.
 
-The inspected Vitest 5.0.3 / Tinybench 6.1.4 provider runs candidates sequentially,
+The inspected Vitest 5.1.0 / Tinybench 6.2.3 provider runs candidates sequentially,
 despite the public guide describing interleaving. Vitest suite hooks surround the
 enclosing test; Tinybench iteration hooks surround each warmup and measurement
 callback outside its timer. Recheck installed source when changing runner versions.
+
+The NFS client-scheduling probe uses Vitest test mode. Its samples measure timestamps
+inside overlapping operations with controlled storage delay.
 
 Use ordinary JSON reporters for native statistics. Saved `writeResult` / `bench.from`
 baselines can support controlled historical comparisons, but cannot replace core's
@@ -69,6 +80,37 @@ control. Re-measure both revisions after changing measurement boundaries; result
 from different runners are not directly interchangeable.
 
 Run Node and Bun sequentially on an idle host. Report sample count and variation;
-mean-based faster/slower matchers do not establish statistical significance. CI
-uses small workloads to check execution, result agreement, and configuration. It
-imposes no timing threshold on shared runners.
+mean-based faster/slower matchers do not establish statistical significance. Pull request CI uses small workloads to check execution, result agreement, and
+configuration.
+
+## Follow timing over time
+
+The package benchmarks workflow runs on benchmark-related pushes to main and can
+run on demand. It runs core and XDR under Node 24 and Bun, and the mounted provider
+comparison under Node 26. It runs benchmark files sequentially in each job. Open
+the workflow run and download the artifact for the runtime you want to inspect,
+or use its run ID with GitHub CLI.
+
+```sh
+gh run download RUN_ID --pattern 'package-benchmarks-*' --dir /tmp/package-benchmarks
+```
+
+CI times six confinement rounds of 120 operations or read/write pairs per batch.
+Artifacts retain Vitest JSON, core confinement's round samples, and environment
+metadata for up to 90 days. Core builds both candidates from the same revision on
+a clean CI checkout. The paired timings show within-run variation, and the
+working-tree measurements form the revision history.
+
+Keep separate series by runtime, runner class, workload, candidate, and
+measurement version. Compare the median of round medians and retain the spread
+and sample count. Core confinement reports latency per batch and throughput in
+batches per second. XDR and the mounted provider comparison report latency and
+throughput per operation. Confirm apparent regressions on an idle controlled host
+before setting a threshold.
+
+For history beyond artifact retention, publish normalized results from successful
+main runs to a versioned data store. Include the commit, run ID and attempt, units,
+sample count, and the series identity. The Vitest 5 JSON reporter stores tasks
+under `testResults[].assertionResults[].benchmarks[].tasks[]`. Use package-relative
+file names and stable case names when deriving series keys. Benchmark Action can
+graph normalized custom metrics from a dedicated data branch.

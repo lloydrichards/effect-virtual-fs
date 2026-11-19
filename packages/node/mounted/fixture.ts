@@ -13,7 +13,7 @@ import { create, type VirtualFileSystem } from "node:vfs"
 import * as Provider from "../src/NodeVirtualProvider.js"
 
 // @types/node 26.6.3 omits the mount methods present in the qualified runtime.
-interface Mountable extends VirtualFileSystem {
+export interface Mountable extends VirtualFileSystem {
   mount(): string
   unmount(): void
 }

@@ -1,0 +1,108 @@
+name: Package benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "tools/checks/repository.mjs"
+      - "vitest.config.ts"
+      - "turbo.json"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/package-benchmarks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: Measure ${{ matrix.suite }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: node
+            runtime: node
+            node-version: 24.21.0
+          - suite: bun
+            runtime: bun
+            node-version: 24.21.0
+          - suite: node-vfs
+            runtime: node
+            node-version: 26.11.1
+    env:
+      BENCHMARK_RUNTIME: ${{ matrix.runtime }}
+      CONFINEMENT_BENCH_BASELINE: HEAD
+      CONFINEMENT_BENCH_BASELINE_CONFINED: "1"
+      CONFINEMENT_BENCH_DEPTHS: "1,8,64"
+      CONFINEMENT_BENCH_FILE_BYTES: "4"
+      CONFINEMENT_BENCH_ITERATIONS: "120"
+      CONFINEMENT_BENCH_ROUNDS: "6"
+      XDR_BENCH_TIME_MS: "1000"
+      XDR_BENCH_ITERATIONS: "64"
+      XDR_BENCH_ROUNDS: "3"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd packages/core build
+      - run: bun run --cwd packages/nfs build
+        if: matrix.suite != 'node-vfs'
+      - run: bun run --cwd packages/node build
+        if: matrix.suite == 'node-vfs'
+      - name: Record measurement environment
+        env:
+          BENCHMARK_DIR: ${{ runner.temp }}/package-benchmarks
+        run: |
+          mkdir -p "$BENCHMARK_DIR"
+          {
+            git rev-parse HEAD
+            sha256sum bun.lock
+            node --version
+            bun --version
+            node -p '"Vitest " + require("vitest/package.json").version'
+            uname -a
+            cat /etc/os-release
+            lscpu
+            env | sort | grep -E '^(BENCHMARK_RUNTIME|CONFINEMENT_BENCH_[A-Z_]+|XDR_BENCH_[A-Z_]+|GITHUB_(EVENT_NAME|RUN_ID|RUN_ATTEMPT|SHA)|Image(OS|Version))='
+          } > "$BENCHMARK_DIR/environment.txt"
+      - name: Measure core and NFS
+        if: matrix.suite != 'node-vfs'
+        env:
+          BENCHMARK_DIR: ${{ runner.temp }}/package-benchmarks
+          CONFINEMENT_BENCH_OUTPUT: ${{ runner.temp }}/package-benchmarks/confinement.json
+        run: |
+          for project in core nfs; do
+            "$BENCHMARK_RUNTIME" node_modules/vitest/vitest.mjs bench --run --config vitest.config.ts \
+              --project "$project (bench)" --pool=threads --no-file-parallelism \
+              --reporter=default --reporter=json --outputFile.json="$BENCHMARK_DIR/$project-vitest.json"
+          done
+          for report in confinement core-vitest nfs-vitest; do
+            test -s "$BENCHMARK_DIR/$report.json"
+          done
+      - name: Measure mounted Node providers
+        if: matrix.suite == 'node-vfs'
+        env:
+          BENCHMARK_DIR: ${{ runner.temp }}/package-benchmarks
+        run: |
+          node --experimental-vfs node_modules/vitest/vitest.mjs bench --run --config packages/node/vitest.config.ts \
+            --no-file-parallelism --reporter=default --reporter=json --outputFile.json="$BENCHMARK_DIR/node-vfs-vitest.json"
+          test -s "$BENCHMARK_DIR/node-vfs-vitest.json"
+      - name: Save benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-benchmarks-${{ matrix.suite }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/package-benchmarks
+          retention-days: 90
+          if-no-files-found: error

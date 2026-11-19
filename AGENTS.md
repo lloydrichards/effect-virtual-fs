@@ -20,6 +20,10 @@ Check the owning package's tests and the [filesystem contracts](.okf/contracts/i
 
 Use the [package test design skill](.agents/skills/package-test-design/SKILL.md) when writing or reorganizing package tests.
 
+## Package benchmarks
+
+Use the [package benchmarks skill](.agents/skills/package-benchmarks/SKILL.md) when building, reviewing, or tracking package benchmarks.
+
 ## Commits, branches, and reviews
 
 Omit Codex signatures and co-author trailers. Give new branches descriptive names without the `codex/` prefix.
