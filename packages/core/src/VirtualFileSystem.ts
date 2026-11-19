@@ -11,7 +11,7 @@
 import type * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
 import type * as Digest from "effect/crypto/Digest"
-import type * as SecureRandom from "effect/crypto/SecureRandom"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
 import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
@@ -2285,6 +2285,126 @@ export const mergeSnapshotDeltas: {
     )
   })
 )
+
+/** A completed overlay state with rename history, usable in this process. */
+export type OverlayMergeCapture = VfsModel.MergeCapture
+
+/** An opaque conflict key returned for one ordered pair of captures. */
+export type OverlayMergeResolution = {
+  readonly key: string
+  readonly take: SnapshotDeltaModel.MergeTake
+}
+
+/** A single decision covering every affected path. */
+export type OverlayMergeConflict =
+  | {
+    readonly kind: "path"
+    readonly key: string
+    readonly affectedPaths: ReadonlyArray<BytePath>
+    readonly details: ReadonlyArray<SnapshotDeltaModel.MergeConflict>
+  }
+  | {
+    readonly kind: "rename"
+    readonly key: string
+    readonly affectedPaths: ReadonlyArray<BytePath>
+    readonly detail: {
+      readonly source: BytePath
+      readonly path: BytePath
+      readonly reason: "RenameDiverged" | "BothChanged" | "ChangedRemoved" | "BothAddedDifferent"
+      readonly ours: OverlayMergeRenameSide
+      readonly theirs: OverlayMergeRenameSide
+    }
+  }
+
+export interface OverlayMergeRenameSide {
+  readonly destination: BytePath | undefined
+  readonly changes: SnapshotDeltaModel.MergeSideChange
+  readonly independentAddition: boolean
+}
+
+const OverlayMergeOptions = Schema.Struct({
+  limits: Schema.optionalKey(SnapshotDeltaModel.SnapshotDeltaLimits),
+  resolutions: Schema.optionalKey(Schema.Array(Schema.Struct({
+    key: Schema.String,
+    take: SnapshotDeltaModel.MergeTake
+  })))
+})
+
+export type OverlayMergeOptions = typeof OverlayMergeOptions.Type
+
+export interface OverlayMergeResult {
+  readonly delta: SnapshotDeltaModel.SnapshotDelta
+  readonly conflicts: ReadonlyArray<OverlayMergeConflict>
+}
+
+/**
+ * Captures an overlay's committed state and rename history for a later merge.
+ * Keep the capture in the process that issued it.
+ * @experimental
+ */
+export const captureOverlayForMerge: (overlay: OverlayVolume) => Effect.Effect<OverlayMergeCapture, VfsError> =
+  VfsModel.captureOverlayForMerge
+
+let overlayReviewSequence = 0n
+
+const overlayReviewIds = new WeakMap<OverlayMergeCapture, WeakMap<OverlayMergeCapture, string>>()
+
+/**
+ * Merges two captures against their common base. Unresolved groups retain their base paths in the delta.
+ * To resolve a group, submit its key and the choice. Include earlier choices on every retry.
+ * @experimental
+ */
+export const mergeOverlayCaptures: (
+  base: Snapshot,
+  ours: OverlayMergeCapture,
+  theirs: OverlayMergeCapture,
+  options?: OverlayMergeOptions
+) => Effect.Effect<
+  OverlayMergeResult,
+  VfsError | PlatformError.PlatformError,
+  Digest.Digest | SecureRandom.SecureRandom
+> = Effect.fnUntraced(function*(base, ours, theirs, options) {
+  const limits = yield* deltaLimits("mergeOverlayCaptures", options?.limits)
+
+  const decoded = yield* Effect.fromResult(
+    decodeConfiguration(OverlayMergeOptions, options ?? {}, "mergeOverlayCaptures")
+  )
+
+  if (VfsModel.getMergeCapture(ours) === undefined || VfsModel.getMergeCapture(theirs) === undefined) {
+    return yield* new VfsErrorModule.VfsError({
+      code: "InvalidArgument",
+      operation: "mergeOverlayCaptures",
+      field: "capture"
+    })
+  }
+
+  const random = yield* SecureRandom.SecureRandom
+  const nonce = yield* random.randomBytes(16)
+
+  const prefix = yield* Effect.sync(() => {
+    let pairs = overlayReviewIds.get(ours)
+
+    if (pairs === undefined) {
+      pairs = new WeakMap()
+      overlayReviewIds.set(ours, pairs)
+    }
+
+    const previous = pairs.get(theirs)
+
+    if (previous !== undefined) return previous
+
+    const id = `${Array.from(nonce, (byte) => byte.toString(16).padStart(2, "0")).join("")}.${++overlayReviewSequence}`
+    pairs.set(theirs, id)
+
+    return id
+  })
+
+  const merged = yield* SnapshotMergeInternal.mergeOverlayCaptures(base, ours, theirs, limits, {
+    review: { prefix, resolutions: decoded.resolutions ?? [] }
+  }).pipe(Effect.mapError((error) => retargetFailure("mergeOverlayCaptures", error)))
+
+  return { delta: merged.delta, conflicts: merged.conflictGroups }
+})
 
 const deltaSchemaIssue = (cause: VfsError, input: typeof Schema.Unknown.Type, options: SchemaAST.ParseOptions) =>
   new SchemaIssue.InvalidValue(

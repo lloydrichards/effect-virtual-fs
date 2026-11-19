@@ -1090,7 +1090,11 @@ interface Settled {
 const settle = Effect.fnUntraced(function*(
   classified: Classified,
   inputs: { readonly ours: Input; readonly theirs: Input },
-  resolutions: ReadonlyArray<MergeResolution>
+  resolutions: ReadonlyArray<MergeResolution>,
+  review?: (
+    paths: ReadonlySet<string>,
+    details: ReadonlyArray<MergeConflict>
+  ) => Take | undefined
 ) {
   const takes = new Map<string, Take>()
 
@@ -1122,17 +1126,21 @@ const settle = Effect.fnUntraced(function*(
     const chosen = new Set(scope.records.map((record) => takes.get(record.pathKey)))
 
     if (chosen.size > 1) return yield* argumentFailure(OPERATION, "resolutions")
-    const [take] = chosen
+    const [pathTake] = chosen
+
+    const details = pathTake === undefined ?
+      scope.records.map((record) => ({
+        path: makeBytePath(paths.get(record.pathKey)!),
+        reason: record.reason,
+        ours: sideChange(record.sides?.ours ?? inputs.ours.changes.get(record.pathKey)),
+        theirs: sideChange(record.sides?.theirs ?? inputs.theirs.changes.get(record.pathKey))
+      })) :
+      []
+
+    const take = review === undefined ? pathTake : review(scope.paths, details)
 
     if (take === undefined) {
-      for (const record of scope.records) {
-        conflicts.push({
-          path: makeBytePath(paths.get(record.pathKey)!),
-          reason: record.reason,
-          ours: sideChange(record.sides?.ours ?? inputs.ours.changes.get(record.pathKey)),
-          theirs: sideChange(record.sides?.theirs ?? inputs.theirs.changes.get(record.pathKey))
-        })
-      }
+      for (const detail of details) conflicts.push(detail)
 
       continue
     }
@@ -1353,6 +1361,10 @@ const emitDelta = Effect.fnUntraced(function*(
 
 interface OverlayMergeOptions {
   readonly paths?: ReadonlyArray<MergeResolution>
+  readonly review?: {
+    readonly prefix: string
+    readonly resolutions: ReadonlyArray<{ readonly key: string; readonly take: Take }>
+  }
   readonly renames?: ReadonlyArray<{ readonly source: MergeResolution["path"]; readonly take: Take }>
 }
 
@@ -1414,6 +1426,20 @@ const chooseRename = (
   return node === undefined ? { reason: "BothAddedDifferent" } : { node }
 }
 
+type OverlayConflictGroup =
+  | {
+    readonly kind: "path"
+    readonly key: string
+    readonly affectedPaths: ReadonlyArray<ReturnType<typeof makeBytePath>>
+    readonly details: ReadonlyArray<MergeConflict>
+  }
+  | {
+    readonly kind: "rename"
+    readonly key: string
+    readonly affectedPaths: ReadonlyArray<ReturnType<typeof makeBytePath>>
+    readonly detail: RenameConflict
+  }
+
 /** @internal */
 export const mergeOverlayCaptures = Effect.fnUntraced(function*(
   base: Snapshot,
@@ -1425,8 +1451,27 @@ export const mergeOverlayCaptures = Effect.fnUntraced(function*(
   const resolutions = options.renames ?? []
   const pathResolutions = options.paths ?? []
 
-  if (resolutions.length + pathResolutions.length > limits.records) {
+  if (resolutions.length + pathResolutions.length + (options.review?.resolutions.length ?? 0) > limits.records) {
     return yield* imageFailure(OVERLAY_OPERATION, "LimitExceeded", { field: "mergeResolutions" })
+  }
+
+  const choices = new Map<string, Take>()
+  const conflictGroups: Array<OverlayConflictGroup> = []
+  let groupIndex = 0
+
+  for (const { key, take } of options.review?.resolutions ?? []) {
+    if (choices.has(key)) return yield* argumentFailure(OVERLAY_OPERATION, "resolutions")
+    choices.set(key, take)
+  }
+
+  const review = (makeGroup: (key: string) => OverlayConflictGroup) => {
+    const key = `${options.review?.prefix}:${groupIndex++}`
+    const take = choices.get(key)
+
+    if (take === undefined) conflictGroups.push(makeGroup(key))
+    else choices.delete(key)
+
+    return take
   }
 
   const value = yield* Image.valueOf(base)
@@ -1495,18 +1540,33 @@ export const mergeOverlayCaptures = Effect.fnUntraced(function*(
   }
 
   for (const [key, { group, ours, theirs, before, reason }] of pending) {
-    const take = takes.get(key)
     const destination = (group.ours ?? group.theirs)!
 
-    if (take === undefined) {
-      renameConflicts.push({
-        source: makeBytePath(group.source.slice()),
-        path: makeBytePath((reason === "RenameDiverged" ? group.source : destination).slice()),
-        reason,
-        ours: summarizeRenameSide(before, ours, group.ours),
-        theirs: summarizeRenameSide(before, theirs, group.theirs)
-      })
+    const detail = (): RenameConflict => ({
+      source: makeBytePath(group.source.slice()),
+      path: makeBytePath((reason === "RenameDiverged" ? group.source : destination).slice()),
+      reason,
+      ours: summarizeRenameSide(before, ours, group.ours),
+      theirs: summarizeRenameSide(before, theirs, group.theirs)
+    })
 
+    const take = options.review === undefined ? takes.get(key) : review((key) => {
+      const affectedPaths = [group.source, destination]
+
+      if (group.theirs !== undefined && !sameBytes(group.theirs, destination)) affectedPaths.push(group.theirs)
+
+      return {
+        kind: "rename",
+        key,
+        affectedPaths: Arr.sortWith(affectedPaths, (path) => path, bytesOrder).map((path) =>
+          makeBytePath(path.slice())
+        ),
+        detail: detail()
+      }
+    })
+
+    if (take === undefined) {
+      if (options.review === undefined) renameConflicts.push(detail())
       continue
     }
 
@@ -1550,13 +1610,30 @@ export const mergeOverlayCaptures = Effect.fnUntraced(function*(
     chosen.add(key)
   }
 
-  const settled = yield* settle(classified, inputs, pathResolutions)
+  const settled = yield* settle(
+    classified,
+    inputs,
+    pathResolutions,
+    options.review === undefined ?
+      undefined :
+      (paths, details) =>
+        review((key) => ({
+          kind: "path",
+          key,
+          affectedPaths: Arr.sort(paths, Order.String).map((path) => makeBytePath(indexed.paths.get(path)!)),
+          details
+        }))
+  )
+
+  if (choices.size > 0) return yield* argumentFailure(OVERLAY_OPERATION, "resolutions")
+
   const decisions = new Map([...settled.decisions, ...renameDecisions])
   const delta = yield* emitDelta(indexed, decisions, indexed.paths, limits)
 
   return {
     delta,
     conflicts: settled.conflicts,
+    conflictGroups,
     renameConflicts: Arr.sortWith(renameConflicts, (conflict) => getBytes(conflict.source)!, bytesOrder)
   }
 })
