@@ -94,6 +94,25 @@ describe("direct Node provider", () => {
     expect(other.readFileSync("/file", "utf8")).toBe("overlay")
     expect(provider.readFileSync("/file", "utf8")).toBe("base")
   })
+  it("should truncate the existing object through a symlink and report directory errors as open failures", async () => {
+    const { provider } = await make()
+    provider.writeFileSync("/file", "original")
+    provider.symlinkSync("/file", "/alias")
+    const handle = provider.openSync("/file", "r")
+    provider.writeFileSync("/alias", "new")
+
+    expect(handle.readFileSync("utf8")).toBe("new")
+    expect(provider.readlinkSync("/alias")).toBe("/file")
+    expect(() => provider.writeFileSync("/", "invalid")).toThrow(error("EISDIR", "open", "/"))
+    handle.closeSync()
+  })
+  it("should retain the committed prefix when default overwrite exceeds the volume limit", async () => {
+    const { provider } = await make(undefined, { execution: "sync", maxBytes: ByteSize.bytes(3) })
+    provider.writeFileSync("/file", "old")
+
+    expect(() => provider.writeFileSync("/file", "new payload")).toThrow(error("ENOSPC", "write", "/file"))
+    expect(provider.readFileSync("/file", "utf8")).toBe("new")
+  })
   it("should decode numeric flags without implicit creation or truncation", async () => {
     const { provider } = await make()
     provider.writeFileSync("/file", "abc")
