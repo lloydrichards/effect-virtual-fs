@@ -3235,6 +3235,7 @@ export const makeNfs4Handler = (
                       // The COMPOUND header has three words plus the padded tag. The single
                       // operation adds two words before its body.
                       const compoundBytes = 20 + 4 * Math.ceil(parsed.tag.length / 4) + response.body.length
+
                       if (addBytes(byteLength(compoundBytes), rpcReplyOverheadBytes) > options.limits.maxRecordBytes) {
                         return { code: operation.code, status: Status.REP_TOO_BIG } satisfies ResultPart
                       }

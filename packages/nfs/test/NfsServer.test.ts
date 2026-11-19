@@ -2314,6 +2314,7 @@ it.layer(NodeCrypto.layer)("negotiated channel limits over TCP", (it) => {
     Effect.gen(function*() {
       const caller = yield* Vfs.Caller
       const maxRecordBytes = 128
+
       const handler = yield* wireClient(caller, {
         limits: { maxClients: 1, maxRecordBytes: ByteSize.bytes(maxRecordBytes) }
       })
