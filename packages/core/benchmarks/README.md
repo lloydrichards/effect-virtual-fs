@@ -3,7 +3,7 @@
 Build core first, then run its Vitest benchmark project from the repository root:
 
 ```sh
-bun run --cwd packages/core build
+bun run build --filter=@effect-vfs/core
 CONFINEMENT_BENCH_BASELINE=HEAD \
 CONFINEMENT_BENCH_BASELINE_CONFINED=1 \
 CONFINEMENT_BENCH_ITERATIONS=10000 \
@@ -17,7 +17,8 @@ use the same controls with:
 
 ```sh
 node node_modules/vitest/vitest.mjs bench --run --config vitest.config.ts \
-  --project 'core (bench)' --reporter=json --outputFile=/tmp/core-vitest.json
+  --project 'core (bench)' --pool=threads --no-file-parallelism \
+  --reporter=json --outputFile=/tmp/core-vitest.json
 ```
 
 Run measurements sequentially on an idle host. Keep the baseline revision fixed.
@@ -54,8 +55,8 @@ Scopes close handles on success and failure; temporary bundles are removed after
 the suite. These measurements do not quantify allocation or storage performance.
 
 Re-measure both revisions after changing runners. Earlier manual-runner medians
-and Vitest callback timings have different runtime boundaries. CI runs only a
-small correctness smoke; it does not impose speed thresholds.
+and Vitest callback timings have different runtime boundaries. The PR workflow runs a small correctness smoke.
+The package benchmarks workflow collects timing artifacts from main.
 
 ## Closed-handle churn
 

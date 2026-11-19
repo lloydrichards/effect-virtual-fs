@@ -42,7 +42,7 @@
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project nfs",
     "type-check": "tsc --noEmit",
     "benchmark:scheduling": "bun --bun run vitest run --config benchmarks/clientScheduling.config.ts",
-    "benchmark": "bun --bun run vitest bench --run --config ../../vitest.config.ts --project 'nfs (bench)'"
+    "benchmark": "bun --bun run vitest bench --run --config ../../vitest.config.ts --project 'nfs (bench)' --pool=threads --no-file-parallelism"
   },
   "peerDependencies": {
     "effect": "~4.1.4"

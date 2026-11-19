@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-11-19
+
+- Record package benchmark timing and environment artifacts on main and compare the mounted Effect provider with Node MemoryProvider through the same filesystem API.
+
 ## 2026-11-17
 
 - Install core and memory tarballs together in the pinned Node consumer gate and verify candidate resolution and a filesystem rebuild with no redundant writes.
