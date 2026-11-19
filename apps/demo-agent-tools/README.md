@@ -85,12 +85,12 @@ combination. Repeat its tests and type-check when upgrading either dependency.
 
 The server exposes these MCP tools:
 
-| Tool           | Arguments                                             | Result                                                                                |
-| -------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `execute`      | `{ code }`                                            | `{ runId, execution, changes }` from a fresh overlay of the seeded base.              |
-| `inspect_run`  | `{ runId, path, action: "read" \| "list" \| "stat" }` | Saved run result and changes, plus the inspected `entry`.                             |
-| `inspect_base` | `{ path, action: "read" \| "list" \| "stat" }`        | Original file content, listing, or metadata.                                          |
-| `combine_runs` | `{ ours, theirs, take? }`                             | Release handoff result, version 1 snapshot delta, conflict, and path-only comparison. |
+| Tool           | Arguments                                             | Result                                                                   |
+| -------------- | ----------------------------------------------------- | ------------------------------------------------------------------------ |
+| `execute`      | `{ code }`                                            | `{ runId, execution, changes }` from a fresh overlay of the seeded base. |
+| `inspect_run`  | `{ runId, path, action: "read" \| "list" \| "stat" }` | Saved run result and changes, plus the inspected `entry`.                |
+| `inspect_base` | `{ path, action: "read" \| "list" \| "stat" }`        | Original file content, listing, or metadata.                             |
+| `combine_runs` | `{ ours, theirs, resolutions? }`                      | A ready snapshot delta, or a preview delta with conflict groups.         |
 
 The host connects the components in this order:
 
@@ -141,7 +141,7 @@ The response includes an `Added` change for `report.txt` and an `Updated` change
 run ID in these calls:
 
 ```json
-{ "runId": "1", "path": "report.txt", "action": "read" }
+{ "runId": "<run-id-from-execute>", "path": "report.txt", "action": "read" }
 ```
 
 Send that to `inspect_run`. Send `{ "path": "plans/draft.md", "action": "read" }` to `inspect_base` to see the original
@@ -170,20 +170,27 @@ return await tools.workspace.write_file({
 })
 ```
 
-Call `combine_runs` with the release manager's run ID as `ours` and QA's run ID as `theirs`. Use the returned
-`entry` for the handoff. It contains the QA text at `plans/friday-release.md` with no conflict. The `baseline` shows
-what the current path-only merge would do with the same inputs: add the renamed file and report `ChangedRemoved` at the
-draft path. The returned `delta` is version 1 snapshot delta JSON for the common base.
+Call `combine_runs` with the release manager's run ID as `ours` and QA's run ID as `theirs`. The response has
+`status: "ready"` and a version 1 snapshot delta. Apply the delta to the common base to get QA's text at
+`plans/friday-release.md`.
 
-If the rollback reviewer renames the draft to `plans/rollback-ready.md` in a separate run, combine that run with
-the release manager's rename run. The tool reports one conflict showing both destinations and keeps the original
-draft while unresolved. Call again with `take: "ours"` to keep the Friday path, `take: "theirs"` to keep the rollback
-path, or `take: "base"` to keep the draft. Each choice leaves one plan. The path-only baseline adds both
-destinations without a conflict.
+If another reviewer renames the draft to `plans/rollback-ready.md`, combining the two rename runs returns
+`status: "preview"`, a `previewDelta`, and one conflict showing both destinations. The preview keeps the original
+draft. Copy the conflict's `key` into a resolution and retry with the same ordered pair of run IDs:
 
-Each run can make one clean rename or content edit of the seeded `plans/draft.md`. Use new paths for rename
-destinations. The original runs and base remain available for inspection. This workflow is part of the private Code
-Mode demo. The public merge API remains on hold in [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271).
+```json
+{
+  "ours": "<release-manager-run-id>",
+  "theirs": "<rollback-reviewer-run-id>",
+  "resolutions": [{ "key": "<key-from-the-conflict>", "take": "ours" }]
+}
+```
+
+Choose `ours` for the Friday path, `theirs` for the rollback path, or `base` to keep the draft. Include every choice
+made so far in each retry. Use the delta for handoff once the response is `ready`. The original runs and base remain
+available for inspection until the server restarts. To verify a handoff against the packed core package, build core
+and run `bun run --cwd apps/demo-agent-tools test:packed-handoff`. The walkthrough decodes the returned delta with
+`SnapshotDeltaFromBytes()` and applies it to the seeded base used by Code Mode.
 
 Program diagnostics use `execution.ok: false` inside a successful MCP response. Expected filesystem failures appear
 inside the workspace tool's outcome. Invalid outer requests and inspection failures are MCP tool errors. A failed

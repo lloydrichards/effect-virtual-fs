@@ -62,7 +62,7 @@ describe("Code Mode workspaces", () => {
         assert.deepStrictEqual(second.changes, [])
         assert.deepStrictEqual(
           (yield* handlers.inspect_run({ runId: first.runId, action: "read", path: "report.json" })).entry,
-          { path: "report.json", content: "{\"files\":3}" }
+          { path: "report.json", content: "{\"files\":4}" }
         )
       }))
 
@@ -264,12 +264,14 @@ describe("Code Mode workspaces", () => {
       Effect.gen(function*() {
         const handlers = yield* codeModeHandlers
 
-        for (let index = 0; index < maxRetainedRuns; index++) yield* handlers.execute({ code: "return null" })
+        const first = yield* handlers.execute({ code: "return null" })
+
+        for (let index = 1; index < maxRetainedRuns; index++) yield* handlers.execute({ code: "return null" })
         assert.strictEqual(
           (yield* handlers.execute({ code: "return null" }).pipe(Effect.flip)).code,
           "RunLimitExceeded"
         )
-        const retained = yield* handlers.inspect_run({ runId: "1", action: "list", path: "." })
+        const retained = yield* handlers.inspect_run({ runId: first.runId, action: "list", path: "." })
         assert.deepStrictEqual(retained.execution.ok && retained.execution.value, null)
         assert.deepStrictEqual(retained.changes, [])
       }))
@@ -305,7 +307,7 @@ describe("Code Mode workspaces", () => {
 
         for (let index = 0; index < maxRetainedRuns; index++) {
           const next = yield* handlers.execute({ code: "return 'still running'" })
-          assert.strictEqual(next.runId, String(index + 1))
+          assert.isTrue(next.runId.endsWith("/" + String(index + 1)))
           assert.deepStrictEqual(next.execution.ok && next.execution.value, "still running")
           assert.deepStrictEqual(next.changes, [])
         }

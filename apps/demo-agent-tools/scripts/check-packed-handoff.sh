@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 root=$PWD
 mkdir -p "$root/.cache"
-stage=$(mktemp -d "$root/.cache/codemode-trial.XXXXXX")
+stage=$(mktemp -d "$root/.cache/codemode-handoff.XXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
 
 archive="$root/.cache/core-overlay-merge-candidate.tgz"

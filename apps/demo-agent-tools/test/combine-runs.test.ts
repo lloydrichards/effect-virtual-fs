@@ -42,21 +42,20 @@ const appliedFiles = Effect.fnUntraced(function*(base: Vfs.Snapshot, json: strin
 it.layer(BunCrypto.layer)((it) => {
   it.effect("should apply the edit at the new path when combining a rename and an edit", () =>
     Effect.gen(function*() {
-      const base = yield* makeBaseSnapshot()
+      const base = yield* makeBaseSnapshot(true)
       const handlers = yield* codeModeHandlers
       const ours = yield* handlers.execute(renameProgram(moved))
       const theirs = yield* handlers.execute(editProgram)
       const combined = yield* handlers.combine_runs({ ours: ours.runId, theirs: theirs.runId })
 
-      assert.deepStrictEqual(combined.entry, { path: moved, content: edited })
-      assert.isNull(combined.conflict)
-      assert.deepStrictEqual(combined.baseline, {
-        changes: [{ kind: "Added", path: moved }],
-        conflicts: [{ path: source, reason: "ChangedRemoved" }]
-      })
+      if (combined.status !== "ready") throw new Error("Expected a ready handoff")
+
       assert.deepStrictEqual(yield* appliedFiles(base, combined.delta), [["moved.md", edited]])
 
       const swapped = yield* handlers.combine_runs({ ours: theirs.runId, theirs: ours.runId })
+
+      if (swapped.status !== "ready") throw new Error("Expected a ready handoff")
+
       assert.deepStrictEqual(yield* appliedFiles(base, swapped.delta), [["moved.md", edited]])
       assert.deepStrictEqual(
         (yield* handlers.inspect_run({ runId: ours.runId, action: "read", path: moved })).entry,
@@ -74,7 +73,7 @@ it.layer(BunCrypto.layer)((it) => {
 
   it.effect("should keep the source until one choice resolves the whole divergent rename", () =>
     Effect.gen(function*() {
-      const base = yield* makeBaseSnapshot()
+      const base = yield* makeBaseSnapshot(true)
       const handlers = yield* codeModeHandlers
       const oursPath = "plans/a.md"
       const theirsPath = "plans/b.md"
@@ -83,22 +82,24 @@ it.layer(BunCrypto.layer)((it) => {
       const request = { ours: ours.runId, theirs: theirs.runId }
       const unresolved = yield* handlers.combine_runs(request)
 
-      assert.deepStrictEqual(unresolved.conflict, { source, ours: oursPath, theirs: theirsPath })
-      assert.deepStrictEqual(unresolved.baseline, {
-        changes: [
-          { kind: "Added", path: oursPath },
-          { kind: "Added", path: theirsPath },
-          { kind: "Removed", path: source }
-        ],
-        conflicts: []
-      })
-      assert.deepStrictEqual(yield* appliedFiles(base, unresolved.delta), [["draft.md", original]])
+      if (unresolved.status !== "preview") throw new Error("Expected a conflict preview")
+
+      assert.lengthOf(unresolved.conflicts, 1)
+      const conflict = unresolved.conflicts[0]!
+
+      if (conflict.kind !== "rename") throw new Error("Expected a rename conflict")
+
+      assert.strictEqual(conflict.ours, projectRoot + "/" + oursPath)
+      assert.strictEqual(conflict.theirs, projectRoot + "/" + theirsPath)
+      assert.deepStrictEqual(yield* appliedFiles(base, unresolved.previewDelta), [["draft.md", original]])
 
       const options = [["ours", "a.md"], ["theirs", "b.md"], ["base", "draft.md"]] as const
 
       for (const [take, name] of options) {
-        const resolved = yield* handlers.combine_runs({ ...request, take })
-        assert.isNull(resolved.conflict)
+        const resolved = yield* handlers.combine_runs({ ...request, resolutions: [{ key: conflict.key, take }] })
+
+        if (resolved.status !== "ready") throw new Error("Expected a ready handoff")
+
         assert.deepStrictEqual(yield* appliedFiles(base, resolved.delta), [[name, original]])
       }
 
@@ -119,7 +120,7 @@ it.layer(BunCrypto.layer)((it) => {
       const editedRun = yield* handlers.execute(editProgram)
       const failure = yield* handlers.combine_runs({ ours: replaced.runId, theirs: editedRun.runId }).pipe(Effect.flip)
 
-      assert.strictEqual(failure.code, "UnsupportedRunCombination")
+      assert.strictEqual(failure.code, "InvalidStructure")
       assert.deepStrictEqual(
         (yield* handlers.inspect_run({ runId: replaced.runId, action: "read", path: "BRIEF.md" })).entry,
         { path: "BRIEF.md", content: original }

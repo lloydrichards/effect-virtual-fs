@@ -1,141 +1,112 @@
-import { BytePath, SnapshotDelta, VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Effect, Predicate, Schema } from "effect"
-import { projectRoot } from "./workspace.js"
+import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect, Schema } from "effect"
+import { Tool } from "effect/ai"
+import { ToolFailure } from "./tools.js"
 
-const source = "plans/draft.md"
-
-const sourcePath = projectRoot + "/" + source
-
-const prefix = projectRoot + "/"
-
-const limits = SnapshotDelta.SnapshotDeltaLimits.constrained
-
-const encodeDelta = Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes(limits))
-
-const unsupported = (message: string) =>
-  Effect.fail({ code: "UnsupportedRunCombination", operation: "combine_runs", message })
-
-const rootedCaller = Effect.fnUntraced(function*(snapshot: Vfs.Snapshot) {
-  const volume = yield* Vfs.fromSnapshot(snapshot)
-
-  return yield* (yield* volume.caller()).withRoot(projectRoot)
+const Conflict = Schema.Struct({
+  key: Schema.String,
+  kind: Schema.Literals(["path", "rename"]),
+  affectedPaths: Schema.Array(Schema.String),
+  reasons: Schema.Array(Schema.String),
+  ours: Schema.optionalKey(Schema.String),
+  theirs: Schema.optionalKey(Schema.String)
 })
 
-const describeRun = Effect.fnUntraced(function*(
-  base: Vfs.Snapshot,
-  capture: Vfs.OverlayCapture,
-  delta: SnapshotDelta.SnapshotDelta
-) {
-  const [change] = capture.changes
+export const CombineRuns = Tool.make("combine_runs", {
+  description: "Preview or complete a release handoff from two successful runs. " +
+    "Submit all choices so far on each retry. Only a ready result can be used for the handoff.",
+  parameters: Schema.Struct({
+    ours: Schema.String,
+    theirs: Schema.String,
+    resolutions: Schema.optionalKey(Schema.Array(Schema.Struct({ key: Schema.String, take: Vfs.MergeTake })))
+  }),
+  success: Schema.Union([
+    Schema.Struct({
+      status: Schema.Literal("preview"),
+      previewDelta: Schema.String,
+      conflicts: Schema.Array(Conflict)
+    }),
+    Schema.Struct({ status: Schema.Literal("ready"), delta: Schema.String })
+  ]),
+  failure: ToolFailure,
+  failureMode: "return"
+}).annotate(Tool.Readonly, true).annotate(Tool.Destructive, false).annotate(Tool.OpenWorld, false)
 
-  if (
-    capture.changes.length === 1 && Predicate.isTagged(change, "Updated") && change.kind === "file" &&
-    change.differences.length === 1 && change.differences.includes("content") &&
-    (yield* BytePath.toString(change.path)) === sourcePath
-  ) {
-    return { kind: "edit" as const, snapshot: capture.snapshot }
+const pathText = (path: BytePath.BytePath) =>
+  Effect.map(BytePath.toBytes(path), (bytes) => new TextDecoder().decode(bytes))
+
+const describeConflict = Effect.fnUntraced(function*(conflict: Vfs.OverlayMergeConflict) {
+  const shared = { key: conflict.key, affectedPaths: yield* Effect.forEach(conflict.affectedPaths, pathText) }
+
+  if (conflict.kind === "path") {
+    return { ...shared, kind: "path" as const, reasons: conflict.details.map((detail) => detail.reason) }
   }
 
-  if (
-    capture.changes.length === 1 && Predicate.isTagged(change, "Renamed") && change.kind === "file" &&
-    change.differences.length === 0 && (yield* BytePath.toString(change.from)) === sourcePath
-  ) {
-    const destination = yield* BytePath.toString(change.to)
+  const { detail } = conflict
 
-    if (!destination.startsWith(prefix)) return yield* unsupported("Both paths must be in the project.")
+  const summary: {
+    key: string
+    affectedPaths: ReadonlyArray<string>
+    kind: "rename"
+    reasons: ReadonlyArray<string>
+    ours?: string
+    theirs?: string
+  } = { ...shared, kind: "rename", reasons: [detail.reason] }
 
-    // The raw capture proves lineage. The delta must independently show that the destination was absent.
-    const changes = yield* Vfs.inspectSnapshotDelta(base, delta, {}, limits)
-    const added = changes.find(Predicate.isTagged("Added"))
+  if (detail.ours.destination !== undefined) summary.ours = yield* pathText(detail.ours.destination)
 
-    if (
-      changes.length === 2 && changes.some(Predicate.isTagged("Removed")) && added &&
-      (yield* BytePath.toString(added.path)) === destination
-    ) {
-      return { kind: "rename" as const, snapshot: capture.snapshot, destination: destination.slice(prefix.length) }
-    }
-  }
+  if (detail.theirs.destination !== undefined) summary.theirs = yield* pathText(detail.theirs.destination)
 
-  return yield* unsupported("Each run must only edit the seeded draft or rename it to a new path without editing it.")
+  return summary
 })
 
-// Callers supply only the immutable captures retained by this Code Mode instance, all from its one base.
 export const combineRuns = Effect.fnUntraced(function*(
   base: Vfs.Snapshot,
-  oursCapture: Vfs.OverlayCapture,
-  theirsCapture: Vfs.OverlayCapture,
-  take: "ours" | "theirs" | "base" | undefined
+  ours: Vfs.OverlayMergeCapture,
+  theirs: Vfs.OverlayMergeCapture,
+  resolutions?: ReadonlyArray<Vfs.OverlayMergeResolution>
 ) {
-  const oursDelta = yield* Vfs.diffSnapshots(base, oursCapture.snapshot, limits)
-  const theirsDelta = yield* Vfs.diffSnapshots(base, theirsCapture.snapshot, limits)
-  const ours = yield* describeRun(base, oursCapture, oursDelta)
-  const theirs = yield* describeRun(base, theirsCapture, theirsDelta)
-  const baseline = yield* Vfs.mergeSnapshotDeltas(base, oursDelta, theirsDelta, { limits })
-  const baselineChanges = yield* Vfs.inspectSnapshotDelta(base, baseline.delta, {}, limits)
+  const result = yield* Vfs.mergeOverlayCaptures(base, ours, theirs, { resolutions: resolutions ?? [] }).pipe(
+    Effect.catchTags({
+      VfsError: Effect.fnUntraced(function*(error) {
+        const failure: {
+          code: string
+          operation: string
+          message: string
+          path?: string
+          field?: string
+        } = { code: error.code, operation: error.operation, message: error.message }
 
-  let target = base
-  let path = source
-  let conflict = null
+        if (error.path !== undefined) failure.path = yield* Effect.orDie(pathText(error.path))
 
-  if (ours.kind === "rename" && theirs.kind === "rename") {
-    if (ours.destination === theirs.destination) {
-      return yield* unsupported("The two renames must choose different destinations.")
-    }
+        if (error.field !== undefined) failure.field = error.field
 
-    if (take === "ours" || take === "theirs") {
-      const selected = take === "ours" ? ours : theirs
-      target = selected.snapshot
-      path = selected.destination
-    } else if (take === undefined) {
-      conflict = { source, ours: ours.destination, theirs: theirs.destination }
-    }
-  } else {
-    if (take !== undefined) return yield* unsupported("Choose a side only when the two renames conflict.")
+        return yield* Effect.fail(failure)
+      }),
+      PlatformError: () =>
+        Effect.fail({
+          code: "InternalToolError",
+          operation: "combine_runs",
+          message: "Could not compute the snapshot delta."
+        })
+    })
+  )
 
-    const moved = ours.kind === "rename" ? ours : theirs
-    const edited = ours.kind === "edit" ? ours : theirs
+  const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(result.delta).pipe(
+    Effect.mapError(() => ({
+      code: "InternalToolError",
+      operation: "combine_runs",
+      message: "Could not encode the snapshot delta."
+    }))
+  )
 
-    if (moved.kind !== "rename" || edited.kind !== "edit") {
-      return yield* unsupported("The pilot needs one rename and one edit, or two different renames.")
-    }
+  const delta = new TextDecoder().decode(encoded)
 
-    const editor = yield* rootedCaller(edited.snapshot)
-    const bytes = yield* editor.readFile(source)
-    const volume = yield* Vfs.fromSnapshot(moved.snapshot)
-    const destination = yield* (yield* volume.caller()).withRoot(projectRoot)
-    yield* destination.writeFile(moved.destination, bytes, { access: "write", truncate: true })
-    target = yield* volume.snapshot
-    path = moved.destination
-  }
-
-  const delta = yield* Vfs.diffSnapshots(base, target, limits)
-  const applied = yield* Vfs.applySnapshotDelta(base, delta, limits)
-  const encoded = yield* encodeDelta(delta)
-
-  const caller = yield* rootedCaller(applied)
-  const content = yield* caller.readFile(path)
+  if (result.conflicts.length === 0) return { status: "ready" as const, delta }
 
   return {
-    entry: { path, content: new TextDecoder("utf-8", { ignoreBOM: true }).decode(content) },
-    conflict,
-    delta: new TextDecoder().decode(encoded),
-    baseline: {
-      changes: yield* Effect.forEach(
-        baselineChanges,
-        (change) =>
-          BytePath.toString(change.path).pipe(Effect.map((absolute) => ({
-            kind: change._tag,
-            path: absolute.slice(prefix.length)
-          })))
-      ),
-      conflicts: yield* Effect.forEach(
-        baseline.conflicts,
-        (conflict) =>
-          BytePath.toString(conflict.path).pipe(Effect.map((absolute) => ({
-            reason: conflict.reason,
-            path: absolute.slice(prefix.length)
-          })))
-      )
-    }
+    status: "preview" as const,
+    previewDelta: delta,
+    conflicts: yield* Effect.forEach(result.conflicts, (conflict) => Effect.orDie(describeConflict(conflict)))
   }
 })

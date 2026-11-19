@@ -7,7 +7,6 @@ import { Effect, Option, Schema } from "effect"
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { expect } from "vitest"
-import { TrialCodeModeTools } from "../src/codemode-trial.js"
 import { CodeModeTools, RunResult } from "../src/codemode.js"
 import { ToolFailure } from "../src/tools.js"
 import { makeBaseSnapshot, projectRoot } from "../src/workspace.js"
@@ -63,12 +62,11 @@ const stop = Effect.fnUntraced(function*(child: ChildProcessWithoutNullStreams) 
   }
 })
 
-const connect = Effect.fnUntraced(function*(protocolVersion = "2025-11-25", entry = "mcp.ts", trial = false) {
+const connect = Effect.fnUntraced(function*(protocolVersion = "2025-11-25", entry = "mcp.ts") {
   const child = yield* Effect.acquireRelease(
     Effect.sync(() =>
       spawn("bun", [fileURLToPath(new URL(`../src/${entry}`, import.meta.url))], {
-        stdio: "pipe",
-        env: { ...process.env, EFFECT_VFS_CODEMODE_TRIAL: trial ? "1" : "0" }
+        stdio: "pipe"
       })
     ),
     stop
@@ -310,8 +308,7 @@ it.live("should return a combined artifact through the Code Mode toolkit", () =>
       combined.structuredContent
     )
 
-    expect(result.entry).toEqual({ path: "plans/moved.md", content: "Edited plan." })
-    expect(result.conflict).toBeNull()
+    if (result.status !== "ready") throw new Error("Expected a ready handoff")
 
     const header = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Struct({
       format: Schema.Literal("effect-vfs-delta"),
@@ -351,14 +348,14 @@ it.live("should discard the workspace and recover when an MCP client cancels exe
         .structuredContent
     )
 
-    expect(fresh.runId).toBe("1")
+    expect(fresh.runId).toMatch(/\/1$/)
     expect(fresh.execution).toMatchObject({ ok: true, value: { ok: false, error: { code: "NotFound" } } })
     expect(fresh.changes).toEqual([])
   }))
 
 it.live("should complete the packed Code Mode release handoff over MCP", () =>
   Effect.gen(function*() {
-    const { call } = yield* connect("2025-11-25", "codemode-mcp.ts", true)
+    const { call } = yield* connect("2025-11-25", "codemode-mcp.ts")
 
     const execute = Effect.fnUntraced(function*(code: string) {
       const result = yield* call("execute", { code })
@@ -372,7 +369,7 @@ it.live("should complete the packed Code Mode release handoff over MCP", () =>
       const result = yield* call("combine_runs", args)
       expect(result.isError).toBe(false)
 
-      return yield* Schema.decodeUnknownEffect(TrialCodeModeTools.tools.combine_runs.successSchema)(
+      return yield* Schema.decodeUnknownEffect(CodeModeTools.tools.combine_runs.successSchema)(
         result.structuredContent
       )
     })
@@ -460,7 +457,7 @@ it.live("should complete the packed Code Mode release handoff over MCP", () =>
       path: projectRoot + "/plans"
     })
 
-    const restarted = yield* connect("2025-11-25", "codemode-mcp.ts", true)
+    const restarted = yield* connect("2025-11-25", "codemode-mcp.ts")
     yield* restarted.call("execute", { code: "return 1" })
     yield* restarted.call("execute", { code: "return 2" })
     expect((yield* failure(yield* restarted.call("combine_runs", { ours: rename, theirs: edit }))).code)

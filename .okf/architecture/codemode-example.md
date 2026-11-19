@@ -8,9 +8,9 @@ sources:
   - id: execution
     resource: ../../apps/demo-agent-tools/src/codemode.ts
     title: Execution, guest tools, capture, and inspection
-  - id: trial
-    resource: ../../apps/demo-agent-tools/src/codemode-trial.ts
-    title: Opt-in trial, conflict preview, and handoff
+  - id: handoff
+    resource: ../../apps/demo-agent-tools/src/combine-runs.ts
+    title: Conflict preview and handoff
   - id: transport
     resource: ../../apps/demo-agent-tools/src/codemode-mcp.ts
     title: Effect McpServer stdio entry point
@@ -29,7 +29,7 @@ sources:
   - id: research
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/30#issuecomment-6298896502
     title: Execution research, alternatives, and remaining investigation
-generated: { by: codex/okf, at: "2026-11-19T09:44:08+01:00" }
+generated: { by: codex/okf, at: "2026-11-19T09:47:20+01:00" }
 ---
 
 # Code Mode example ownership
@@ -63,11 +63,11 @@ Program failure and cooperative timeout return an interpreter diagnostic and sti
 
 The process serializes executions and retains at most eight runs with no eviction. Restart clears run IDs and artifacts. Runs and captures are process-local.[^execution]
 
-## Release handoff trial
+## Release handoff
 
-`EFFECT_VFS_CODEMODE_TRIAL=1` selects the experimental `combine_runs` handler. Each successful execution saves a core-issued merge capture in its retained run record. The handler merges two retained captures against the server's base. It returns a preview delta with conflict groups while choices remain open and a handoff delta after every group has a choice. Each retry sends all choices so far. Core owns conflict keys and resolution rules.[^trial][^mcp-tests]
+Each successful execution saves a core-issued merge capture in its retained run record. The handler merges two retained captures against the server's base. It returns a preview delta with conflict groups while choices remain open and a handoff delta after every group has a choice. Each retry sends all choices so far. Core owns conflict keys and resolution rules.[^handoff][^mcp-tests]
 
-Trial run IDs belong to one server instance. After a restart, the coordinator returns to the usual handoff workflow. The [rename-aware merge proposal](../research/overlay-rename-merge.md) records the packed trial and release gate.
+Run IDs belong to one server instance. A restart expires the runs and conflict keys. The [rename-aware merge proposal](../research/overlay-rename-merge.md) records the packed walkthrough and release gate.
 
 ## Runtime and authority boundaries
 
@@ -81,9 +81,9 @@ The example is [constrained by system boundaries](system-boundaries.md "constrai
 
 [^execution]: `codemode.ts` defines the guest adapters, scoped execution and capture, retained run map, and snapshot-based inspection.
 
-[^transport]: `codemode-mcp.ts` selects the usual or trial toolkit and starts `McpServer.layerStdio`.
+[^transport]: `codemode-mcp.ts` starts `McpServer.layerStdio`.
 
-[^trial]: `codemode-trial.ts` looks up retained merge captures, calls core, and maps the result to a preview or handoff response.
+[^handoff]: `combine-runs.ts` looks up retained merge captures, calls core, and maps the result to a preview or handoff response.
 
 [^fixture]: `workspace.ts` seeds the immutable template and exports its project root.
 
@@ -93,4 +93,4 @@ The example is [constrained by system boundaries](system-boundaries.md "constrai
 
 [^research]: The linked issue comment retains source-based interpreter limitations and unimplemented runtime alternatives.
 
-[^mcp-tests]: `mcp.test.ts` sends `notifications/cancelled` for an execution request and verifies missing retained state, unchanged base, and run-ID reuse in the usual workflow. The packed trial exercises merge preview, incremental resolution, and rejection of old trial run IDs in a fresh process.
+[^mcp-tests]: `mcp.test.ts` sends `notifications/cancelled` for an execution request and verifies missing retained state, unchanged base, and that cancellation consumes no run ID. The packed walkthrough exercises merge preview, incremental resolution, and rejection of old run IDs in a fresh process.
