@@ -308,10 +308,14 @@ export const bind = Effect.fnUntraced(
             truncateCursor: "preserve"
           })
 
-        const overwrite = o.access === "write" && o.create === "ifMissing" && o.truncate && !o.append &&
-          !noFollow && !directory
+        const overwrite = o.access === "write" && o.create === "ifMissing" && o.truncate && !o.append
+        const readExisting = o.access === "read" && o.create === "never" && !o.truncate && !o.append
+        const checkedOpen = !noFollow && !directory && (overwrite || readExisting)
 
-        const prepared = overwrite ? Paths.preparePath(path, "path", runtime.owner.limits.expandedPathBytes) : undefined
+        const prepared = checkedOpen
+          ? Paths.preparePath(path, "path", runtime.owner.limits.expandedPathBytes)
+          : undefined
+
         const opened = prepared !== undefined && Result.isSuccess(prepared) ? openFile(path) : undefined
 
         // A successful checked open has already resolved and validated the file.

@@ -96,14 +96,14 @@ export class Provider extends VirtualProvider {
     if (this.readonly) throw new NodeError("EROFS", syscall, path)
   }
 
-  openSync(input: string, flags: string | number = "r", mode = 0o666): NodeFileHandle {
+  private openHandle(input: string, flags: string | number, mode: number, fileOnly = false): NodeFileHandle {
     const path = pathOf(input, "open")
     const decoded = flagsOf(flags, mode, path)
 
     if (decoded.writable || decoded.options.create !== "never") this.mutate("open", path)
     let directory = decoded.directory
 
-    if (decoded.directory || !decoded.writable && decoded.options.create === "never") {
+    if (!fileOnly && (decoded.directory || !decoded.writable && decoded.options.create === "never")) {
       const info = invoke("open", path, () => this.binding.stat(decoded.noFollow ? noFollow(path) : path))
 
       if (decoded.noFollow && info.kind === "symlink") throw new NodeError("ELOOP", "open", path)
@@ -124,6 +124,9 @@ export class Provider extends VirtualProvider {
       decoded,
       this.readonly
     )
+  }
+  openSync(input: string, flags: string | number = "r", mode = 0o666): NodeFileHandle {
+    return this.openHandle(input, flags, mode)
   }
   async open(path: string, flags: string | number = "r", mode = 0o666) {
     return this.openSync(path, flags, mode)
@@ -362,12 +365,25 @@ export class Provider extends VirtualProvider {
   }
 
   // Derived whole-file methods validate input before open can create or truncate a file.
+  private openForWholeFileRead(path: string, flag: string | number): NodeFileHandle {
+    if (flag === "r" && this.openSync === Provider.prototype.openSync) {
+      try {
+        return this.openHandle(path, flag, 0o666, true)
+      } catch (cause) {
+        if (!(cause instanceof NodeError) || cause.code !== "EISDIR") throw cause
+        // Open the directory so the handle reports the read error.
+      }
+    }
+
+    return this.openSync(path, flag)
+  }
+
   readFileSync(path: string, options?: FileOptions<"buffer" | null | undefined> | null): Buffer
   readFileSync(path: string, options: BufferEncoding | (FileOptions & TextEncodingOption)): string
   readFileSync(path: string, options?: WholeFileOptions): string | Buffer
   readFileSync(path: string, options?: WholeFileOptions) {
     encodingOf(options)
-    const handle = this.openSync(path, Predicate.isObject(options) ? options.flag ?? "r" : "r")
+    const handle = this.openForWholeFileRead(path, Predicate.isObject(options) ? options.flag ?? "r" : "r")
 
     try {
       return handle.readFileSync(options)
