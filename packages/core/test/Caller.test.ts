@@ -3386,6 +3386,33 @@ describe("recursive removal during namespace changes", () => {
         }))
     }
 
+    it.effect("reports a missing listed child during forced recursive removal", () =>
+      Effect.gen(function*() {
+        const gate = yield* pauseRemoval()
+        const caller = gate.owner
+        yield* caller.mkdir("/work")
+        yield* caller.writeFile("/work/a", Uint8Array.of(1), writeOptions)
+        yield* caller.writeFile("/work/z", Uint8Array.of(2), writeOptions)
+        const expected = yield* caller.lookup("/work")
+        yield* gate.arm
+
+        const removal = yield* caller.remove("/work", { recursive: true, expected, force: true }).pipe(
+          Effect.flip,
+          Effect.forkChild({ startImmediately: true })
+        )
+
+        yield* gate.entered
+
+        const unlink = yield* caller.unlink("/work/z").pipe(Effect.forkChild({ startImmediately: true }))
+
+        yield* gate.release
+        yield* Fiber.join(unlink)
+
+        assert.strictEqual((yield* Fiber.join(removal)).code, "NotFound")
+        assert.strictEqual((yield* caller.stat("/work")).kind, "directory")
+        assert.deepStrictEqual((yield* caller.readDirectory("/work")).value, [])
+      }))
+
     it.effect("preserves a replacement installed after the parent directory was listed", () =>
       Effect.gen(function*() {
         const gate = yield* pauseRemoval()
