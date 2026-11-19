@@ -58,7 +58,7 @@ bun run --cwd apps/demo-typescript-workbench lint:effects
 
 `test/server-smoke.test.ts` loads the built app shell and runs the starter program through the production HTTP RPC endpoint.
 
-`test/workbench.test.ts` qualifies the current Effect RPC worker, repeated builds, Node declarations, separate Compile/Run, real permission denial and recovery, checkpoint restoration, stale commands, Stop, timeout recovery and output bounds. `test/mounted-cleanup.test.ts` qualifies routing removal and rejects a build when unmount reports failure. The obsolete comparison server, protocol and tests have been removed.
+`test/workbench.test.ts` qualifies the current Effect RPC worker, repeated builds, Node declarations, real permission denial and recovery, Stop, timeout recovery and output bounds. `test/mounted-cleanup.test.ts` qualifies routing removal and rejects a build when unmount reports failure. The obsolete comparison server, protocol and tests have been removed.
 
 `test/workbench-review.test.ts` adds request interruption, stale Stop during Restore, owner shutdown and save-point isolation regressions. Accepted commands belong to the workbench scope, so disconnecting a browser does not interrupt a filesystem transaction. Stop explicitly replaces the worker.
 

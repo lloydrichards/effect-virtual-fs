@@ -29,6 +29,6 @@ jobs:
           node-version: 26.11.1
       - run: bun install --frozen-lockfile
       - run: bun run build --filter=@effect-vfs/docs
-      - run: bun x playwright-core install --with-deps chromium
+      - run: bun x playwright install --with-deps chromium
         working-directory: apps/docs
-      - run: bun run --cwd apps/docs test:browser:smoke
+      - run: bun run --cwd apps/docs test:browser

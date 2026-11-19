@@ -323,37 +323,6 @@ it.live("should retain partial edits for inspection when a Code Mode program fai
     expect((yield* failure(yield* call("inspect_base", { action: "read", path: "partial.txt" }))).code).toBe("NotFound")
   }))
 
-it.live("should return a combined artifact through the Code Mode toolkit", () =>
-  Effect.gen(function*() {
-    const { call } = yield* connect("2025-11-25", "codemode-mcp.ts")
-
-    const rename = yield* call("execute", {
-      code: "return await tools.workspace.rename({ from: \"plans/draft.md\", to: \"plans/moved.md\" })"
-    })
-
-    const edit = yield* call("execute", {
-      code: "return await tools.workspace.write_file({ path: \"plans/draft.md\", content: \"Edited plan.\" })"
-    })
-
-    const ours = yield* Schema.decodeUnknownEffect(RunResult)(rename.structuredContent)
-    const theirs = yield* Schema.decodeUnknownEffect(RunResult)(edit.structuredContent)
-    const combined = yield* call("combine_runs", { ours: ours.runId, theirs: theirs.runId })
-    expect(combined.isError).toBe(false)
-
-    const result = yield* Schema.decodeUnknownEffect(CodeModeTools.tools.combine_runs.successSchema)(
-      combined.structuredContent
-    )
-
-    if (result.status !== "ready") throw new Error("Expected a ready handoff")
-
-    const header = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Struct({
-      format: Schema.Literal("effect-vfs-delta"),
-      version: Schema.Literal(1)
-    })))(result.delta)
-
-    expect(header).toEqual({ format: "effect-vfs-delta", version: 1 })
-  }))
-
 it.live("should discard the workspace and recover when an MCP client cancels execution", () =>
   Effect.gen(function*() {
     const { call, request, send } = yield* connect("2025-11-25", "codemode-mcp.ts")

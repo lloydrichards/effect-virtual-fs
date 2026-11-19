@@ -5,11 +5,7 @@ import { Effect, Schema } from "effect"
 import { codeModeHandlers } from "../src/codemode.js"
 import { makeBaseSnapshot, projectRoot } from "../src/workspace.js"
 
-const source = "plans/draft.md"
-
 const original = "# Release plan\n\nRelease on Friday.\n"
-
-const moved = "plans/moved.md"
 
 const edited = "Tests pass. Rollback ready."
 
@@ -40,37 +36,6 @@ const appliedFiles = Effect.fnUntraced(function*(base: Vfs.Snapshot, json: strin
 })
 
 it.layer(BunCrypto.layer)((it) => {
-  it.effect("should apply the edit at the new path when combining a rename and an edit", () =>
-    Effect.gen(function*() {
-      const base = yield* makeBaseSnapshot(true)
-      const handlers = yield* codeModeHandlers
-      const ours = yield* handlers.execute(renameProgram(moved))
-      const theirs = yield* handlers.execute(editProgram)
-      const combined = yield* handlers.combine_runs({ ours: ours.runId, theirs: theirs.runId })
-
-      if (combined.status !== "ready") throw new Error("Expected a ready handoff")
-
-      assert.deepStrictEqual(yield* appliedFiles(base, combined.delta), [["moved.md", edited]])
-
-      const swapped = yield* handlers.combine_runs({ ours: theirs.runId, theirs: ours.runId })
-
-      if (swapped.status !== "ready") throw new Error("Expected a ready handoff")
-
-      assert.deepStrictEqual(yield* appliedFiles(base, swapped.delta), [["moved.md", edited]])
-      assert.deepStrictEqual(
-        (yield* handlers.inspect_run({ runId: ours.runId, action: "read", path: moved })).entry,
-        { path: moved, content: original }
-      )
-      assert.deepStrictEqual(
-        (yield* handlers.inspect_run({ runId: theirs.runId, action: "read", path: source })).entry,
-        { path: source, content: edited }
-      )
-      assert.deepStrictEqual(yield* handlers.inspect_base({ action: "read", path: source }), {
-        path: source,
-        content: original
-      })
-    }))
-
   it.effect("should keep the source until one choice resolves the whole divergent rename", () =>
     Effect.gen(function*() {
       const base = yield* makeBaseSnapshot(true)

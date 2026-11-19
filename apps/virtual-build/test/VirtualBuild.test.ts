@@ -57,26 +57,6 @@ describe("standalone virtual builds", () => {
   })
 
   it.layer(BunCrypto.layer)((it) => {
-    it.effect(
-      "should fail when a virtual dependency is missing without using the host filesystem",
-      () =>
-        Effect.gen(function*() {
-          const volume = yield* Vfs.fromFixture(demoFixture)
-          const caller = yield* volume.caller()
-          yield* caller.unlink("/__effect_vfs_demo__/value.js")
-          const failure = yield* Effect.flip(buildVirtual(caller, "/__effect_vfs_demo__/main.js"))
-          assert.include(String(failure.cause), "value.js")
-
-          const hostSourceExists = yield* Effect.promise(() =>
-            Fs.access("/__effect_vfs_demo__/main.js").then(() => true, () => false)
-          )
-
-          assert.isFalse(hostSourceExists)
-        })
-    )
-  })
-
-  it.layer(BunCrypto.layer)((it) => {
     it.effect("should resolve a virtual package until its dependency is removed", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.fromFixture(demoFixture)

@@ -1,6 +1,6 @@
 import * as VfsError from "@effect-vfs/core/VfsError"
-import { expect, test } from "bun:test"
 import { Deferred, Effect, Fiber } from "effect"
+import { expect, test } from "vitest"
 import { type Command, initialPlayground, makeWorkspaceController } from "../app/lib/playground/controller"
 import { PlaygroundError } from "../app/lib/playground/error"
 import { openVolume } from "../app/lib/playground/volume"

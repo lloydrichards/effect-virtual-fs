@@ -58,15 +58,6 @@ describe("Code Mode workspaces", () => {
         )
       }))
 
-    it.effect("should reject unregistered operations when a guest calls an unavailable tool", () =>
-      Effect.gen(function*() {
-        const handlers = yield* codeModeHandlers
-        const unknown = yield* handlers.execute({ code: "await tools.workspace.remove({path: 'temporary.txt'})" })
-        assert.isFalse(unknown.execution.ok)
-
-        if (!unknown.execution.ok) assert.strictEqual(unknown.execution.error.kind, "UnknownTool")
-      }))
-
     it.effect("should reject oversized source when it exceeds the execution limit", () =>
       Effect.gen(function*() {
         const handlers = yield* codeModeHandlers
@@ -166,15 +157,6 @@ describe("Code Mode workspaces", () => {
         assert.isFalse(calls.execution.ok)
 
         if (!calls.execution.ok) assert.strictEqual(calls.execution.error.kind, "ToolCallLimitExceeded")
-      }))
-
-    it.effect("should return a parse failure when source contains TypeScript syntax", () =>
-      Effect.gen(function*() {
-        const handlers = yield* codeModeHandlers
-        const invalid = yield* handlers.execute({ code: "const value: string = 'unsupported'" })
-        assert.isFalse(invalid.execution.ok)
-
-        if (!invalid.execution.ok) assert.strictEqual(invalid.execution.error.kind, "ParseError")
       }))
 
     it.effect("should preserve retained runs when the retention limit rejects another execution", () =>

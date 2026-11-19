@@ -103,13 +103,12 @@ Library builds and lint tooling require unused-local and unused-parameter checks
 and runtime fixtures when they protect a distinct contract. Similar filenames or small test files are not evidence that
 coverage is disposable.
 
-The docs browser smoke checks run against a local preview of the built site. They check prerendered routes with JavaScript
-disabled, restore and run a Playground checkpoint, and follow the Image Tile Workshop through a worker handoff and PNG export.
-The docs browser workflow runs those checks on relevant pull requests. Build with
-`bun run build --filter=@effect-vfs/docs` and install Chromium with `bun x playwright-core install chromium` from `apps/docs`.
-Run `bun run --cwd apps/docs test:browser:smoke` for the smoke checks or `bun run --cwd apps/docs test:browser` for the
-full browser suite, including timeout recovery, route isolation and odd-sized image output. The local redirect and
-isolation checks exercise the Vite preview configuration. The external preview options can exercise deployment behavior.
+The docs Browser Mode suite uses Vitest's Playwright provider and a local preview of the built site. It checks prerendered
+routes with JavaScript disabled, restores and runs a Playground checkpoint, and follows the Image Tile Workshop through
+a worker handoff and PNG export. It also checks Playground timeout recovery and Workshop output across tile grids.
+Browser commands open top-level pages so navigation and cross-origin isolation use the production preview headers.
+Build with `bun run build --filter=@effect-vfs/docs` and install Chromium with `bun x playwright install chromium` from
+`apps/docs`. Run `bun run --cwd apps/docs test:browser`. The docs browser workflow runs the same suite on relevant pull requests.
 
 Demo smoke checks use the documented entry point and real package dependencies with local fixtures. The shared Bun
 suite covers the Virtual Build CLI, Overlay walkthrough, Agent Tools MCP servers and the Alchemy notebook HTTP handler.

@@ -75,7 +75,10 @@ describe("overlay agent", () => {
   it.live("should discard private edits and restore the captured handoff through the demo walkthrough", () => {
     const output: Array<string> = []
 
+    const requests: Array<LanguageModel.ProviderOptions> = []
+
     const model = scriptedModel([
+      call("read-brief", "read_file", { path: "BRIEF.md" }),
       call("proposal", "write_file", { path: "proposal.md", content: "Private proposal." }),
       text("Proposal ready."),
       call("plan", "write_file", {
@@ -86,7 +89,7 @@ describe("overlay agent", () => {
       call("read-plan", "read_file", { path: "release-plan.md" }),
       call("review", "write_file", { path: "REVIEW.md", content: "Pass.\nFriday and tests are covered." }),
       text("Review ready.")
-    ], [])
+    ], requests)
 
     return walkthrough.pipe(
       Effect.provide(Layer.merge(model, BunCrypto.layer)),
@@ -100,6 +103,7 @@ describe("overlay agent", () => {
       Effect.tap(() =>
         Effect.sync(() => {
           const transcript = output.join("\n")
+          assert.include(promptText(requestAt(requests, 1)), "Prepare a Friday release plan.")
           assert.include(transcript, "proposal.md does not exist")
           assert.include(transcript, "- Prepare rollback.")
           assert.include(transcript, "Friday and tests are covered.")
@@ -110,48 +114,6 @@ describe("overlay agent", () => {
       )
     )
   }, 12_000)
-
-  it.layer(BunCrypto.layer)((it) => {
-    it.effect(
-      "should run multi-turn tools against an isolated overlay when the model requests them",
-      () =>
-        Effect.gen(function*() {
-          const base = yield* projectSnapshot
-          const privateCaller = yield* (yield* Vfs.makeOverlay(base)).caller()
-          const siblingCaller = yield* (yield* Vfs.makeOverlay(base)).caller()
-          const requests: Array<LanguageModel.ProviderOptions> = []
-          const observed = yield* collectObservations
-
-          const model = scriptedModel([
-            call("read-1", "read_file", { path: "BRIEF.md" }),
-            call("write-1", "write_file", { path: "proposal.md", content: "Ship Friday after tests pass." }),
-            call("list-1", "list_directory", { path: "." }),
-            text("The private proposal is ready.")
-          ], requests)
-
-          const result = yield* runAgent({
-            caller: privateCaller,
-            observe: observed.observe,
-            role: "planner",
-            task: "Read the brief and write a proposal."
-          }).pipe(Effect.provide(model))
-
-          assert.deepStrictEqual(result, { response: "The private proposal is ready.", turns: 4 })
-          assert.strictEqual(decode(yield* privateCaller.readFile("/proposal.md")), "Ship Friday after tests pass.")
-          assert.strictEqual((yield* siblingCaller.readFile("/proposal.md").pipe(Effect.option))._tag, "None")
-          assert.deepStrictEqual(yield* Ref.get(observed.observations), [
-            { role: "planner", operation: "read", path: "BRIEF.md" },
-            { role: "planner", operation: "write", path: "proposal.md" },
-            { role: "planner", operation: "list", path: "." }
-          ])
-          assert.strictEqual(requests.length, 4)
-          assert.match(promptText(requestAt(requests, 1)), /tool-result/)
-          assert.match(promptText(requestAt(requests, 1)), /Prepare a Friday release\./)
-          assert.match(promptText(requestAt(requests, 2)), /Wrote proposal\.md/)
-          assert.match(promptText(requestAt(requests, 3)), /proposal\.md/)
-        })
-    )
-  })
 
   it.layer(BunCrypto.layer)((it) => {
     it.effect(

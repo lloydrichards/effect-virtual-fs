@@ -71,8 +71,7 @@ export const policies = {
   "apps/demo-typescript-workbench": application("node", [core, node], { runtime: ["test"] }),
   "apps/docs": application("mixed", [core, memory, persistence], {
     tooling: ["test"],
-    runtime: ["test:integration", "test:browser:smoke"],
-    operator: ["test:browser"]
+    runtime: ["test:integration", "test:browser"]
   }),
   "apps/nfs-preview": application("bun", [core, nfs], {
     runtime: ["pynfs-gate"],
