@@ -20,12 +20,9 @@ sources:
   - id: core-merge
     resource: ../../packages/core/src/internal/snapshotMerge.ts
     title: Internal capture merge and shared delta emission
-  - id: overlay-merge-tests
-    resource: ../../packages/core/test/SnapshotDelta.overlayMerge.test.ts
-    title: Core overlay merge behavior and limit checks
   - id: tests
     resource: ../../packages/core/test/SnapshotDelta.test.ts
-    title: Current delta-only rename behavior and merge laws
+    title: Snapshot delta and overlay capture merge behavior, limits, and laws
 ---
 
 # Rename-aware overlay merge proposal
@@ -88,7 +85,7 @@ The caller submits one `{ source, take }` resolution for the whole rename group.
 
 ## Review and verification
 
-The core tests call the private capture and merge functions with real overlays, then apply the resulting delta through the public snapshot API. They verify that an earlier capture retains its committed contents after later writes and accepts a base restored from encoded bytes. The tests for ordinary path-only merges remain in the snapshot delta suite. A portable rename format, destination choice outside the existing paths, and cross-process trust require separate designs.
+The core tests call the exported capture and merge functions with real overlays, then apply the resulting delta through the public snapshot API. They verify that an earlier capture retains its committed contents after later writes and accepts a base restored from encoded bytes. The tests for ordinary path-only merges remain in the snapshot delta suite. A portable rename format, destination choice outside the existing paths, and cross-process trust require separate designs.
 
 - Exercise every outcome through real overlay operations. Include timestamp-only differences, field-wise metadata, and independent same-byte additions. Verify removal followed by recreation with equal bytes yields no move.
 - Reject fabricated captures, wrong bases, pre-existing destinations, replaced parents, and ambiguous or overlapping moves. Reject a destination directory containing a child before emitting a delta. Accept equivalent base snapshots and confirm later overlay writes leave captures unchanged.
