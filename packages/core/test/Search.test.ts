@@ -208,6 +208,19 @@ describe("snapshot filename search", () => {
           assert.strictEqual(error.limit, limit)
         }
 
+        for (
+          const [limits, include, exclude, limit] of [
+            [{ maxPatterns: 1 }, ["a"], ["b"], "maxPatterns"],
+            [{ maxPatternBytes: ByteSize.bytes(3) }, ["😀"], [], "maxPatternBytes"],
+            [{ maxPatternListBytes: ByteSize.bytes(1) }, ["a"], ["b"], "maxPatternListBytes"],
+            [{ maxTokens: 2 }, ["a"], ["bc"], "maxTokens"]
+          ] as const
+        ) {
+          const error = yield* Effect.flip(Search.glob(snapshot, { root: "/missing", include, exclude, limits }))
+          assert(Schema.is(Search.QueryFailure)(error))
+          assert.strictEqual(error.limit, limit)
+        }
+
         for (const maxEntries of [-1, 0.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1]) {
           assert.instanceOf(
             yield* Effect.flip(Search.glob(snapshot, { ...all, limits: { maxEntries } })),

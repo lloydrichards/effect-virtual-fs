@@ -3271,48 +3271,144 @@ describe("call styles", () => {
 })
 
 describe("recursive removal during namespace changes", () => {
+  const pauseRemoval = Effect.fnUntraced(function*() {
+    const entered = yield* Deferred.make<void>()
+    const release = yield* Deferred.make<void>()
+    let pause = false
+
+    const volume = yield* LiveVolume.open({ volume: {}, maxImageBytes: ByteSize.kibibytes(64) }).pipe(
+      Effect.provideService(LiveVolume.LiveImageStore, {
+        loadOrCreate: Effect.succeed,
+        commit: () => {
+          if (!pause) return Effect.succeed("committed" as const)
+          pause = false
+
+          return Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.as("committed" as const)
+          )
+        }
+      })
+    )
+
+    return {
+      owner: yield* volume.caller(),
+      entered: Deferred.await(entered),
+      release: Deferred.succeed(release, undefined),
+      arm: Effect.sync(() => {
+        pause = true
+      })
+    }
+  })
+
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("denies recursive removal when the imported directory leaves its confined root", () =>
+      Effect.gen(function*() {
+        const gate = yield* pauseRemoval()
+        const { owner } = gate
+        yield* owner.mkdir("/tenant/child/work", { recursive: true })
+        yield* owner.mkdir("/outside")
+        yield* owner.writeFile("/tenant/child/work/a", Uint8Array.of(1), writeOptions)
+        yield* owner.writeFile("/tenant/child/work/z", Uint8Array.of(2), writeOptions)
+        const confined = yield* owner.withRoot("/tenant")
+        const base = yield* confined.openDirectory("/child")
+        yield* gate.arm
+
+        const removal = yield* owner.remove(Vfs.Entry(base, new TextEncoder().encode("work")), { recursive: true })
+          .pipe(Effect.flip, Effect.forkChild({ startImmediately: true }))
+
+        yield* gate.entered
+
+        const move = yield* owner.rename("/tenant/child", "/outside/moved")
+          .pipe(Effect.forkChild({ startImmediately: true }))
+
+        yield* gate.release
+        yield* Fiber.join(move)
+
+        assert.strictEqual((yield* Fiber.join(removal)).code, "AccessDenied")
+        assert.strictEqual((yield* Effect.flip(owner.stat("/outside/moved/work/a"))).code, "NotFound")
+        assert.deepStrictEqual(yield* owner.readFile("/outside/moved/work/z"), Uint8Array.of(2))
+      }))
+
+    it.effect("preserves the original and replacement when the guarded target changes between stages", () =>
+      Effect.gen(function*() {
+        const gate = yield* pauseRemoval()
+        const { owner } = gate
+        yield* owner.mkdir("/work")
+        yield* owner.mkdir("/replacement")
+        yield* owner.writeFile("/work/a", Uint8Array.of(1), writeOptions)
+        yield* owner.writeFile("/work/z", Uint8Array.of(2), writeOptions)
+        yield* owner.writeFile("/replacement/z", Uint8Array.of(3), writeOptions)
+        const expected = yield* owner.lookup("/work")
+        yield* gate.arm
+
+        const removal = yield* owner.remove("/work", { recursive: true, expected, force: true })
+          .pipe(Effect.flip, Effect.forkChild({ startImmediately: true }))
+
+        yield* gate.entered
+        const move = yield* owner.rename("/work", "/original").pipe(Effect.forkChild({ startImmediately: true }))
+        const replace = yield* owner.rename("/replacement", "/work").pipe(Effect.forkChild({ startImmediately: true }))
+        yield* gate.release
+        yield* Fiber.join(move)
+        yield* Fiber.join(replace)
+
+        assert.strictEqual((yield* Fiber.join(removal)).code, "VolumeBusy")
+        assert.strictEqual((yield* Effect.flip(owner.stat("/original/a"))).code, "NotFound")
+        assert.deepStrictEqual(yield* owner.readFile("/original/z"), Uint8Array.of(2))
+        assert.deepStrictEqual(yield* owner.readFile("/work/z"), Uint8Array.of(3))
+      }))
+
+    for (const force of [false, true]) {
+      it.effect(`handles a guarded target renamed away between stages with force=${force}`, () =>
+        Effect.gen(function*() {
+          const gate = yield* pauseRemoval()
+          const { owner } = gate
+          yield* owner.mkdir("/work")
+          yield* owner.writeFile("/work/a", Uint8Array.of(1), writeOptions)
+          yield* owner.writeFile("/work/z", Uint8Array.of(2), writeOptions)
+          const expected = yield* owner.lookup("/work")
+          yield* gate.arm
+
+          const removal = yield* owner.remove("/work", { recursive: true, expected, force })
+            .pipe(Effect.result, Effect.forkChild({ startImmediately: true }))
+
+          yield* gate.entered
+          const move = yield* owner.rename("/work", "/moved").pipe(Effect.forkChild({ startImmediately: true }))
+          yield* gate.release
+          yield* Fiber.join(move)
+
+          const result = yield* Fiber.join(removal)
+
+          if (force) assert.isTrue(Result.isSuccess(result))
+          else assert.strictEqual(Result.isFailure(result) && result.failure.code, "NotFound")
+          assert.strictEqual((yield* Effect.flip(owner.stat("/moved/a"))).code, "NotFound")
+          assert.deepStrictEqual(yield* owner.readFile("/moved/z"), Uint8Array.of(2))
+        }))
+    }
+
     it.effect("preserves a replacement installed after the parent directory was listed", () =>
       Effect.gen(function*() {
-        const entered = yield* Deferred.make<void>()
-        const release = yield* Deferred.make<void>()
-        let pause = false
-
-        const volume = yield* LiveVolume.open({ volume: {}, maxImageBytes: ByteSize.kibibytes(64) }).pipe(
-          Effect.provideService(LiveVolume.LiveImageStore, {
-            loadOrCreate: Effect.succeed,
-            commit: () => {
-              if (!pause) return Effect.succeed("committed" as const)
-              pause = false
-
-              return Deferred.succeed(entered, undefined).pipe(
-                Effect.andThen(Deferred.await(release)),
-                Effect.as("committed" as const)
-              )
-            }
-          })
-        )
-
-        const caller = yield* volume.caller()
+        const gate = yield* pauseRemoval()
+        const caller = gate.owner
         yield* caller.mkdir("/work")
         yield* caller.writeFile("/work/a", Uint8Array.of(1), writeOptions)
         yield* caller.writeFile("/work/z", Uint8Array.of(2), writeOptions)
         yield* caller.writeFile("/replacement", Uint8Array.of(3), writeOptions)
         const expected = yield* caller.lookup("/work")
-        pause = true
+        yield* gate.arm
 
         const removal = yield* caller.remove("/work", { recursive: true, expected }).pipe(
           Effect.flip,
           Effect.forkChild({ startImmediately: true })
         )
 
-        yield* Deferred.await(entered)
+        yield* gate.entered
 
         const replacement = yield* caller.rename("/replacement", "/work/z").pipe(
           Effect.forkChild({ startImmediately: true })
         )
 
-        yield* Deferred.succeed(release, undefined)
+        yield* gate.release
         yield* Fiber.join(replacement)
 
         assert.strictEqual((yield* Fiber.join(removal)).code, "NotFound")
