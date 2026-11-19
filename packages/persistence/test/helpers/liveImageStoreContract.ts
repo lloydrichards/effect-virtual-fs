@@ -150,6 +150,18 @@ export const liveImageStoreContract = (options: {
       }))
 
     if (options.rollback === true) {
+      it.effect("retries initialization on the same store after a confirmed create rollback", () =>
+        Effect.gen(function*() {
+          const f = yield* options.fixture
+          const { store, close } = yield* f.open()
+          f.hooks.set("update", Effect.fail(failure()))
+
+          assert.strictEqual((yield* Effect.flip(store.loadOrCreate(initial))).code, "Storage")
+          assert.deepStrictEqual(yield* store.loadOrCreate(next), next)
+          yield* close
+          assert.deepStrictEqual(yield* (yield* f.open()).store.loadOrCreate(initial), next)
+        }))
+
       it.effect("keeps a confirmed rollback retryable without changing persisted bytes or generation", () =>
         Effect.gen(function*() {
           const f = yield* options.fixture
