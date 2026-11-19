@@ -69,7 +69,10 @@ export const policies = {
   "packages/node": library("node", [core], { runtime: ["test", "test:consumer", "test:mounted"] }),
   "apps/demo-r2-nfs": application("bun", [core, nfs, persistence], { operator: ["verify-mount"] }),
   "apps/demo-typescript-workbench": application("node", [core, node], { runtime: ["test"] }),
-  "apps/docs": application("mixed", [core, memory, persistence], { tooling: ["test"] }),
+  "apps/docs": application("mixed", [core, memory, persistence], {
+    tooling: ["test"],
+    runtime: ["test:integration", "test:browser"]
+  }),
   "apps/nfs-preview": application("bun", [core, nfs], {
     runtime: ["pynfs-gate"],
     operator: ["linux-mount-gate", "verify-mount"]

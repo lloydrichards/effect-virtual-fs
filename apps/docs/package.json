@@ -6,11 +6,12 @@
     "build": "react-router build",
     "clean": "git clean -xdf .cache .turbo build docs node_modules .react-router tsconfig.tsbuildinfo",
     "dev": "react-router dev",
-    "docs:check": "bun run scripts/check-public-docs.ts && bun run docs:generate && bun run scripts/check-docs.ts && bun run scripts/check-examples.ts",
+    "docs:check": "bun run scripts/check-public-docs.ts && bun run docs:generate && bun run scripts/check-docs.ts && bun run scripts/check-examples.ts && bun run scripts/check-site.ts",
     "docs:generate": "bun run scripts/generate-api-docs.ts",
     "type-check": "react-router typegen && tsc --noEmit",
-    "test": "bun run --cwd ../.. build --filter=@effect-vfs/core && bun test test/Documentation.test.ts test/PlaygroundController.test.ts",
-    "test:browser": "bun run --cwd ../.. build --filter=@effect-vfs/docs && bun test test/browser/Playground.test.ts && node --test test/browser/ImageTileWorkshop.test.mjs"
+    "test": "bun --bun run vitest run test/Documentation.test.ts",
+    "test:integration": "bun --bun run vitest run test/PlaygroundController.test.ts",
+    "test:browser": "vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -47,6 +48,7 @@
     "unist-util-visit": "^5.2.0"
   },
   "devDependencies": {
+    "@effect/platform-bun": "4.1.4",
     "@mdx-js/rollup": "^3.1.1",
     "@react-router/dev": "8.5.1",
     "@repo/config-typescript": "workspace:*",
@@ -57,7 +59,8 @@
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "playwright-core": "1.65.0",
+    "@vitest/browser-playwright": "5.1.0",
+    "playwright": "1.65.0",
     "prettier": "3.9.10",
     "rehype-autolink-headings": "^7.1.0",
     "rehype-pretty-code": "^0.14.6",
@@ -65,8 +68,8 @@
     "remark-gfm": "^4.0.1",
     "shiki": "^4.6.0",
     "tailwindcss": "^4.3.5",
-    "typescript": "7.0.2",
     "ts-morph": "28.0.0",
+    "typescript": "7.0.2",
     "vite": "^8.3.7"
   }
 }

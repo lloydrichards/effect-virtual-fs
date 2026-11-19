@@ -1,10 +1,12 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
-import { Effect, Fiber, Layer, Predicate, Ref, Stream } from "effect"
+import { Console, Effect, Fiber, Layer, Ref, Stream } from "effect"
 import { LanguageModel, type Response } from "effect/ai"
 import { describe } from "vitest"
 import { AgentTurnLimitExceeded, runAgent, type ToolObservation } from "../src/agent.js"
+
+import { walkthrough } from "../src/demo.js"
 
 const encode = (value: string) => new TextEncoder().encode(value)
 
@@ -70,47 +72,48 @@ const collectObservations = Effect.gen(function*() {
 })
 
 describe("overlay agent", () => {
-  it.layer(BunCrypto.layer)((it) => {
-    it.effect(
-      "should run multi-turn tools against an isolated overlay when the model requests them",
-      () =>
-        Effect.gen(function*() {
-          const base = yield* projectSnapshot
-          const privateCaller = yield* (yield* Vfs.makeOverlay(base)).caller()
-          const siblingCaller = yield* (yield* Vfs.makeOverlay(base)).caller()
-          const requests: Array<LanguageModel.ProviderOptions> = []
-          const observed = yield* collectObservations
+  it.live("should discard private edits and restore the captured handoff through the demo walkthrough", () => {
+    const output: Array<string> = []
 
-          const model = scriptedModel([
-            call("read-1", "read_file", { path: "BRIEF.md" }),
-            call("write-1", "write_file", { path: "proposal.md", content: "Ship Friday after tests pass." }),
-            call("list-1", "list_directory", { path: "." }),
-            text("The private proposal is ready.")
-          ], requests)
+    const requests: Array<LanguageModel.ProviderOptions> = []
 
-          const result = yield* runAgent({
-            caller: privateCaller,
-            observe: observed.observe,
-            role: "planner",
-            task: "Read the brief and write a proposal."
-          }).pipe(Effect.provide(model))
+    const model = scriptedModel([
+      call("read-brief", "read_file", { path: "BRIEF.md" }),
+      call("proposal", "write_file", { path: "proposal.md", content: "Private proposal." }),
+      text("Proposal ready."),
+      call("plan", "write_file", {
+        path: "release-plan.md",
+        content: "- Ship Friday.\n- Run tests.\n- Prepare rollback."
+      }),
+      text("Plan ready."),
+      call("read-plan", "read_file", { path: "release-plan.md" }),
+      call("review", "write_file", { path: "REVIEW.md", content: "Pass.\nFriday and tests are covered." }),
+      text("Review ready.")
+    ], requests)
 
-          assert.deepStrictEqual(result, { response: "The private proposal is ready.", turns: 4 })
-          assert.strictEqual(decode(yield* privateCaller.readFile("/proposal.md")), "Ship Friday after tests pass.")
-          assert.strictEqual((yield* siblingCaller.readFile("/proposal.md").pipe(Effect.option))._tag, "None")
-          assert.deepStrictEqual(yield* Ref.get(observed.observations), [
-            { role: "planner", operation: "read", path: "BRIEF.md" },
-            { role: "planner", operation: "write", path: "proposal.md" },
-            { role: "planner", operation: "list", path: "." }
-          ])
-          assert.strictEqual(requests.length, 4)
-          assert.match(promptText(requestAt(requests, 1)), /tool-result/)
-          assert.match(promptText(requestAt(requests, 1)), /Prepare a Friday release\./)
-          assert.match(promptText(requestAt(requests, 2)), /Wrote proposal\.md/)
-          assert.match(promptText(requestAt(requests, 3)), /proposal\.md/)
+    return walkthrough.pipe(
+      Effect.provide(Layer.merge(model, BunCrypto.layer)),
+      Effect.provideService(Console.Console, {
+        ...console,
+        log: (message: string) => {
+          output.push(message)
+        }
+      }),
+      Effect.timeout("10 seconds"),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          const transcript = output.join("\n")
+          assert.include(promptText(requestAt(requests, 1)), "Prepare a Friday release plan.")
+          assert.include(transcript, "proposal.md does not exist")
+          assert.include(transcript, "- Prepare rollback.")
+          assert.include(transcript, "Friday and tests are covered.")
+          assert.include(transcript, "A later live edit.")
+          assert.include(transcript, "/plan.md still reads after root rename")
+          assert.include(transcript, "NotFound")
         })
+      )
     )
-  })
+  }, 12_000)
 
   it.layer(BunCrypto.layer)((it) => {
     it.effect(
@@ -174,58 +177,6 @@ describe("overlay agent", () => {
           assert.strictEqual(result.response, "The file is not valid UTF-8.")
           assert.deepStrictEqual(yield* Ref.get(observed.observations), [])
           assert.match(promptText(requestAt(requests, 1)), /Invalid UTF-8 file: invalid\.txt/)
-        })
-    )
-  })
-
-  it.layer(BunCrypto.layer)((it) => {
-    it.effect(
-      "should preserve a captured review when a shared caller later edits the overlay",
-      () =>
-        Effect.gen(function*() {
-          const workspace = yield* Vfs.makeOverlay(yield* projectSnapshot)
-          const author = yield* workspace.caller()
-          const reviewer = yield* workspace.caller()
-          const observed = yield* collectObservations
-
-          yield* runAgent({
-            caller: author,
-            observe: observed.observe,
-            role: "author",
-            task: "Write the release plan."
-          }).pipe(Effect.provide(scriptedModel([
-            call("author-write", "write_file", { path: "release-plan.md", content: "Ship Friday after tests pass." }),
-            text("Plan written.")
-          ], [])))
-
-          yield* runAgent({
-            caller: reviewer,
-            observe: observed.observe,
-            role: "reviewer",
-            task: "Review the release plan."
-          }).pipe(Effect.provide(scriptedModel([
-            call("review-read", "read_file", { path: "release-plan.md" }),
-            call("review-write", "write_file", { path: "REVIEW.md", content: "Approved: tests gate the release." }),
-            text("Review written.")
-          ], [])))
-
-          const capture = yield* workspace.capture()
-          yield* author.writeFile("/release-plan.md", encode("Later live edit."), {
-            access: "write",
-            truncate: true
-          })
-          const captured = yield* (yield* Vfs.fromSnapshot(capture.snapshot)).caller()
-
-          assert.strictEqual(decode(yield* captured.readFile("/release-plan.md")), "Ship Friday after tests pass.")
-          assert.strictEqual(decode(yield* captured.readFile("/REVIEW.md")), "Approved: tests gate the release.")
-          assert.strictEqual(decode(yield* author.readFile("/release-plan.md")), "Later live edit.")
-
-          const capturedPaths = yield* Effect.forEach(capture.changes, (change) =>
-            Predicate.isTagged(change, "Renamed")
-              ? Effect.succeed(change._tag)
-              : Vfs.pathToBytes(change.path).pipe(Effect.map(decode)))
-
-          assert.deepStrictEqual(capturedPaths, ["/REVIEW.md", "/release-plan.md"])
         })
     )
   })

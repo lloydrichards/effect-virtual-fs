@@ -58,7 +58,7 @@ The test suite replaces the live model with a scripted `LanguageModel` while exe
 overlays:
 
 ```sh
-bun test
+bun run test
 ```
 
 For portable changes and merge conflicts, see the [overlay guide](../docs/app/content/guides/overlay-filesystems.mdx).

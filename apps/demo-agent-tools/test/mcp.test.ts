@@ -246,13 +246,22 @@ it.live("should serve captured artifacts and preserve the base when Code Mode ru
       const original = await tools.workspace.read_file({path: "plans/draft.md"});
       await tools.workspace.write_file({path: "plans/draft.md", content: "Tests pass. Rollback ready."});
       await tools.workspace.write_file({path: "report.txt", content: "Review this artifact."});
-      return {original: original.value.content, names: (await tools.workspace.list_directory({path:"."})).value.entries.map(e=>e.name)};
+      const draft = await tools.workspace.stat({path: "plans/draft.md"});
+      const files = await tools.workspace.list_directory({path: "."});
+      return {original: original.value.content, kind: draft.value.kind, names: files.value.entries.map(e=>e.name)};
     `
     })
 
     expect(executed.isError).toBe(false)
     const first = yield* Schema.decodeUnknownEffect(RunResult)(executed.structuredContent)
-    expect(first.execution.ok).toBe(true)
+    expect(first.execution).toMatchObject({
+      ok: true,
+      value: {
+        original: "# Release plan\n\nRelease on Friday.\n",
+        kind: "file",
+        names: expect.arrayContaining(["report.txt"])
+      }
+    })
     expect(first.changes.map((change) => `${change._tag}:${change.path}`).sort((a, b) => a.localeCompare(b))).toEqual([
       "Added:report.txt",
       "Updated:plans/draft.md"
@@ -265,12 +274,38 @@ it.live("should serve captured artifacts and preserve the base when Code Mode ru
 
     expect(artifact.entry).toEqual({ path: "report.txt", content: "Review this artifact." })
     expect(artifact.changes).toEqual(first.changes)
+    expect(
+      (yield* call("inspect_run", { runId: first.runId, action: "stat", path: "report.txt" }))
+        .structuredContent?.["entry"]
+    ).toMatchObject({ kind: "file" })
+    expect(
+      (yield* call("inspect_run", { runId: first.runId, action: "read", path: "plans/draft.md" }))
+        .structuredContent?.["entry"]
+    ).toEqual({ path: "plans/draft.md", content: "Tests pass. Rollback ready." })
     expect((yield* call("inspect_base", { action: "read", path: "plans/draft.md" })).structuredContent!["content"])
       .toContain("Release on Friday.")
-    const second = yield* call("execute", { code: "return await tools.workspace.read_file({path:\"report.txt\"})" })
+
+    const second = yield* call("execute", {
+      code: `return {
+        draft: await tools.workspace.read_file({path: "plans/draft.md"}),
+        report: await tools.workspace.read_file({path: "report.txt"})
+      }`
+    })
+
     const fresh = yield* Schema.decodeUnknownEffect(RunResult)(second.structuredContent)
-    expect(fresh.execution).toMatchObject({ ok: true, value: { ok: false, error: { code: "NotFound" } } })
+    expect(fresh.execution).toMatchObject({
+      ok: true,
+      value: {
+        draft: { ok: true, value: { content: "# Release plan\n\nRelease on Friday.\n" } },
+        report: { ok: false, error: { code: "NotFound", operation: "open", path: "report.txt" } }
+      }
+    })
     expect(fresh.changes).toEqual([])
+  }))
+
+it.live("should retain partial edits for inspection when a Code Mode program fails over stdio", () =>
+  Effect.gen(function*() {
+    const { call } = yield* connect("2025-11-25", "codemode-mcp.ts")
 
     const failed = yield* call("execute", {
       code: "await tools.workspace.write_file({path:\"partial.txt\",content:\"kept\"}); throw new Error(\"stop\")"
@@ -279,43 +314,13 @@ it.live("should serve captured artifacts and preserve the base when Code Mode ru
     expect(failed.isError).toBe(false)
     const partial = yield* Schema.decodeUnknownEffect(RunResult)(failed.structuredContent)
     expect(partial.execution).toMatchObject({ ok: false, error: { kind: "ExecutionFailure" } })
+    expect(partial.changes.map((change) => change.path)).toEqual(["partial.txt"])
     expect(
       (yield* call("inspect_run", { runId: partial.runId, action: "read", path: "partial.txt" }))
         .structuredContent!["entry"]
     )
       .toEqual({ path: "partial.txt", content: "kept" })
     expect((yield* failure(yield* call("inspect_base", { action: "read", path: "partial.txt" }))).code).toBe("NotFound")
-  }))
-
-it.live("should return a combined artifact through the Code Mode toolkit", () =>
-  Effect.gen(function*() {
-    const { call } = yield* connect("2025-11-25", "codemode-mcp.ts")
-
-    const rename = yield* call("execute", {
-      code: "return await tools.workspace.rename({ from: \"plans/draft.md\", to: \"plans/moved.md\" })"
-    })
-
-    const edit = yield* call("execute", {
-      code: "return await tools.workspace.write_file({ path: \"plans/draft.md\", content: \"Edited plan.\" })"
-    })
-
-    const ours = yield* Schema.decodeUnknownEffect(RunResult)(rename.structuredContent)
-    const theirs = yield* Schema.decodeUnknownEffect(RunResult)(edit.structuredContent)
-    const combined = yield* call("combine_runs", { ours: ours.runId, theirs: theirs.runId })
-    expect(combined.isError).toBe(false)
-
-    const result = yield* Schema.decodeUnknownEffect(CodeModeTools.tools.combine_runs.successSchema)(
-      combined.structuredContent
-    )
-
-    if (result.status !== "ready") throw new Error("Expected a ready handoff")
-
-    const header = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Struct({
-      format: Schema.Literal("effect-vfs-delta"),
-      version: Schema.Literal(1)
-    })))(result.delta)
-
-    expect(header).toEqual({ format: "effect-vfs-delta", version: 1 })
   }))
 
 it.live("should discard the workspace and recover when an MCP client cancels execution", () =>

@@ -18,6 +18,8 @@ The packages are ESM-only, so your project must support ES modules.
 
 Write against Effect's `FileSystem.FileSystem` service, then provide `MemoryFileSystem.layer` when you run the program. The layer builds its own volume and requires an Effect `Crypto` service:
 
+{/* checked-example */}
+
 ```ts
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"

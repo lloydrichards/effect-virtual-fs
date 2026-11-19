@@ -3,7 +3,8 @@
   "include": [
     "app/**/*",
     "scripts/**/*",
-    "test/**/*"
+    "test/**/*",
+    "vitest.browser.config.ts"
   ],
   "compilerOptions": {
     "rootDirs": [

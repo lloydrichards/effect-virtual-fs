@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it } from "vitest"
 import { checkPublicSource } from "../scripts/check-public-docs"
 import { collectPublicExamples, expectedExampleOutput } from "../scripts/public-examples"
 

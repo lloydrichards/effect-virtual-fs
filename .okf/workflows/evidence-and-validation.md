@@ -22,6 +22,8 @@ sources:
   - id: docs-playground
     resource: ../../apps/docs/package.json
     title: Playground command and browser tests
+  - resource: ../../.github/workflows/docs-browser.yml
+    title: Built documentation browser smoke workflow
   - id: nfs-gate
     resource: ../../.github/workflows/nfs-linux-mount.yml
     title: Label-gated privileged NFS mount workflow
@@ -34,7 +36,7 @@ sources:
   - id: sqlite-vm-gate
     resource: ../../packages/persistence/scripts/utm-vm-crash-gate.sh
     title: Local UTM guest OS hard-stop gate
-generated: { by: codex/okf, at: "2026-11-17T21:09:00+01:00" }
+generated: { by: codex/okf, at: "2026-11-19T10:41:33+01:00" }
 ---
 
 # Evidence and validation
@@ -77,9 +79,12 @@ Build before type-aware lint and consumer checks because packages export declara
 - `bun run type-check` checks the typed Oxlint configuration, lint implementation and workspace type contracts. Preview qualification retains its scoped
   type, regeneration and standalone schema-consumer checks.
 - `bun run test` runs the tooling contracts and the shared runtime suites. `bun run test:tooling` is the focused policy suite:
-  isolated lint fixtures, package/export checks, architecture checks and the docs workspace's documentation and playground command tests.
+  isolated lint fixtures, package/export checks, architecture checks and the docs workspace's documentation checker tests.
+  The runtime phase also runs the docs playground controller against real virtual volumes.
 - `bun run docs:check` validates metadata, regenerates the API reference, checks page ownership and compiles examples.
-  Supported output assertions are executed. Docs build and dev commands do not implicitly run this validation suite.
+  It runs examples with expected output, including the marked Getting Started snippet, and validates internal links and
+  fragments in the prerendered HTML. Build the docs before running this command. Mark a runnable guide snippet with
+  `{/* checked-example */}` immediately before the TypeScript fence and put the published output in the next `text` fence. Docs build and dev commands do not implicitly run this validation suite.
 - The packed-consumer phase imports published exports with TypeScript 5.9.3 and 7.0.2. Core's inference assertions live in
   its existing NodeNext consumer fixture. Those compiler versions are qualified separately, not as a continuous range.
 - The final generated-reference check requires intended API page changes to be committed. While editing, review the
@@ -98,10 +103,16 @@ Library builds and lint tooling require unused-local and unused-parameter checks
 and runtime fixtures when they protect a distinct contract. Similar filenames or small test files are not evidence that
 coverage is disposable.
 
-The docs playground browser test serves the built site and checks checkpoint reload and execution timeout cleanup in Chromium.
-Install its browser with `bun x playwright-core install chromium` from `apps/docs`. Run it from the repository root with
-`bun run --cwd apps/docs test:browser`. The ordinary docs test command exercises controller behavior against real virtual
-volumes without a browser.
+The docs Browser Mode suite uses Vitest's Playwright provider and a local preview of the built site. It checks prerendered
+routes with JavaScript disabled, restores and runs a Playground checkpoint, and follows the Image Tile Workshop through
+a worker handoff and PNG export. It also checks Playground timeout recovery and Workshop output across tile grids.
+Browser commands open top-level pages so navigation and cross-origin isolation use the production preview headers.
+Build with `bun run build --filter=@effect-vfs/docs` and install Chromium with `bun x playwright install chromium` from
+`apps/docs`. Run `bun run --cwd apps/docs test:browser`. The docs browser workflow runs the same suite on relevant pull requests.
+
+Demo smoke checks use the documented entry point and real package dependencies with local fixtures. The shared Bun
+suite covers the Virtual Build CLI, Overlay walkthrough, Agent Tools MCP servers and the Alchemy notebook HTTP handler.
+The pinned Node workbench job starts the built app and sends Compile and Run commands over HTTP RPC.
 
 The main PR job uses Bun 1.4.4 and keeps benchmark correctness smoke checks after full validation. Privileged, credentialed
 and live-service checks remain explicit operator commands or dedicated CI jobs; do not add them to Git hooks or generic

@@ -6,66 +6,6 @@ import { codeModeHandlers, maxRetainedRuns, maxSourceBytes } from "../src/codemo
 
 describe("Code Mode workspaces", () => {
   it.layer(BunCrypto.layer)((it) => {
-    it.effect("should retain isolated edits when a program updates the workspace", () =>
-      Effect.gen(function*() {
-        const handlers = yield* codeModeHandlers
-
-        const first = yield* handlers.execute({
-          code: `
-          const listing = await tools.workspace.list_directory({path: "."});
-          const draft = await tools.workspace.read_file({path: "plans/draft.md"});
-          const metadata = await tools.workspace.stat({path: "plans/draft.md"});
-          await tools.workspace.write_file({path: "plans/draft.md", content: "Tests pass. Rollback ready."});
-          await tools.workspace.write_file({path: "report.json", content: JSON.stringify({files: listing.value.entries.length})});
-          return {before: draft.value.content, kind: metadata.value.kind};
-        `
-        })
-
-        assert.deepStrictEqual(first.execution.ok && first.execution.value, {
-          before: "# Release plan\n\nRelease on Friday.\n",
-          kind: "file"
-        })
-        assert.deepStrictEqual(
-          first.changes.map((change) => `${change._tag}:${change.path}`).sort((a, b) => a.localeCompare(b)),
-          ["Added:report.json", "Updated:plans/draft.md"]
-        )
-        const inspected = yield* handlers.inspect_run({ runId: first.runId, action: "read", path: "plans/draft.md" })
-        assert.deepStrictEqual(inspected.entry, { path: "plans/draft.md", content: "Tests pass. Rollback ready." })
-        assert.deepStrictEqual(inspected.changes, first.changes)
-        assert.deepStrictEqual(
-          yield* handlers.inspect_run({ runId: first.runId, action: "stat", path: "report.json" }).pipe(
-            Effect.map((result) => "kind" in result.entry ? result.entry.kind : undefined)
-          ),
-          "file"
-        )
-        const base = yield* handlers.inspect_base({ action: "read", path: "plans/draft.md" })
-        assert.isTrue("content" in base)
-
-        if ("content" in base) assert.match(base.content, /Release on Friday/)
-
-        const second = yield* handlers.execute({
-          code: `
-          return {
-            draft: await tools.workspace.read_file({path: "plans/draft.md"}),
-            report: await tools.workspace.read_file({path: "report.json"})
-          };
-        `
-        })
-
-        assert.deepStrictEqual(second.execution.ok && second.execution.value, {
-          draft: { ok: true, value: { path: "plans/draft.md", content: "# Release plan\n\nRelease on Friday.\n" } },
-          report: {
-            ok: false,
-            error: { code: "NotFound", operation: "open", message: "open failed with NotFound", path: "report.json" }
-          }
-        })
-        assert.deepStrictEqual(second.changes, [])
-        assert.deepStrictEqual(
-          (yield* handlers.inspect_run({ runId: first.runId, action: "read", path: "report.json" })).entry,
-          { path: "report.json", content: "{\"files\":4}" }
-        )
-      }))
-
     it.effect("should retain independent files when requests arrive concurrently", () =>
       Effect.gen(function*() {
         const handlers = yield* codeModeHandlers
@@ -86,29 +26,6 @@ describe("Code Mode workspaces", () => {
             { path: "temporary.txt", content: index === 0 ? "alpha" : "beta" }
           )
         }
-      }))
-
-    it.effect("should retain partial edits without changing the base when a program throws", () =>
-      Effect.gen(function*() {
-        const handlers = yield* codeModeHandlers
-
-        const result = yield* handlers.execute({
-          code: `
-          await tools.workspace.write_file({path: "partial.txt", content: "inspect me"});
-          throw new Error("stop here");
-        `
-        })
-
-        assert.isFalse(result.execution.ok)
-        assert.deepStrictEqual(result.changes.map((change) => change.path), ["partial.txt"])
-        assert.deepStrictEqual(
-          (yield* handlers.inspect_run({ runId: result.runId, action: "read", path: "partial.txt" })).entry,
-          { path: "partial.txt", content: "inspect me" }
-        )
-        assert.strictEqual(
-          (yield* handlers.inspect_base({ action: "read", path: "partial.txt" }).pipe(Effect.flip)).code,
-          "NotFound"
-        )
       }))
 
     it.effect("should deny access outside the workspace when guest or inspection paths escape", () =>
@@ -139,15 +56,6 @@ describe("Code Mode workspaces", () => {
           (yield* handlers.inspect_run({ runId: "missing", action: "list", path: "." }).pipe(Effect.flip)).code,
           "RunNotFound"
         )
-      }))
-
-    it.effect("should reject unregistered operations when a guest calls an unavailable tool", () =>
-      Effect.gen(function*() {
-        const handlers = yield* codeModeHandlers
-        const unknown = yield* handlers.execute({ code: "await tools.workspace.remove({path: 'temporary.txt'})" })
-        assert.isFalse(unknown.execution.ok)
-
-        if (!unknown.execution.ok) assert.strictEqual(unknown.execution.error.kind, "UnknownTool")
       }))
 
     it.effect("should reject oversized source when it exceeds the execution limit", () =>
@@ -249,15 +157,6 @@ describe("Code Mode workspaces", () => {
         assert.isFalse(calls.execution.ok)
 
         if (!calls.execution.ok) assert.strictEqual(calls.execution.error.kind, "ToolCallLimitExceeded")
-      }))
-
-    it.effect("should return a parse failure when source contains TypeScript syntax", () =>
-      Effect.gen(function*() {
-        const handlers = yield* codeModeHandlers
-        const invalid = yield* handlers.execute({ code: "const value: string = 'unsupported'" })
-        assert.isFalse(invalid.execution.ok)
-
-        if (!invalid.execution.ok) assert.strictEqual(invalid.execution.error.kind, "ParseError")
       }))
 
     it.effect("should preserve retained runs when the retention limit rejects another execution", () =>

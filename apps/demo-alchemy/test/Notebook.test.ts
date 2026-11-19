@@ -3,12 +3,16 @@ import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
-import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
+import * as HttpEffect from "effect/http/HttpEffect"
 import * as Layer from "effect/Layer"
+import * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
+import * as Schema from "effect/Schema"
 import * as TestClock from "effect/testing/TestClock"
-import { keyFor, NotebookR2, type NotebookR2Client, NotebookService } from "../src/notebook.js"
+import { keyFor, Notebook, NotebookR2, type NotebookR2Client, NotebookService } from "../src/notebook.js"
+
+import { notebookFetch } from "../src/notebook-worker.js"
 
 const remote = () => {
   let record: { bytes: Uint8Array; etag: string; generation: string; digest: string } | null = null
@@ -89,47 +93,41 @@ const openPersistedVolume = (r2: ReturnType<typeof remote>, id: string) => {
 }
 
 describe("R2 notebook", () => {
-  it.effect("should draw the notebook ID from the provided SecureRandom service", () => {
+  it.effect("should require authorization and reopen a notebook until it is deleted over HTTP", () => {
     const r2 = remote()
-    const fixed = SecureRandom.make((size) => new Uint8Array(size).fill(0x5a))
+    const token = "local-demo-token"
+    const fetch = HttpEffect.toWebHandler(notebookFetch(Redacted.make(token)).pipe(Effect.provide(testLayer(r2))))
+
+    const request = (method: string, path: string, authorized = true) =>
+      Effect.promise(() =>
+        fetch(
+          new Request("http://localhost" + path, {
+            method,
+            headers: authorized ? { authorization: "Bearer " + token } : {}
+          })
+        )
+      )
 
     return Effect.gen(function*() {
-      const notebooks = yield* NotebookService
-      const created = yield* notebooks.create
+      assert.strictEqual((yield* request("POST", "/notebooks", false)).status, 401)
+      assert.isFalse(r2.exists())
 
-      const createdNotebook = Result.match(created, {
-        onSuccess: (notebook) => notebook,
-        onFailure: () => assert.fail("creation failed")
-      })
+      const created = yield* request("POST", "/notebooks")
+      assert.strictEqual(created.status, 201)
+      const body = yield* Effect.promise<unknown>(() => created.json())
+      const notebook = yield* Schema.decodeUnknownEffect(Notebook)(body)
+      const path = "/notebooks/" + notebook.id
 
-      assert.strictEqual(createdNotebook.id, yield* fixed.uuidV4())
-    }).pipe(Effect.provide(
-      NotebookService.Live.pipe(Layer.provide(Layer.mergeAll(
-        BrowserCrypto.layer,
-        Layer.succeed(SecureRandom.SecureRandom, fixed),
-        Layer.succeed(NotebookR2, r2.client)
-      )))
-    ))
-  })
-
-  it.effect("should reopen a published file when a fresh volume reads its image", () => {
-    const r2 = remote()
-
-    return Effect.gen(function*() {
-      const notebooks = yield* NotebookService
-      const created = yield* notebooks.create
-
-      const createdNotebook = Result.match(created, {
-        onSuccess: (notebook) => notebook,
-        onFailure: () => assert.fail("creation failed")
-      })
-
-      const reopened = yield* notebooks.read(createdNotebook.id)
-
-      assert.deepStrictEqual(reopened, createdNotebook)
-      assert.deepStrictEqual(reopened?.files, ["/published/hello.txt"])
+      const reopened = yield* request("GET", path)
+      assert.strictEqual(reopened.status, 200)
+      assert.deepStrictEqual(yield* Effect.promise(() => reopened.json()), body)
+      assert.deepStrictEqual(notebook.files, ["/published/hello.txt"])
       assert.isTrue(r2.exists())
-    }).pipe(Effect.provide(testLayer(r2)))
+
+      assert.strictEqual((yield* request("DELETE", path)).status, 200)
+      assert.strictEqual((yield* request("GET", path)).status, 404)
+      assert.isFalse(r2.exists())
+    })
   })
 
   it.effect("should allow reading but deny modification when files are published", () => {
@@ -225,25 +223,6 @@ describe("R2 notebook", () => {
       const reopened = yield* notebooks.read(id)
 
       assert.strictEqual(reopened, null)
-      assert.isFalse(r2.exists())
-      assert.strictEqual(yield* notebooks.read(id), null)
-    }).pipe(Effect.provide(testLayer(r2)))
-  })
-
-  it.effect("should remove the image when a notebook is deleted", () => {
-    const r2 = remote()
-
-    return Effect.gen(function*() {
-      const notebooks = yield* NotebookService
-      const created = yield* notebooks.create
-
-      const id = Result.match(created, {
-        onSuccess: (notebook) => notebook.id,
-        onFailure: () => assert.fail("creation failed")
-      })
-
-      yield* notebooks.remove(id)
-
       assert.isFalse(r2.exists())
       assert.strictEqual(yield* notebooks.read(id), null)
     }).pipe(Effect.provide(testLayer(r2)))

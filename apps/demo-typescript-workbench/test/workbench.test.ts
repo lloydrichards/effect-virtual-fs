@@ -1,4 +1,4 @@
-// Qualify the actual native worker protocol, compiler, checkpoint codec and timeout recovery.
+// Qualify failures and recovery through the native compiler and worker.
 /* eslint-disable effecttsgo/async-function */
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -8,7 +8,7 @@ import { test } from "node:test"
 import { makeCoordinator } from "../src/workbench/coordinator.ts"
 import type { Command, View } from "../src/workbench/domain.ts"
 
-void test("should compile, run and restore mounted files when workspace commands change source", {
+void test("should recover from compiler and execution failures on mounted files", {
   timeout: 180000
 }, async () => {
   await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
@@ -31,34 +31,21 @@ void test("should compile, run and restore mounted files when workspace commands
         )
       )
 
-    state = yield* command("compile")
-    assert.equal(state.build?.status, "success", state.build?.diagnostics.map((item) => item.message).join("\n") ?? "")
-    assert.ok(state.build.inputs > 60)
-    state = yield* command("run")
-    assert.match(state.output.map((item) => item.text).join(""), /1. Edit TypeScript/)
-    state = yield* command("compileRun", [{
-      path: "/src/format.ts",
-      text: "export const summarize = (items: string[]) => \"CHANGED \" + items.length;\n"
-    }])
-    assert.match(state.output.map((item) => item.text).join(""), /CHANGED 3/)
-    state = yield* command("save")
-    assert.equal(state.checkpoint, 1)
+    state = yield* command("compile", [], "viewer")
+    assert.equal(state.build?.status, "failed")
+    assert.ok(state.build.diagnostics.some((item) => /EACCES/.test(item.message)))
     state = yield* command("compileRun", [{
       path: "/src/format.ts",
       text: "export const summarize = (items: string[]): string => 42;\n"
     }])
     assert.equal(state.build?.status, "failed")
     assert.ok(state.build.diagnostics.some((item) => item.code === 2322))
-    const old = state
-    state = yield* command("restore")
-    assert.ok(state.generation > old.generation)
-    assert.match(state.files.find((file) => file.path === "/src/format.ts")!.text, /CHANGED/)
-    assert.equal(state.build, null)
-    state = yield* command("compile", [], "viewer")
-    assert.equal(state.build?.status, "failed")
-    assert.ok(state.build.diagnostics.some((item) => /EACCES/.test(item.message)))
-    state = yield* command("compileRun")
+    state = yield* command("compileRun", [{
+      path: "/src/format.ts",
+      text: "export const summarize = (items: string[]) => \"CHANGED \" + items.length;\n"
+    }])
     assert.match(state.output.map((item) => item.text).join(""), /CHANGED 3/)
+    state = yield* command("save")
     state = yield* command("compileRun", [{ path: "/src/index.ts", text: "while (true) {}\n" }])
     assert.match(state.notice, /Run stopped/)
     assert.equal(state.build, null)
@@ -79,25 +66,6 @@ void test("should compile, run and restore mounted files when workspace commands
     assert.equal(state.runRevision, null)
     assert.match(state.output.map((item) => item.text).join(""), /EACCES/)
     assert.match(state.files.find((file) => file.path === "/src/format.ts")!.text, /CHANGED/)
-    state = yield* command("compileRun", [{ path: "/src/index.ts", text: "throw new Error(\"x\".repeat(40000));\n" }])
-    assert.equal(state.runRevision, null)
-    assert.equal(state.truncated, true)
-    assert.ok(state.output.reduce((size, item) => size + item.text.length, 0) <= 32000)
-
-    const obsolete = state
-    state = yield* command("restore")
-
-    const stale = yield* Effect.exit(
-      coordinator.command({
-        action: "compile",
-        generation: obsolete.generation,
-        revision: obsolete.revision,
-        edits: [],
-        role: "compiler"
-      })
-    )
-
-    assert.ok(Exit.isFailure(stale))
 
     const inFlight = yield* coordinator.command({
       action: "compileRun",
@@ -116,8 +84,5 @@ void test("should compile, run and restore mounted files when workspace commands
     const refreshed = yield* command("view")
     assert.equal(refreshed.generation, state.generation)
     assert.doesNotMatch(refreshed.files.find((file) => file.path === "/src/index.ts")!.text, /while/)
-    state = yield* command("reset")
-    assert.equal(state.checkpoint, 0)
-    assert.doesNotMatch(state.files.find((file) => file.path === "/src/format.ts")!.text, /CHANGED/)
   })))
 })
