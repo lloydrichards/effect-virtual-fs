@@ -11,6 +11,9 @@ sources:
   - id: core-readme
     resource: ../../packages/core/README.md
     title: core package overview
+  - id: overlay-merge
+    resource: ../../packages/core/src/VirtualFileSystem.ts
+    title: Experimental overlay capture and merge operations
   - id: memory-readme
     resource: ../../packages/memory/README.md
     title: memory package overview
@@ -38,7 +41,7 @@ sources:
   - id: d1-store
     resource: ../../packages/persistence/src/D1LiveImageStore.ts
     title: Primary D1 client and per-owner statement drainage
-generated: { by: codex/okf, at: "2026-11-17T18:57:43+01:00" }
+generated: { by: codex/okf, at: "2026-11-19T09:44:08+01:00" }
 ---
 
 # Package feature map
@@ -96,7 +99,10 @@ flowchart TB
     end
     subgraph State["Captured state"]
       Snapshot["Portable snapshots<br/>Byte and stream codecs"] -->|seeds| Overlay["Overlay workspaces"]
-      Snapshot <-->|diffs and applies| Delta["Snapshot deltas<br/>Apply and three-way merge"]
+      Snapshot <-->|diffs and applies| Delta["Snapshot deltas<br/>Path-based three-way merge"]
+      Overlay -->|captures final state and rename lineage| RenameMerge["Rename-aware overlay merge<br/>Experimental"]
+      Snapshot -->|supplies common base| RenameMerge
+      RenameMerge -->|emits version 1 delta| Delta
       Snapshot -->|queries| Search["Glob and content search"]
     end
     subgraph Integration["Integration"]
@@ -110,6 +116,7 @@ flowchart TB
   end
   Owner -->|powers| Volume
   Capture -->|supplies state| Snapshot
+  CodeMode["Private Code Mode trial"] -->|merges two retained runs| RenameMerge
   Handles -->|supplies sync APIs| Sync
   subgraph Memory["@effect-vfs/memory"]
     MemoryFS["MemoryFileSystem"]
@@ -182,14 +189,18 @@ flowchart TB
   classDef external fill:#f1f5f9,stroke:#475569,color:#0f172a,stroke-width:2px
   classDef requirement fill:#fff7ed,stroke:#9a3412,color:#7c2d12,stroke-width:3px,stroke-dasharray:6 4
   class Owner,Caller,Files,Handles,Guards,Capture preview
-  class Volume,Watches,Fixtures,Testing,Snapshot,Overlay,Delta,Search,Sync,Live,Registry core
+  class Volume,Watches,Fixtures,Testing,Snapshot,Overlay,Delta,RenameMerge,Search,Sync,Live,Registry core
   class MemoryFS,Transfer,Faults memory
   class Provider node
   class Checkpoint,SQLite,R2,PostgreSQL,D1,Protocol,R2Client persistence
   class Server,ReadOnly,Writable,Local,Network nfs
-  class EffectFS,NodeFS,Mounted,Socket,Clients,SqlClient,PgClient,D1Client,Digest external
+  class CodeMode,EffectFS,NodeFS,Mounted,Socket,Clients,SqlClient,PgClient,D1Client,Digest external
   class SyncRequirement,Durable requirement
 ```
+
+## Merge boundaries
+
+Core owns the [rename-aware merge candidate](../research/overlay-rename-merge.md). Its input is two process-local overlay captures and their common base. It returns a standard delta and one conflict per decision. The caller can apply the delta with the existing snapshot API. The [Code Mode trial](codemode-example.md) uses the experimental API for release handoffs. A supported release requires a real handoff and sign-off.
 
 ## Integration qualifications
 

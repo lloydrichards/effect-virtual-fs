@@ -8,6 +8,9 @@ sources:
   - id: execution
     resource: ../../apps/demo-agent-tools/src/codemode.ts
     title: Execution, guest tools, capture, and inspection
+  - id: trial
+    resource: ../../apps/demo-agent-tools/src/codemode-trial.ts
+    title: Opt-in trial, conflict preview, and handoff
   - id: transport
     resource: ../../apps/demo-agent-tools/src/codemode-mcp.ts
     title: Effect McpServer stdio entry point
@@ -26,16 +29,16 @@ sources:
   - id: research
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/30#issuecomment-6298896502
     title: Execution research, alternatives, and remaining investigation
-generated: { by: codex/okf, at: 2026-10-20T00:00:00+02:00 }
+generated: { by: codex/okf, at: "2026-11-19T09:44:08+01:00" }
 ---
 
 # Code Mode example ownership
 
-The private `apps/demo-agent-tools` application has a separate `codemode-mcp.ts` entry point. Effect's `McpServer` exposes `execute`, `inspect_run`, and `inspect_base`. OpenCode interprets the submitted JavaScript subset; four schema-defined guest tools invoke the existing Effect filesystem handlers directly. They do not make nested MCP calls. This is an application-level example, not a published runtime or core filesystem feature.[^execution][^transport]
+The private `apps/demo-agent-tools` application has a separate `codemode-mcp.ts` entry point. Effect's `McpServer` exposes `execute`, `inspect_run`, `inspect_base`, and `combine_runs`. OpenCode interprets the submitted JavaScript subset; schema-defined guest tools invoke the existing Effect filesystem handlers directly. They do not make nested MCP calls. This is an application-level example, not a published runtime or core filesystem feature.[^execution][^transport]
 
 ## Execution and capture
 
-The server creates one immutable seeded base. Each admitted execution acquires a serialization permit, creates a fresh overlay, and obtains a caller rooted at `/projects/release`. Only read, write, list, and stat are supplied to the guest. No volume owner, caller identity, file handle, or Effect runtime crosses into guest data. Project-relative path validation supplements identity-rooted caller confinement.[^execution][^fixture]
+The server creates one immutable seeded base. Each admitted execution acquires a serialization permit, creates a fresh overlay, and obtains a caller rooted at `/projects/release`. The guest can read, write, rename, list, and stat within its workspace. No volume owner, caller identity, file handle, or Effect runtime crosses into guest data. Project-relative path validation supplements identity-rooted caller confinement.[^execution][^fixture]
 
 ```text
 execute(code)
@@ -58,11 +61,17 @@ Program failure and cooperative timeout return an interpreter diagnostic and sti
 
 `inspect_run` selects a private retained snapshot by run ID. `inspect_base` selects the original snapshot. Both restore an independent temporary volume, obtain a rooted caller, and reuse the read/list/stat handlers. Inspection cannot change retained snapshots through access metadata. Inspection returns bounded text or metadata rather than exporting the full volume.[^execution]
 
-The process serializes executions and retains at most eight runs with no eviction. Restart clears run IDs and artifacts. There is no persistence, publication, merge, remote workspace, or durable replay policy in this example.[^execution]
+The process serializes executions and retains at most eight runs with no eviction. Restart clears run IDs and artifacts. Runs and captures are process-local.[^execution]
+
+## Release handoff trial
+
+`EFFECT_VFS_CODEMODE_TRIAL=1` selects the experimental `combine_runs` handler. Each successful execution saves a core-issued merge capture in its retained run record. The handler merges two retained captures against the server's base. It returns a preview delta with conflict groups while choices remain open and a handoff delta after every group has a choice. Each retry sends all choices so far. Core owns conflict keys and resolution rules.[^trial][^mcp-tests]
+
+Trial run IDs belong to one server instance. After a restart, the coordinator returns to the usual handoff workflow. The [rename-aware merge proposal](../research/overlay-rename-merge.md) records the packed trial and release gate.
 
 ## Runtime and authority boundaries
 
-The host is TypeScript with Effect. The guest is OpenCode's JavaScript subset, not arbitrary TypeScript, Node, npm modules, or guest Effect. The example pins `@opencode/codemode@2.1.1` while the repository's existing Effect override resolves `4.0.0`; the upstream package declares `4.0.1`. Tests qualify this combination only. Dependency upgrades must repeat the example's checks.[^usage]
+The host is TypeScript with Effect. The guest is OpenCode's JavaScript subset, not arbitrary TypeScript, Node, npm modules, or guest Effect. The example pins `@opencode/codemode@2.2.7` and Effect `4.1.4`. Test evidence applies to the pinned versions. Dependency upgrades must repeat the example's checks.[^usage]
 
 Application policies bound source to 8 KiB, calls including discovery to 32, cooperative execution time to five seconds, and the interpreter’s return-value/log budget to 16 KiB with a separate warning budget. The host caps failure messages at 2 KiB of UTF-8 and sets `execution.truncated` when shortening them. These are separate payload budgets, not a cap on the complete MCP response. Each overlay allows 256 KiB of content, 64 KiB per file, 128 entries, and 16 pending VFS operations. Existing text tools limit reads/writes to 64 KiB and listings to 200 entries.[^execution][^usage]
 
@@ -70,9 +79,11 @@ VFS quotas constrain filesystem operations, not the interpreter heap. The in-pro
 
 The example is [constrained by system boundaries](system-boundaries.md "constrained by"), uses [confined callers](../contracts/confined-callers.md "depends on"), and retains [overlay captures](../contracts/overlay-workspaces.md "depends on").
 
-[^execution]: `codemode.ts` defines the four guest adapters, scoped execution and capture, retained run map, and snapshot-based inspection.
+[^execution]: `codemode.ts` defines the guest adapters, scoped execution and capture, retained run map, and snapshot-based inspection.
 
-[^transport]: `codemode-mcp.ts` registers `CodeModeTools` and their handlers with `McpServer.layerStdio`.
+[^transport]: `codemode-mcp.ts` selects the usual or trial toolkit and starts `McpServer.layerStdio`.
+
+[^trial]: `codemode-trial.ts` looks up retained merge captures, calls core, and maps the result to a preview or handoff response.
 
 [^fixture]: `workspace.ts` seeds the immutable template and exports its project root.
 
@@ -82,4 +93,4 @@ The example is [constrained by system boundaries](system-boundaries.md "constrai
 
 [^research]: The linked issue comment retains source-based interpreter limitations and unimplemented runtime alternatives.
 
-[^mcp-tests]: `mcp.test.ts` sends `notifications/cancelled` for an execution request and verifies missing retained state, unchanged base, and run-ID reuse.
+[^mcp-tests]: `mcp.test.ts` sends `notifications/cancelled` for an execution request and verifies missing retained state, unchanged base, and run-ID reuse in the usual workflow. The packed trial exercises merge preview, incremental resolution, and rejection of old trial run IDs in a fresh process.
