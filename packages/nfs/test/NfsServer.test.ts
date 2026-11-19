@@ -1453,148 +1453,178 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       yield* held.close
     }).pipe(Effect.provide(Testing.layer())))
 
-  it.effect("should send a callback down the backchannel and accept the client's reply over TCP when a callback round trip uses TCP", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
-      const caller = yield* Vfs.Caller
-      const scope = yield* Scope.make()
+  for (const authorization of ["AUTH_NONE", "AUTH_SYS", "both flavors"] as const) {
+    it.effect(`negotiates callbacks with ${authorization} and accepts the TCP reply`, () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
+        const scope = yield* Scope.make()
 
-      const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(Scope.provide(scope))
+        const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(Scope.provide(scope))
 
-      const server = yield* NfsServer.make(options(volume, caller)).pipe(
-        Effect.provideService(SocketServer.SocketServer, socketServer),
-        Scope.provide(scope)
-      )
+        const server = yield* NfsServer.make(options(volume, caller)).pipe(
+          Effect.provideService(SocketServer.SocketServer, socketServer),
+          Scope.provide(scope)
+        )
 
-      const client = yield* openConnection(tcpPort(server))
+        const client = yield* openConnection(tcpPort(server))
 
-      const exchangeId = Effect.fnUntraced(function*(writer: RequestWriter) {
-        yield* writer.write(Xdr.uint32, Operation.EXCHANGE_ID)
-        yield* writer.write(Xdr.fixedOpaque(8), new Uint8Array(8))
-        yield* writer.write(Xdr.string(), "cb")
-        yield* writeWords(writer, [0, 0, 0])
-      })
+        const exchangeId = Effect.fnUntraced(function*(writer: RequestWriter) {
+          yield* writer.write(Xdr.uint32, Operation.EXCHANGE_ID)
+          yield* writer.write(Xdr.fixedOpaque(8), new Uint8Array(8))
+          yield* writer.write(Xdr.string(), "cb")
+          yield* writeWords(writer, [0, 0, 0])
+        })
 
-      const identity = yield* client.send(yield* rpcCompound(1, [exchangeId]))
-      const idReader = yield* compoundReply(identity[0]!)
-      yield* idReader.read(Xdr.uint32)
-      yield* idReader.read(Xdr.string())
-      yield* skipWords(idReader, 3)
-      const clientId = yield* idReader.read(Xdr.uint64)
+        const identity = yield* client.send(yield* rpcCompound(1, [exchangeId]))
+        const idReader = yield* compoundReply(identity[0]!)
+        yield* idReader.read(Xdr.uint32)
+        yield* idReader.read(Xdr.string())
+        yield* skipWords(idReader, 3)
+        const clientId = yield* idReader.read(Xdr.uint64)
 
-      // CREATE_SESSION asking for CONN_BACK_CHAN, with a real callback program number.
-      const created = yield* client.send(
-        yield* rpcCompound(2, [(writer) =>
-          Effect.gen(function*() {
-            yield* writer.write(Xdr.uint32, Operation.CREATE_SESSION)
-            yield* writer.write(Xdr.uint64, clientId)
-            yield* writeWords(writer, [1, 2])
-            yield* Effect.forEach([2, 2], (slots) => writeWords(writer, [0, 1_024, 1_024, 1_024, 8, slots, 0]), {
-              discard: true
-            })
-
-            // csa_sec_parms authorizing AUTH_NONE for callbacks (Section 18.36.3).
-            yield* writer.write(Xdr.uint32, 0x4000_0001)
-            yield* writer.write(Xdr.array(Xdr.uint32), [0])
-          })])
-      )
-
-      const sessionReader = yield* compoundReply(created[0]!)
-      yield* sessionReader.read(Xdr.uint32)
-      yield* sessionReader.read(Xdr.string())
-      yield* skipWords(sessionReader, 3)
-      const session = yield* sessionReader.read(Xdr.fixedOpaque(16))
-      assert.strictEqual(yield* sessionReader.read(Xdr.uint32), 1, "csr_sequence")
-      assert.strictEqual(yield* sessionReader.read(Xdr.uint32), 2, "csr_flags echoes CONN_BACK_CHAN")
-
-      // The first SEQUENCE triggers the probe, so this exchange yields two records: the SEQUENCE
-      // reply and the server's CB_COMPOUND arriving on the same connection.
-      const both = yield* client.send(
-        yield* rpcCompound(3, [
-          (writer) =>
+        // CREATE_SESSION asking for CONN_BACK_CHAN, with a real callback program number.
+        const created = yield* client.send(
+          yield* rpcCompound(2, [(writer) =>
             Effect.gen(function*() {
-              yield* writer.write(Xdr.uint32, Operation.SEQUENCE)
-              yield* writer.write(Xdr.fixedOpaque(16), session)
-              yield* writeWords(writer, [1, 0, 1])
-              yield* writer.write(Xdr.boolean, false)
-            })
-        ]),
-        2
-      )
+              yield* writer.write(Xdr.uint32, Operation.CREATE_SESSION)
+              yield* writer.write(Xdr.uint64, clientId)
+              yield* writeWords(writer, [1, 2])
+              yield* Effect.forEach([2, 4], (slots) => writeWords(writer, [0, 1_024, 1_024, 1_024, 8, slots, 0]), {
+                discard: true
+              })
 
-      const callback = both.find((record) => {
-        const view = new DataView(record.buffer, record.byteOffset, record.byteLength)
+              yield* writer.write(Xdr.uint32, 0x4000_0001)
+              yield* writer.write(Xdr.uint32, authorization === "both flavors" ? 2 : 1)
 
-        return view.getUint32(4) === 0
-      })
+              if (authorization !== "AUTH_NONE") {
+                yield* writeWords(writer, [1, 0x6aa6_6b2d])
+                yield* writer.write(Xdr.string(), "callback-client")
+                yield* writeWords(writer, [1_000, 100])
+                yield* writer.write(Xdr.array(Xdr.uint32), [100, 200])
+              }
 
-      assert.isDefined(callback, "the server sent a CALL down the backchannel")
-      const cb = replyReader(callback)
-      const callbackXid = yield* cb.read(Xdr.uint32)
-      yield* cb.read(Xdr.uint32)
-      assert.strictEqual(yield* cb.read(Xdr.uint32), 2, "RPC version")
-      assert.strictEqual(yield* cb.read(Xdr.uint32), 0x4000_0001, "callback program")
-      assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "callback version is 1 per erratum 2291")
-      assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "CB_COMPOUND procedure")
+              if (authorization !== "AUTH_SYS") yield* writer.write(Xdr.uint32, 0)
+            })])
+        )
 
-      // Read the CB_SEQUENCE the server asked, so the answer echoes the session, sequence and
-      // slot it was given. Anything less is not a reply the server may accept.
-      yield* cb.read(Xdr.uint32)
-      yield* cb.read(Xdr.opaque())
-      yield* cb.read(Xdr.uint32)
-      yield* cb.read(Xdr.opaque())
-      yield* cb.read(Xdr.string())
-      yield* skipWords(cb, 2)
-      assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "one callback operation")
-      assert.strictEqual(yield* cb.read(Xdr.uint32), 11, "OP_CB_SEQUENCE")
-      const callbackSession = yield* cb.read(Xdr.fixedOpaque(16))
-      const callbackSequence = yield* cb.read(Xdr.uint32)
-      const callbackSlot = yield* cb.read(Xdr.uint32)
+        const sessionReader = yield* compoundReply(created[0]!)
+        yield* sessionReader.read(Xdr.uint32)
+        yield* sessionReader.read(Xdr.string())
+        yield* skipWords(sessionReader, 3)
+        const session = yield* sessionReader.read(Xdr.fixedOpaque(16))
+        assert.strictEqual(yield* sessionReader.read(Xdr.uint32), 1, "csr_sequence")
+        assert.strictEqual(yield* sessionReader.read(Xdr.uint32), 2, "csr_flags echoes CONN_BACK_CHAN")
 
-      // Answer it exactly as a client would, and the server must accept the reply rather than
-      // treating it as a request.
-      const replyWriter = requestWriter()
-      yield* writeWords(replyWriter, [callbackXid, 1, 0, 0])
-      yield* replyWriter.write(Xdr.opaque(), new Uint8Array())
-      yield* writeWords(replyWriter, [0, 0])
-      yield* replyWriter.write(Xdr.string(), "probe")
-      yield* writeWords(replyWriter, [1, 11, 0])
-      yield* replyWriter.write(Xdr.fixedOpaque(16), callbackSession)
-      yield* writeWords(replyWriter, [callbackSequence, callbackSlot, callbackSlot, callbackSlot])
-      const reply = yield* replyWriter.finish
+        // The first SEQUENCE triggers the probe, so this exchange yields two records: the SEQUENCE
+        // reply and the server's CB_COMPOUND arriving on the same connection.
+        const both = yield* client.send(
+          yield* rpcCompound(3, [
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(Xdr.uint32, Operation.SEQUENCE)
+                yield* writer.write(Xdr.fixedOpaque(16), session)
+                yield* writeWords(writer, [1, 0, 1])
+                yield* writer.write(Xdr.boolean, false)
+              })
+          ]),
+          2
+        )
 
-      yield* client.sendWithoutReply(encodeRecord(reply))
+        const callback = both.find((record) => {
+          const view = new DataView(record.buffer, record.byteOffset, record.byteLength)
 
-      // The connection still serves ordinary traffic afterwards, proving the reply was routed and
-      // not mistaken for a call.
-      const after = yield* client.send(
-        yield* rpcCompound(4, [
-          (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(Xdr.uint32, Operation.SEQUENCE)
-              yield* writer.write(Xdr.fixedOpaque(16), session)
-              yield* writeWords(writer, [2, 0, 1])
-              yield* writer.write(Xdr.boolean, false)
-            })
-        ])
-      )
+          return view.getUint32(4) === 0
+        })
 
-      assert.strictEqual(yield* firstOperationStatus(after[0]!), Status.OK)
+        assert.isDefined(callback, "the server sent a CALL down the backchannel")
+        const cb = replyReader(callback)
+        const callbackXid = yield* cb.read(Xdr.uint32)
+        yield* cb.read(Xdr.uint32)
+        assert.strictEqual(yield* cb.read(Xdr.uint32), 2, "RPC version")
+        assert.strictEqual(yield* cb.read(Xdr.uint32), 0x4000_0001, "callback program")
+        assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "callback version is 1 per erratum 2291")
+        assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "CB_COMPOUND procedure")
 
-      // And the server accepted that reply as a working callback path: sr_status_flags is clear
-      // rather than carrying SEQ4_STATUS_CB_PATH_DOWN_SESSION.
-      const status = yield* compoundReply(after[0]!)
-      yield* status.read(Xdr.uint32)
-      yield* status.read(Xdr.string())
-      yield* skipWords(status, 3)
-      yield* status.read(Xdr.fixedOpaque(16))
-      yield* skipWords(status, 4)
+        // Read the CB_SEQUENCE the server asked, so the answer echoes the session, sequence and
+        // slot it was given. Anything less is not a reply the server may accept.
+        assert.isAbove(callbackXid, 0)
+        const flavor = yield* cb.read(Xdr.uint32)
+        const credentials = yield* cb.read(Xdr.opaque())
+        assert.strictEqual(flavor, authorization === "AUTH_SYS" ? 1 : 0)
 
-      assert.strictEqual(yield* status.read(Xdr.uint32), 0, "the callback path is reported up")
+        if (authorization === "AUTH_SYS") {
+          const sys = replyReader(credentials)
+          assert.strictEqual(yield* sys.read(Xdr.uint32), 0x6aa6_6b2d)
+          assert.strictEqual(yield* sys.read(Xdr.string()), "callback-client")
+          assert.strictEqual(yield* sys.read(Xdr.uint32), 1_000)
+          assert.strictEqual(yield* sys.read(Xdr.uint32), 100)
+          assert.deepStrictEqual(yield* sys.read(Xdr.array(Xdr.uint32)), [100, 200])
+          yield* sys.finish
+        } else {
+          assert.strictEqual(credentials.length, 0)
+        }
 
-      yield* client.close
-      yield* Scope.close(scope, Exit.void)
-    }).pipe(Effect.provide(Testing.layer())))
+        yield* cb.read(Xdr.uint32)
+        yield* cb.read(Xdr.opaque())
+        assert.strictEqual(yield* cb.read(Xdr.string()), "probe")
+        assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "callback minorversion")
+        yield* cb.read(Xdr.uint32)
+        assert.strictEqual(yield* cb.read(Xdr.uint32), 1, "one callback operation")
+        assert.strictEqual(yield* cb.read(Xdr.uint32), 11, "OP_CB_SEQUENCE")
+        const callbackSession = yield* cb.read(Xdr.fixedOpaque(16))
+        const callbackSequence = yield* cb.read(Xdr.uint32)
+        const callbackSlot = yield* cb.read(Xdr.uint32)
+        assert.deepStrictEqual(callbackSession, session)
+        assert.strictEqual(callbackSequence, 1)
+        assert.strictEqual(callbackSlot, 0)
+        assert.strictEqual(yield* cb.read(Xdr.uint32), 3, "highest of four negotiated slots")
+
+        // Answer it exactly as a client would, and the server must accept the reply rather than
+        // treating it as a request.
+        const replyWriter = requestWriter()
+        yield* writeWords(replyWriter, [callbackXid, 1, 0, 0])
+        yield* replyWriter.write(Xdr.opaque(), new Uint8Array())
+        yield* writeWords(replyWriter, [0, 0])
+        yield* replyWriter.write(Xdr.string(), "probe")
+        yield* writeWords(replyWriter, [1, 11, 0])
+        yield* replyWriter.write(Xdr.fixedOpaque(16), callbackSession)
+        yield* writeWords(replyWriter, [callbackSequence, callbackSlot, callbackSlot, callbackSlot])
+        const reply = yield* replyWriter.finish
+
+        yield* client.sendWithoutReply(encodeRecord(reply))
+
+        // The connection still serves ordinary traffic afterwards, proving the reply was routed and
+        // not mistaken for a call.
+        const after = yield* client.send(
+          yield* rpcCompound(4, [
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(Xdr.uint32, Operation.SEQUENCE)
+                yield* writer.write(Xdr.fixedOpaque(16), session)
+                yield* writeWords(writer, [2, 0, 1])
+                yield* writer.write(Xdr.boolean, false)
+              })
+          ])
+        )
+
+        assert.strictEqual(yield* firstOperationStatus(after[0]!), Status.OK)
+
+        // And the server accepted that reply as a working callback path: sr_status_flags is clear
+        // rather than carrying SEQ4_STATUS_CB_PATH_DOWN_SESSION.
+        const status = yield* compoundReply(after[0]!)
+        yield* status.read(Xdr.uint32)
+        yield* status.read(Xdr.string())
+        yield* skipWords(status, 3)
+        yield* status.read(Xdr.fixedOpaque(16))
+        yield* skipWords(status, 4)
+
+        assert.strictEqual(yield* status.read(Xdr.uint32), 0, "the callback path is reported up")
+
+        yield* client.close
+        yield* Scope.close(scope, Exit.void)
+      }).pipe(Effect.provide(Testing.layer())))
+  }
 })
 
 const call = Effect.fnUntraced(
@@ -11358,6 +11388,68 @@ describe("Backchannel over TCP", () => {
         assert.deepStrictEqual((yield* statuses(created)).operations, [[Operation.CREATE_SESSION, Status.TOOSMALL]])
       }).pipe(Effect.provide(Testing.layer())))
   })
+  {
+    const connectionHandler = Effect.flatMap(Vfs.Caller, (caller) => wireClient(caller))
+
+    const destroySession = (id: Uint8Array) => (writer: RequestWriter) =>
+      Effect.gen(function*() {
+        yield* writer.write(Xdr.uint32, Operation.DESTROY_SESSION)
+        yield* writer.write(Xdr.fixedOpaque(id.length), id)
+      })
+
+    it.layer(NodeCrypto.layer)((it) => {
+      it.effect("should refuse DESTROY_SESSION from a connection the session was never carried on when DESTROY_SESSION arrives on an unassociated connection", () =>
+        Effect.gen(function*() {
+          const handler = yield* connectionHandler
+          const owner = connection(1)
+          const stranger = connection(2)
+
+          const {
+            session
+          } = yield* startSession(handler, "destroy", {}, new Uint8Array(8), owner)
+
+          // Section 18.37.3: DESTROY_SESSION MUST be invoked on a connection associated with the
+          // session. Otherwise any second connection could kill a mount using an observed session id.
+          const refused = yield* handler.send(yield* call([destroySession(session)], "probe", stranger))
+          assert.deepStrictEqual((yield* statuses(refused)).operations, [[
+            Operation.DESTROY_SESSION,
+            Status.CONN_NOT_BOUND_TO_SESSION
+          ]])
+
+          // The session is untouched and the connection that created it may still destroy it.
+          const accepted = yield* handler.send(yield* call([destroySession(session)], "probe", owner))
+          assert.deepStrictEqual((yield* statuses(accepted)).operations, [[Operation.DESTROY_SESSION, Status.OK]])
+        }).pipe(Effect.provide(Testing.layer())))
+
+      it.effect("should drop a connection's association when it disconnects, without ending the session", () =>
+        Effect.gen(function*() {
+          const handler = yield* connectionHandler
+          const owner = connection(1)
+          const second = connection(2)
+
+          const {
+            session
+          } = yield* startSession(handler, "disconnect", {}, new Uint8Array(8), owner)
+
+          yield* handler.send(yield* call([sequence(session, 1)], "probe", second))
+          yield* handler.close(second)
+
+          // The session survives: the connection that created it still works.
+          assert.strictEqual(
+            (yield* statuses(yield* handler.send(yield* call([sequence(session, 2)], "probe", owner)))).status,
+            Status.OK
+          )
+
+          // But the disconnected connection is no longer associated. Re-using that identity, as a
+          // fresh socket reaching the same handler would, is refused.
+          assert.deepStrictEqual(
+            (yield* statuses(yield* handler.send(yield* call([destroySession(session)], "probe", second))))
+              .operations,
+            [[Operation.DESTROY_SESSION, Status.CONN_NOT_BOUND_TO_SESSION]]
+          )
+        }).pipe(Effect.provide(Testing.layer())))
+    })
+  }
 })
 
 describe("Filehandles over TCP", () => {

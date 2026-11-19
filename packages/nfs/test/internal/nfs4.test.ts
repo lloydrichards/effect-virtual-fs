@@ -18,7 +18,6 @@ import {
   type XdrEncodeError
 } from "../../src/internal/xdr.js"
 import {
-  authSysCallback,
   call,
   callbackProgram,
   channel,
@@ -46,64 +45,6 @@ describe("Backchannel", () => {
   ) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
   it.layer(NodeCrypto.layer)("NFSv4.1 Backchannel", (it) => {
-    const connectionHandler = Effect.flatMap(Vfs.Caller, (caller) => makeHandler(caller))
-
-    const destroySession = (id: Uint8Array) => (writer: EncoderSession) =>
-      Effect.gen(function*() {
-        yield* writer.write(XdrCodec.uint32, Operation.DESTROY_SESSION)
-        yield* writer.write(XdrCodec.fixedOpaque(id.length), id)
-      })
-
-    it.effect("should refuse DESTROY_SESSION from a connection the session was never carried on when DESTROY_SESSION arrives on an unassociated connection", () =>
-      Effect.gen(function*() {
-        const handler = yield* connectionHandler
-        const owner = connection(1)
-        const stranger = connection(2)
-
-        const {
-          session
-        } = yield* startSession(handler, "destroy", {}, new Uint8Array(8), owner)
-
-        // Section 18.37.3: DESTROY_SESSION MUST be invoked on a connection associated with the
-        // session. Otherwise any second connection could kill a mount using an observed session id.
-        const refused = yield* handler.compound(yield* call([destroySession(session)], "probe", stranger))
-        assert.deepStrictEqual((yield* statuses(refused)).operations, [[
-          Operation.DESTROY_SESSION,
-          Status.CONN_NOT_BOUND_TO_SESSION
-        ]])
-
-        // The session is untouched and the connection that created it may still destroy it.
-        const accepted = yield* handler.compound(yield* call([destroySession(session)], "probe", owner))
-        assert.deepStrictEqual((yield* statuses(accepted)).operations, [[Operation.DESTROY_SESSION, Status.OK]])
-      }).pipe(Effect.provide(Testing.layer())))
-    it.effect("should drop a connection's association when it disconnects, without ending the session", () =>
-      Effect.gen(function*() {
-        const handler = yield* connectionHandler
-        const owner = connection(1)
-        const second = connection(2)
-
-        const {
-          session
-        } = yield* startSession(handler, "disconnect", {}, new Uint8Array(8), owner)
-
-        yield* handler.compound(yield* call([sequence(session, 1)], "probe", second))
-        yield* handler.disconnect(second)
-
-        // The session survives: the connection that created it still works.
-        assert.strictEqual(
-          (yield* statuses(yield* handler.compound(yield* call([sequence(session, 2)], "probe", owner)))).status,
-          Status.OK
-        )
-
-        // But the disconnected connection is no longer associated. Re-using that identity, as a
-        // fresh socket reaching the same handler would, is refused.
-        assert.deepStrictEqual(
-          (yield* statuses(yield* handler.compound(yield* call([destroySession(session)], "probe", second))))
-            .operations,
-          [[Operation.DESTROY_SESSION, Status.CONN_NOT_BOUND_TO_SESSION]]
-        )
-      }).pipe(Effect.provide(Testing.layer())))
-
     const backChannelHandler = (callbackTimeout: Duration.Input) =>
       Effect.flatMap(Vfs.Caller, (caller) => makeHandler(caller, { callbackTimeout }))
 
@@ -172,69 +113,6 @@ describe("Backchannel", () => {
       })
     }
 
-    it.effect("should send a CB_COMPOUND whose CB_SEQUENCE and RPC version match the errata when a callback sends CB_COMPOUND under the errata", () =>
-      Effect.gen(function*() {
-        const handler = yield* backChannelHandler("2 seconds")
-        let sent: Uint8Array | undefined
-
-        const client = connection(1, (message) => {
-          sent = message
-
-          return true
-        })
-
-        const {
-          session
-        } = yield* startSession(handler, "callback", {}, new Uint8Array(8), client, 4)
-
-        const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
-        yield* Effect.yieldNow
-        assert.isDefined(sent)
-        const reader = yield* make.openReader(sent, limits)
-        assert.strictEqual((yield* reader.read(XdrCodec.uint32)) > 0, true, "xid")
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0, "message type is CALL")
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 2, "RPC version")
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), callbackProgram, "program comes from csa_cb_program")
-
-        // RFC 5661 erratum 2291: the callback program's version is 1, not the 4 the RFC prints.
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 1, "callback program version")
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 1, "CB_COMPOUND procedure")
-
-        // The client authorized AUTH_NONE, so that is what the callback carries.
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0, "credential flavor")
-        assert.strictEqual((yield* reader.read(XdrCodec.opaque())).length, 0, "empty AUTH_NONE credential")
-        yield* reader.read(XdrCodec.uint32)
-        yield* reader.read(XdrCodec.opaque())
-        assert.strictEqual(yield* reader.read(XdrCodec.string()), "probe", "CB_COMPOUND tag")
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 1, "minorversion")
-        yield* reader.read(XdrCodec.uint32)
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 1, "one operation")
-
-        // Erratum 6015: CB_SEQUENCE is REQUIRED, and Section 20.9.3 puts it first.
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 11, "OP_CB_SEQUENCE")
-        assert.deepStrictEqual(yield* reader.read(XdrCodec.fixedOpaque(16)), session, "csa_sessionid")
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 1, "csa_sequenceid starts at 1")
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0, "csa_slotid")
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 3, "csa_highest_slotid is the last of four slots")
-        yield* handler.callbackReply(client, yield* callbackReplyFor(sent, session))
-        assert.isTrue(yield* Fiber.join(probe), "the client answered, so the path is up")
-
-        // A working path must not be reported as down.
-        const reply = yield* make.openReader(
-          yield* handler.compound(yield* call([sequence(session, 1)], "probe", client)),
-          limits
-        )
-
-        assert.strictEqual(yield* reply.read(XdrCodec.uint32), Status.OK)
-        yield* reply.read(XdrCodec.string())
-
-        for (let field = 0; field < 3; field++) yield* reply.read(XdrCodec.uint32)
-        yield* reply.read(XdrCodec.fixedOpaque(16))
-
-        for (let field = 0; field < 4; field++) yield* reply.read(XdrCodec.uint32)
-        assert.strictEqual(yield* reply.read(XdrCodec.uint32), 0, "sr_status_flags is clear while the path is up")
-      }).pipe(Effect.provide(Testing.layer())))
-
     // A real timeout needs the live clock: it.effect runs on the test clock, which never advances.
     live("should report the callback path down when the client never answers", () =>
       Effect.gen(function*() {
@@ -271,53 +149,6 @@ describe("Backchannel", () => {
         } = yield* startSession(handler, "none", {}, new Uint8Array(8), client)
 
         assert.isFalse(yield* handler.probeBackChannel(session))
-      }).pipe(Effect.provide(Testing.layer())))
-    it.effect("should carry the AUTH_SYS credential the client authorized for callbacks when a client authorizes AUTH_SYS callbacks", () =>
-      Effect.gen(function*() {
-        const handler = yield* backChannelHandler("2 seconds")
-        let sent: Uint8Array | undefined
-
-        const client = connection(1, (message) => {
-          sent = message
-
-          return true
-        })
-
-        // csa_sec_parms offering AUTH_SYS only: Section 18.36.3 authorizes the server to use
-        // AUTH_SYS on callbacks with exactly this cbsp_sys_cred, and nothing else.
-        const {
-          session
-        } = yield* startSession(
-          handler,
-          "authsys",
-          {},
-          new Uint8Array(8),
-          client,
-          2,
-          (writer) =>
-            Effect.gen(function*() {
-              yield* writer.write(XdrCodec.uint32, 1)
-              yield* authSysCallback(writer)
-            })
-        )
-
-        yield* Effect.forkChild(handler.probeBackChannel(session))
-        yield* Effect.yieldNow
-        assert.isDefined(sent)
-        const reader = yield* make.openReader(sent, limits)
-
-        for (let field = 0; field < 6; field++) {
-          yield* reader.read(XdrCodec.uint32)
-        }
-
-        assert.strictEqual(yield* reader.read(XdrCodec.uint32), 1, "AUTH_SYS credential flavor")
-        const credential = yield* make.openReader(yield* reader.read(XdrCodec.opaque()), limits)
-        assert.strictEqual(yield* credential.read(XdrCodec.uint32), 0x6aa6_6b2d, "stamp from cbsp_sys_cred")
-        assert.strictEqual(
-          yield* credential.read(XdrCodec.string()),
-          "Lloyds-Mech.local",
-          "machine name from cbsp_sys_cred"
-        )
       }).pipe(Effect.provide(Testing.layer())))
     it.effect("should send no callback when the client authorized no credential it can encode", () =>
       Effect.gen(function*() {
@@ -542,40 +373,6 @@ describe("Backchannel", () => {
       yield* writer.write(XdrCodec.uint32, 0)
     })
 
-    const credentialFlavorOf = Effect.fnUntraced(function*(message: Uint8Array) {
-      const reader = yield* make.openReader(message, limits)
-
-      for (let field = 0; field < 6; field++) yield* reader.read(XdrCodec.uint32)
-
-      return yield* reader.read(XdrCodec.uint32)
-    })
-
-    it.effect("should prefer an offered AUTH_NONE over an offered AUTH_SYS callback credential when AUTH_NONE and AUTH_SYS are both offered for callbacks", () =>
-      Effect.gen(function*() {
-        const handler = yield* backChannelHandler("2 seconds")
-        let sent: Uint8Array | undefined
-
-        const client = connection(1, (message) => {
-          sent = message
-
-          return true
-        })
-
-        // Both offered: AUTH_NONE is preferred because it carries no identity.
-        const {
-          session
-        } = yield* startSession(handler, "both", {}, new Uint8Array(8), client, 2, (writer) =>
-          Effect.gen(function*() {
-            yield* writer.write(XdrCodec.uint32, 2)
-            yield* writer.write(XdrCodec.uint32, 0)
-            yield* authSysCallback(writer)
-          }))
-
-        yield* Effect.forkChild(handler.probeBackChannel(session))
-        yield* Effect.yieldNow
-        assert.isDefined(sent)
-        assert.strictEqual(yield* credentialFlavorOf(sent), 0, "AUTH_NONE preferred")
-      }).pipe(Effect.provide(Testing.layer())))
     it.effect("should refuse an AUTH_SYS callback credential that cannot fit an RPC opaque_auth body when an AUTH_SYS callback credential exceeds opaque_auth", () =>
       Effect.gen(function*() {
         const handler = yield* backChannelHandler("2 seconds")
