@@ -158,6 +158,22 @@ describe("direct Node provider", () => {
     expect(provider.readFileSync("/file")).toEqual(Buffer.from([97, 0, 89, 0, 0]))
     handle.closeSync()
   })
+  it("should read multiple chunks from the current cursor into an owned buffer", async () => {
+    const { provider } = await make()
+    const file = Buffer.concat([Buffer.alloc(65536, 1), Buffer.alloc(65536, 2), Buffer.from([3, 4])])
+    provider.writeFileSync("/file", file)
+    const handle = provider.openSync("/file", "r")
+
+    expect(handle.readSync(Buffer.alloc(12))).toBe(12)
+    const bytes = handle.readFileSync()
+    expect(bytes).toEqual(file.subarray(12))
+    expect(handle.position).toBe(file.length)
+    expect(handle.readFileSync()).toHaveLength(0)
+
+    bytes.fill(0)
+    expect(provider.readFileSync("/file")).toEqual(file)
+    handle.closeSync()
+  })
   it("should append at EOF with explicit positions while preserving the cursor", async () => {
     const { provider } = await make()
     provider.writeFileSync("/file", "a")

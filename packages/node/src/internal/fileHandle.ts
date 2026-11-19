@@ -6,7 +6,6 @@ import * as Schema from "effect/Schema"
 import type { BigIntStats, Stats } from "node:fs"
 import {
   dataOf,
-  encoded,
   encodingOf,
   type EncodingOption,
   type EncodingOptions,
@@ -99,6 +98,10 @@ export class NodeFileHandle {
     return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
   }
 
+  private readBytes(size: number, position: bigint): Uint8Array {
+    return invoke("read", this.path, () => this.handle.read(size, position))
+  }
+
   readSync(buffer: NodeJS.ArrayBufferView, options?: BufferOptions): number
   readSync(buffer: NodeJS.ArrayBufferView, offset?: number, length?: number, position?: Position): number
   readSync(
@@ -120,7 +123,7 @@ export class NodeFileHandle {
     const size = integer(chosen.length ?? bytes.length - offset, "read", bytes.length - offset)
     const selected = chosen.position ?? null
     const at = this.at(selected, "read")
-    const content = invoke("read", this.path, () => this.handle.read(size, at))
+    const content = this.readBytes(size, at)
     bytes.set(content, offset)
 
     if (selected === null || selected === -1) this.#position = Number(at) + content.length
@@ -255,20 +258,25 @@ export class NodeFileHandle {
   readFileSync(options?: EncodingOption<"buffer" | null | undefined> | null): Buffer
   readFileSync(options: BufferEncoding | TextEncodingOption): string
   readFileSync(options?: EncodingOptions): string | Buffer
-  readFileSync(options?: EncodingOptions) {
+  readFileSync(options?: EncodingOptions): Buffer | string {
     this.check("read")
-    encodingOf(options)
-    const chunks: Array<Buffer> = []
+    const encoding = encodingOf(options)
+
+    if (!this.access.readable) throw new NodeError("EBADF", "read", this.path)
+    const chunks: Array<Uint8Array> = []
 
     for (;;) {
-      const buffer = Buffer.alloc(65536)
-      const count = this.readSync(buffer)
+      const chunk = this.readBytes(65536, BigInt(this.#position))
 
-      if (count === 0) break
-      chunks.push(buffer.subarray(0, count))
+      if (chunk.length === 0) break
+      this.#position += chunk.length
+      chunks.push(chunk)
     }
 
-    return encoded(Buffer.concat(chunks), options)
+    const first = chunks[0]
+    const data = chunks.length === 1 && first !== undefined ? Buffer.from(first) : Buffer.concat(chunks)
+
+    return encoding === undefined ? data : data.toString(encoding)
   }
   readFile(options?: EncodingOption<"buffer" | null | undefined> | null): Promise<Buffer>
   readFile(options: BufferEncoding | TextEncodingOption): Promise<string>
