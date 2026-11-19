@@ -35,6 +35,7 @@ jobs:
             runtime: node
             node-version: 26.11.1
     env:
+      BENCHMARK_SUITE: ${{ matrix.suite }}
       BENCHMARK_RUNTIME: ${{ matrix.runtime }}
       CONFINEMENT_BENCH_BASELINE: HEAD
       CONFINEMENT_BENCH_BASELINE_CONFINED: "1"
@@ -46,8 +47,30 @@ jobs:
       XDR_BENCH_ITERATIONS: "64"
       XDR_BENCH_ROUNDS: "3"
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out current revision
+        uses: actions/checkout@v4
         with:
+          path: current
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Select previous revision
+        id: previous
+        working-directory: current
+        shell: bash
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ -n "$PUSH_BEFORE" && "$PUSH_BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            previous="$PUSH_BEFORE"
+          else
+            previous="$(git rev-parse --verify HEAD^1)"
+          fi
+          printf 'sha=%s\n' "$previous" >> "$GITHUB_OUTPUT"
+      - name: Check out previous revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.previous.outputs.sha }}
+          path: previous
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
@@ -55,49 +78,71 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - run: bun install --frozen-lockfile
-      - run: bun run build --filter=@effect-vfs/nfs
-        if: matrix.suite != 'node-vfs'
-      - run: bun run build --filter=@effect-vfs/node
-        if: matrix.suite == 'node-vfs'
-      - name: Record measurement environment
+      - name: Install and build both revisions
+        shell: bash
+        run: |
+          package=nfs
+          if [[ "$BENCHMARK_SUITE" == node-vfs ]]; then
+            package=node
+          fi
+          for revision in previous current; do
+            (
+              cd "$revision"
+              bun install --frozen-lockfile
+              bun run build --filter="@effect-vfs/$package"
+            )
+          done
+      - name: Measure both revisions on this runner
+        shell: bash
         env:
           BENCHMARK_DIR: ${{ runner.temp }}/package-benchmarks
         run: |
+          revisions=(previous current)
+          if (( (GITHUB_RUN_NUMBER + GITHUB_RUN_ATTEMPT) % 2 == 0 )); then
+            revisions=(current previous)
+          fi
+
           mkdir -p "$BENCHMARK_DIR"
           {
-            git rev-parse HEAD
-            sha256sum bun.lock
-            node --version
-            bun --version
-            node -p '"Vitest " + require("vitest/package.json").version'
+            printf 'previous=%s\n' "$(git -C previous rev-parse HEAD)"
+            printf 'current=%s\n' "$(git -C current rev-parse HEAD)"
+            printf 'order=%s,%s\n' "${revisions[@]}"
             uname -a
             cat /etc/os-release
             lscpu
-            env | sort | grep -E '^(BENCHMARK_RUNTIME|CONFINEMENT_BENCH_[A-Z_]+|XDR_BENCH_[A-Z_]+|GITHUB_(EVENT_NAME|RUN_ID|RUN_ATTEMPT|SHA)|Image(OS|Version))='
-          } > "$BENCHMARK_DIR/environment.txt"
-      - name: Measure core and NFS
-        if: matrix.suite != 'node-vfs'
-        env:
-          BENCHMARK_DIR: ${{ runner.temp }}/package-benchmarks
-          CONFINEMENT_BENCH_OUTPUT: ${{ runner.temp }}/package-benchmarks/confinement.json
-        run: |
-          for project in core nfs; do
-            "$BENCHMARK_RUNTIME" node_modules/vitest/vitest.mjs bench --run --config vitest.config.ts \
-              --project "$project (bench)" --pool=threads --no-file-parallelism \
-              --reporter=default --reporter=json --outputFile.json="$BENCHMARK_DIR/$project-vitest.json"
+            env | sort | grep -E '^(BENCHMARK_(SUITE|RUNTIME)|CONFINEMENT_BENCH_[A-Z_]+|XDR_BENCH_[A-Z_]+|GITHUB_(EVENT_NAME|RUN_ID|RUN_ATTEMPT|RUN_NUMBER|SHA)|Image(OS|Version))='
+          } > "$BENCHMARK_DIR/comparison.txt"
+
+          for revision in "${revisions[@]}"; do
+            (
+              cd "$revision"
+              report_dir="$BENCHMARK_DIR/$revision"
+              mkdir -p "$report_dir"
+              {
+                git rev-parse HEAD
+                sha256sum bun.lock
+                node --version
+                bun --version
+                node -p '"Vitest " + require("vitest/package.json").version'
+              } > "$report_dir/environment.txt"
+
+              if [[ "$BENCHMARK_SUITE" == node-vfs ]]; then
+                node --experimental-vfs node_modules/vitest/vitest.mjs bench --run --config packages/node/vitest.config.ts \
+                  --no-file-parallelism --reporter=default --reporter=json --outputFile.json="$report_dir/node-vfs-vitest.json"
+                test -s "$report_dir/node-vfs-vitest.json"
+              else
+                export CONFINEMENT_BENCH_OUTPUT="$report_dir/confinement.json"
+                for project in core nfs; do
+                  "$BENCHMARK_RUNTIME" node_modules/vitest/vitest.mjs bench --run --config vitest.config.ts \
+                    --project "$project (bench)" --pool=threads --no-file-parallelism \
+                    --reporter=default --reporter=json --outputFile.json="$report_dir/$project-vitest.json"
+                done
+                for report in confinement core-vitest nfs-vitest; do
+                  test -s "$report_dir/$report.json"
+                done
+              fi
+            )
           done
-          for report in confinement core-vitest nfs-vitest; do
-            test -s "$BENCHMARK_DIR/$report.json"
-          done
-      - name: Measure mounted Node providers
-        if: matrix.suite == 'node-vfs'
-        env:
-          BENCHMARK_DIR: ${{ runner.temp }}/package-benchmarks
-        run: |
-          node --experimental-vfs node_modules/vitest/vitest.mjs bench --run --config packages/node/vitest.config.ts \
-            --no-file-parallelism --reporter=default --reporter=json --outputFile.json="$BENCHMARK_DIR/node-vfs-vitest.json"
-          test -s "$BENCHMARK_DIR/node-vfs-vitest.json"
       - name: Save benchmark artifacts
         uses: actions/upload-artifact@v4
         with:
