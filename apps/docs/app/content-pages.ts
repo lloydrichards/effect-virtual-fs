@@ -57,6 +57,13 @@ export const contentPages = [
   },
   {
     section: "Guides",
+    label: "Merge overlays across file renames",
+    href: "/guides/merge-overlay-renames",
+    routePath: "guides/merge-overlay-renames",
+    contentPath: "content/guides/merge-overlay-renames.mdx"
+  },
+  {
+    section: "Guides",
     label: "SQLite Checkpoints",
     href: "/guides/sqlite-checkpoints",
     routePath: "guides/sqlite-checkpoints",

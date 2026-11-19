@@ -31,7 +31,8 @@ export const apiPages = [
       {
         label: "Create an isolated overlay workspace",
         href: "/guides/overlay-filesystems"
-      }
+      },
+      { label: "Merge overlays across file renames", href: "/guides/merge-overlay-renames" }
     ]
   },
   {

@@ -2286,16 +2286,28 @@ export const mergeSnapshotDeltas: {
   })
 )
 
-/** A completed overlay state with rename history, usable in this process. */
+/**
+ * A completed overlay state with rename history, usable in this process.
+ * @category snapshots
+ * @since 0.12.0
+ */
 export type OverlayMergeCapture = VfsModel.MergeCapture
 
-/** An opaque conflict key returned for one ordered pair of captures. */
+/**
+ * An opaque conflict key returned for one ordered pair of captures.
+ * @category snapshots
+ * @since 0.12.0
+ */
 export type OverlayMergeResolution = {
   readonly key: string
   readonly take: SnapshotDeltaModel.MergeTake
 }
 
-/** A single decision covering every affected path. */
+/**
+ * A single decision covering every affected path.
+ * @category snapshots
+ * @since 0.12.0
+ */
 export type OverlayMergeConflict =
   | {
     readonly kind: "path"
@@ -2316,6 +2328,11 @@ export type OverlayMergeConflict =
     }
   }
 
+/**
+ * One overlay’s changes and destination in a rename conflict.
+ * @category snapshots
+ * @since 0.12.0
+ */
 export interface OverlayMergeRenameSide {
   readonly destination: BytePath | undefined
   readonly changes: SnapshotDeltaModel.MergeSideChange
@@ -2330,8 +2347,18 @@ const OverlayMergeOptions = Schema.Struct({
   })))
 })
 
+/**
+ * Work limits and conflict choices for an overlay merge.
+ * @category snapshots
+ * @since 0.12.0
+ */
 export type OverlayMergeOptions = typeof OverlayMergeOptions.Type
 
+/**
+ * A delta against the common base and the remaining conflict groups.
+ * @category snapshots
+ * @since 0.12.0
+ */
 export interface OverlayMergeResult {
   readonly delta: SnapshotDeltaModel.SnapshotDelta
   readonly conflicts: ReadonlyArray<OverlayMergeConflict>
@@ -2340,6 +2367,8 @@ export interface OverlayMergeResult {
 /**
  * Captures an overlay's committed state and rename history for a later merge.
  * Keep the capture in the process that issued it.
+ * @category snapshots
+ * @since 0.12.0
  */
 export const captureOverlayForMerge: (overlay: OverlayVolume) => Effect.Effect<OverlayMergeCapture, VfsError> =
   VfsModel.captureOverlayForMerge
@@ -2351,6 +2380,8 @@ const overlayReviewIds = new WeakMap<OverlayMergeCapture, WeakMap<OverlayMergeCa
 /**
  * Merges two captures against their common base. Unresolved groups retain their base paths in the delta.
  * To resolve a group, submit its key and the choice. Include earlier choices on every retry.
+ * @category snapshots
+ * @since 0.12.0
  */
 export const mergeOverlayCaptures: (
   base: Snapshot,
