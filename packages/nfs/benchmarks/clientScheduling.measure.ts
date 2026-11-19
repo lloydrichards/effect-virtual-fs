@@ -151,8 +151,7 @@ const sample = Effect.fnUntraced(function*(delayMs: number) {
   }
 })
 
-// oxlint-disable-next-line effecttsgo/process-env -- Vitest registers this measurement only when requested.
-test.runIf(process.env["NFS_MEASURE_CLIENT_SCHEDULING"] === "1")(
+test(
   "measure normal cross-client scheduling with a controlled storage delay",
   () =>
     Effect.runPromise(

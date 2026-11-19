@@ -2310,6 +2310,14 @@ it.layer(NodeCrypto.layer)("negotiated channel limits over TCP", (it) => {
       }
     }).pipe(Effect.provide(Testing.layer())))
 
+  it.effect("advertises request and response record limits when the client offers larger sizes", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      const handler = yield* wireClient(caller, { limits: { maxRecordBytes: ByteSize.bytes(2_048) } })
+      const { fore } = yield* startSession(handler, "channel-size-clamp", { maxRequest: 4_096, maxResponse: 8_192 })
+      assert.deepStrictEqual(fore, { maxRequest: 2_048, maxResponse: 2_048 })
+    }).pipe(Effect.provide(Testing.layer())))
+
   it.effect("rejects the full RPC request, operation count, and reply bounds before taking the slot", () =>
     Effect.gen(function*() {
       const caller = yield* Vfs.Caller
@@ -2736,7 +2744,12 @@ const startSession = Effect.fnUntraced(
     yield* response.read(Xdr.uint32)
     yield* response.read(Xdr.uint32)
 
-    return { client, session: yield* response.read(Xdr.fixedOpaque(16)) }
+    const session = yield* response.read(Xdr.fixedOpaque(16))
+    yield* skipWords(response, 3)
+    const maxRequest = yield* response.read(Xdr.uint32)
+    const maxResponse = yield* response.read(Xdr.uint32)
+
+    return { client, session, fore: { maxRequest, maxResponse } }
   }
 )
 
@@ -2901,6 +2914,41 @@ const wireClient = Effect.fnUntraced(function*(caller: Vfs.Caller, configuration
   const connections = new Map<number, OpenConnection>()
   let xid = 0
 
+  const exchange = Effect.fnUntraced(function*(request: Effect.Success<ReturnType<typeof call>>) {
+    let socket = connections.get(request.connection.id)
+
+    if (socket === undefined) {
+      const connected = yield* openConnection(tcpPort(server))
+      yield* Scope.addFinalizer(scope, connected.close)
+      connections.set(request.connection.id, connected)
+      socket = connected
+    }
+
+    const current = ++xid
+    const writer = requestWriter()
+    yield* writeWords(writer, [current, 0, 2, 100003, 4, 1])
+    const credential = request.credentials
+
+    if (!("uid" in credential)) {
+      yield* writeWords(writer, [0, 0])
+    } else {
+      const body = requestWriter()
+      yield* body.write(Xdr.uint32, credential.stamp)
+      yield* body.write(Xdr.string(), credential.machineName)
+      yield* writeWords(body, [credential.uid, credential.gid])
+      yield* body.write(Xdr.array(Xdr.uint32), credential.supplementaryGroups)
+      yield* writer.write(Xdr.uint32, 1)
+      yield* writer.write(Xdr.opaque(), yield* body.finish)
+    }
+
+    yield* writeWords(writer, [0, 0])
+    yield* writer.appendEncoded(request.arguments)
+    const [record] = yield* socket.send(encodeRecord(yield* writer.finish))
+    assert.isDefined(record)
+
+    return { current, record }
+  })
+
   return {
     close: (peer: WireConnection) =>
       Effect.suspend(() => {
@@ -2910,37 +2958,7 @@ const wireClient = Effect.fnUntraced(function*(caller: Vfs.Caller, configuration
         return socket?.close ?? Effect.void
       }),
     send: Effect.fnUntraced(function*(request: Effect.Success<ReturnType<typeof call>>) {
-      let socket = connections.get(request.connection.id)
-
-      if (socket === undefined) {
-        const connected = yield* openConnection(tcpPort(server))
-        yield* Scope.addFinalizer(scope, connected.close)
-        connections.set(request.connection.id, connected)
-        socket = connected
-      }
-
-      const current = ++xid
-      const writer = requestWriter()
-      yield* writeWords(writer, [current, 0, 2, 100003, 4, 1])
-      const credential = request.credentials
-
-      if (!("uid" in credential)) {
-        yield* writeWords(writer, [0, 0])
-      } else {
-        const body = requestWriter()
-        yield* body.write(Xdr.uint32, credential.stamp)
-        yield* body.write(Xdr.string(), credential.machineName)
-        yield* writeWords(body, [credential.uid, credential.gid])
-        yield* body.write(Xdr.array(Xdr.uint32), credential.supplementaryGroups)
-        yield* writer.write(Xdr.uint32, 1)
-        yield* writer.write(Xdr.opaque(), yield* body.finish)
-      }
-
-      yield* writeWords(writer, [0, 0])
-      yield* writer.appendEncoded(request.arguments)
-      const [record] = yield* socket.send(encodeRecord(yield* writer.finish))
-      assert.isDefined(record)
-
+      const { current, record } = yield* exchange(request)
       const reader = replyReader(record)
       assert.deepStrictEqual(yield* Effect.forEach([0, 1, 2, 3, 4, 5], () => reader.read(Xdr.uint32)), [
         current,
@@ -2952,6 +2970,16 @@ const wireClient = Effect.fnUntraced(function*(caller: Vfs.Caller, configuration
       ])
 
       return new Uint8Array(record.subarray(24))
+    }),
+    expectAuthFailure: Effect.fnUntraced(function*(request: Effect.Success<ReturnType<typeof call>>) {
+      const { current, record } = yield* exchange(request)
+      const reader = replyReader(record)
+      assert.strictEqual(yield* reader.read(Xdr.uint32), current)
+      assert.strictEqual(yield* reader.read(Xdr.uint32), 1, "REPLY")
+      assert.strictEqual(yield* reader.read(Xdr.uint32), 1, "MSG_DENIED")
+      assert.strictEqual(yield* reader.read(Xdr.uint32), 1, "AUTH_ERROR")
+      assert.strictEqual(yield* reader.read(Xdr.uint32), 7, "AUTH_FAILED")
+      yield* reader.finish
     })
   }
 })
@@ -5737,6 +5765,30 @@ describe("CompoundBasics over TCP", () => {
         })
       }).pipe(Effect.provide(Testing.layer())))
 
+    it.effect("rejects noncanonical booleans and nonzero opaque padding", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        const handler = yield* wireClient(caller)
+        const { session } = yield* startSession(handler, "noncanonical-xdr")
+
+        const cases = [
+          [Operation.RECLAIM_COMPLETE, [2]],
+          [Operation.LOOKUP, [1, 0x6101_0000]]
+        ] as const
+
+        for (const [index, [opcode, words]] of cases.entries()) {
+          const request = yield* call([
+            sequence(session, index + 1),
+            operation(Operation.PUTROOTFH),
+            (writer) => writeWords(writer, [opcode, ...words])
+          ])
+
+          const reply = yield* decodeCompound(yield* handler.send(request))
+          assert.strictEqual(reply.status, Status.BADXDR)
+          assert.deepStrictEqual(reply.operations.at(-1), { code: opcode, status: Status.BADXDR })
+        }
+      }).pipe(Effect.provide(Testing.layer())))
+
     it.effect("should report an illegal first opcode as OP_ILLEGAL and a malformed operation in place when an opcode is illegal or its body is malformed", () =>
       Effect.gen(function*() {
         const caller = yield* Vfs.Caller
@@ -5842,32 +5894,29 @@ describe("CompoundBasics over TCP", () => {
           sys(2000)
         )
 
-        const check = Effect.fnUntraced(function*(session: Uint8Array, on: typeof ownerConnection, uid: number) {
-          return yield* handler.send(
-            yield* call(
-              [
-                sequence(session, 1, true),
-                (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
-                (writer) =>
-                  Effect.gen(function*() {
-                    yield* writer.write(Xdr.uint32, Operation.LOOKUP)
-                    yield* writer.write(Xdr.string(), "secret")
-                  }),
-                (writer) =>
-                  Effect.gen(function*() {
-                    yield* writer.write(Xdr.uint32, Operation.ACCESS)
-                    yield* writer.write(Xdr.uint32, 1)
-                  })
-              ],
-              "mapped-access",
-              on,
-              sys(uid)
-            )
+        const access = (session: Uint8Array, on: typeof ownerConnection, uid: number) =>
+          call(
+            [
+              sequence(session, 1, true),
+              (writer) => writer.write(Xdr.uint32, Operation.PUTROOTFH),
+              (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(Xdr.uint32, Operation.LOOKUP)
+                  yield* writer.write(Xdr.string(), "secret")
+                }),
+              (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(Xdr.uint32, Operation.ACCESS)
+                  yield* writer.write(Xdr.uint32, 1)
+                })
+            ],
+            "mapped-access",
+            on,
+            sys(uid)
           )
-        })
 
-        const ownerAccess = replyReader(yield* check(first.session, ownerConnection, 1000))
-        const guestAccess = replyReader(yield* check(second.session, guestConnection, 2000))
+        const ownerAccess = replyReader(yield* handler.send(yield* access(first.session, ownerConnection, 1000)))
+        const guestAccess = replyReader(yield* handler.send(yield* access(second.session, guestConnection, 2000)))
 
         for (const [reader, granted] of [[ownerAccess, 1], [guestAccess, 0]] as const) {
           assert.strictEqual(yield* reader.read(Xdr.uint32), Status.OK)
@@ -5892,8 +5941,7 @@ describe("CompoundBasics over TCP", () => {
         }
 
         downgradeOwner = true
-        const replay = yield* Effect.exit(check(first.session, ownerConnection, 1000))
-        assert.strictEqual(Exit.isFailure(replay), true)
+        yield* handler.expectAuthFailure(yield* access(first.session, ownerConnection, 1000))
         downgradeOwner = false
 
         const opened = yield* handler.send(
