@@ -72,3 +72,22 @@ and keeps their public wrapper objects reachable. A timed callback renames the
 file there and back, then stats it through the live handle. Compare on the same
 runtime and host. The timings include the runtime and reference checks and
 have no CI speed threshold.
+
+## Whole-file writes
+
+Run the 4 KiB whole-file workloads after building core.
+
+```sh
+bun run build --filter=@effect-vfs/core
+bun run --cwd packages/core benchmark -- wholeFileWrites.bench.ts
+```
+
+The suite measures existing-file overwrite, creation at fresh paths, and
+overwrite through a symlink. Each case runs six rounds of 64 operations at
+depth eight, with three warmup batches and one timed batch per round. Each
+batch gets a fresh volume. Setup and correctness checks run outside timing.
+Vitest reports latency per batch. Divide by 64 for latency per operation.
+
+On the first paired CI run, the workflow copies this benchmark into the
+previous checkout if it does not have the file. Each checkout still builds and
+loads its own core implementation. Each report records the benchmark source hash.
