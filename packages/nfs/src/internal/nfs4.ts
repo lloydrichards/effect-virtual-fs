@@ -3232,6 +3232,12 @@ export const makeNfs4Handler = (
                       // A failed response encode must not consume a client ID, replace an owner,
                       // or revoke a confirmed record the caller cannot identify afterward.
                       const response = yield* exchangeIdResult(created)
+                      // The COMPOUND header has three words plus the padded tag. The single
+                      // operation adds two words before its body.
+                      const compoundBytes = 20 + 4 * Math.ceil(parsed.tag.length / 4) + response.body.length
+                      if (addBytes(byteLength(compoundBytes), rpcReplyOverheadBytes) > options.limits.maxRecordBytes) {
+                        return { code: operation.code, status: Status.REP_TOO_BIG } satisfies ResultPart
+                      }
 
                       if (revokeConfirmed && confirmedRecord !== undefined) {
                         yield* revokeClient(confirmedRecord)
@@ -3253,7 +3259,7 @@ export const makeNfs4Handler = (
 
                   return exchangeIdResult(client)
 
-                  function exchangeIdResult(client: ClientState): Effect.Effect<ResultPart, XdrEncodeError> {
+                  function exchangeIdResult(client: ClientState) {
                     const flags = EXCHGID4_FLAG_USE_NON_PNFS |
                       (client.confirmed ? EXCHGID4_FLAG_CONFIRMED_R : 0)
 
@@ -3268,7 +3274,7 @@ export const makeNfs4Handler = (
                         field(XdrCodec.opaque(), options.generation),
                         field(XdrCodec.array(XdrCodec.uint32), [])
                       ]),
-                      (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
+                      (body) => ({ code: operation.code, status: Status.OK, body })
                     )
                   }
                 }
