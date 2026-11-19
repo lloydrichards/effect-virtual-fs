@@ -13,7 +13,7 @@ sources:
     title: core package overview
   - id: overlay-merge
     resource: ../../packages/core/src/VirtualFileSystem.ts
-    title: Experimental overlay capture and merge operations
+    title: Overlay capture and merge operations
   - id: memory-readme
     resource: ../../packages/memory/README.md
     title: memory package overview
@@ -41,7 +41,7 @@ sources:
   - id: d1-store
     resource: ../../packages/persistence/src/D1LiveImageStore.ts
     title: Primary D1 client and per-owner statement drainage
-generated: { by: codex/okf, at: "2026-11-19T09:47:20+01:00" }
+generated: { by: codex/okf, at: "2026-11-19T10:01:30+01:00" }
 ---
 
 # Package feature map
@@ -100,7 +100,7 @@ flowchart TB
     subgraph State["Captured state"]
       Snapshot["Portable snapshots<br/>Byte and stream codecs"] -->|seeds| Overlay["Overlay workspaces"]
       Snapshot <-->|diffs and applies| Delta["Snapshot deltas<br/>Path-based three-way merge"]
-      Overlay -->|captures final state and rename lineage| RenameMerge["Rename-aware overlay merge<br/>Experimental"]
+      Overlay -->|captures final state and rename lineage| RenameMerge["Rename-aware overlay merge"]
       Snapshot -->|supplies common base| RenameMerge
       RenameMerge -->|emits version 1 delta| Delta
       Snapshot -->|queries| Search["Glob and content search"]
@@ -200,7 +200,7 @@ flowchart TB
 
 ## Merge boundaries
 
-Core owns the [rename-aware merge candidate](../research/overlay-rename-merge.md). Its input is two process-local overlay captures and their common base. It returns a standard delta and one conflict per decision. The caller can apply the delta with the existing snapshot API. The [Code Mode example](codemode-example.md) uses the experimental API for release handoffs. A supported release requires a real handoff and sign-off.
+Core owns the [rename-aware merge](../research/overlay-rename-merge.md). Its input is two process-local overlay captures and their common base. It returns a standard delta and one conflict per decision. The caller can apply the delta with the existing snapshot API. The [Code Mode example](codemode-example.md) uses the API for release handoffs.
 
 ## Integration qualifications
 

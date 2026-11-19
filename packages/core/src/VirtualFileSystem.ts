@@ -2340,7 +2340,6 @@ export interface OverlayMergeResult {
 /**
  * Captures an overlay's committed state and rename history for a later merge.
  * Keep the capture in the process that issued it.
- * @experimental
  */
 export const captureOverlayForMerge: (overlay: OverlayVolume) => Effect.Effect<OverlayMergeCapture, VfsError> =
   VfsModel.captureOverlayForMerge
@@ -2352,7 +2351,6 @@ const overlayReviewIds = new WeakMap<OverlayMergeCapture, WeakMap<OverlayMergeCa
 /**
  * Merges two captures against their common base. Unresolved groups retain their base paths in the delta.
  * To resolve a group, submit its key and the choice. Include earlier choices on every retry.
- * @experimental
  */
 export const mergeOverlayCaptures: (
   base: Snapshot,
