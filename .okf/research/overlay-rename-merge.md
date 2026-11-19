@@ -32,9 +32,9 @@ sources:
 
 If one overlay moves `/r.txt` to `/moved.txt` and another edits `/r.txt`, the proposed merge puts the edited file at `/moved.txt`. The shipped [snapshot delta merge](../contracts/snapshot-deltas.md) compares paths. In the same case it reports `ChangedRemoved` at `/r.txt` and adds `/moved.txt`. Both behaviors have a purpose. Callers opt into lineage through a separate merge interface.
 
-The release handoff in the private Code Mode demo exercised the rename-and-edit case and the divergent-destination case in [#418](https://github.com/lloydrichards/effect-virtual-fs/pull/418). The internal core implementation is the scope of [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271). The demo retains its pilot and offers an opt-in trial of the experimental core API. The feature remains outside the v1.0 requirements.
+The release handoff in the private Code Mode demo exercised the rename-and-edit case and the divergent-destination case in [#418](https://github.com/lloydrichards/effect-virtual-fs/pull/418). The internal core implementation is the scope of [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271). The demo uses the experimental core API in its default handoff workflow. The feature remains outside the v1.0 requirements.
 
-The Code Mode release handoff is the first trial consumer. Supported release depends on the trial gate below. Inclusion in the [minimal Effect port](minimal-effect-port.md) needs its own consumer and scope decision.
+The Code Mode release handoff is the first consumer. Inclusion in the [minimal Effect port](minimal-effect-port.md) needs its own consumer and scope decision.
 
 ## Capture and merge
 
@@ -44,18 +44,17 @@ The capture retains the overlay's original base and an immutable view of the tar
 
 The merge checks each snapshot using the shared identity, entry and record limits before scanning lineage. It caps rename groups by the delta record limit, distinct group paths by the entry limit, and their total raw byte length by the decoded delta byte limit. It checks the number of resolution entries against the delta record limit and the number of eligible conflicts. Bytes and metadata come from the verified snapshots. The result applies through `applySnapshotDelta` to the same base. It carries the merged tree in the current encoding.
 
-## Private Code Mode candidate
+## Code Mode example
 
 The candidate exposes `captureOverlayForMerge` and `mergeOverlayCaptures` under `VirtualFileSystem`. The caller
 passes the common base and both retained captures. Each conflict represents one decision and lists the affected
 paths. Its opaque string key remains valid for that ordered pair of captures. Each retry submits all choices
 so far. The merge uses `SnapshotDeltaLimits`.
 
-The trial captures each successful run at completion. It returns a preview while conflicts remain and returns
-a handoff delta after every group has a choice. If the trial process restarts or either run expires, the
-coordinator returns to the usual release workflow.
+Code Mode captures each successful run at completion. It returns a preview while conflicts remain and returns
+a handoff delta after every group has a choice. A restart expires the runs and conflict keys.
 
-Build core and run `bun run --cwd apps/demo-agent-tools test:packed-trial` to exercise the candidate through
+Build core and run `bun run --cwd apps/demo-agent-tools test:packed-handoff` to exercise the candidate through
 Code Mode's MCP tool using a private package archive. A real handoff on the same candidate needs sign-off from
 the release coordinator and core maintainer before the API can ship in a minor release.
 

@@ -41,7 +41,7 @@ sources:
   - id: d1-store
     resource: ../../packages/persistence/src/D1LiveImageStore.ts
     title: Primary D1 client and per-owner statement drainage
-generated: { by: codex/okf, at: "2026-11-19T09:44:08+01:00" }
+generated: { by: codex/okf, at: "2026-11-19T09:47:20+01:00" }
 ---
 
 # Package feature map
@@ -116,7 +116,7 @@ flowchart TB
   end
   Owner -->|powers| Volume
   Capture -->|supplies state| Snapshot
-  CodeMode["Private Code Mode trial"] -->|merges two retained runs| RenameMerge
+  CodeMode["Private Code Mode"] -->|merges two retained runs| RenameMerge
   Handles -->|supplies sync APIs| Sync
   subgraph Memory["@effect-vfs/memory"]
     MemoryFS["MemoryFileSystem"]
@@ -200,7 +200,7 @@ flowchart TB
 
 ## Merge boundaries
 
-Core owns the [rename-aware merge candidate](../research/overlay-rename-merge.md). Its input is two process-local overlay captures and their common base. It returns a standard delta and one conflict per decision. The caller can apply the delta with the existing snapshot API. The [Code Mode trial](codemode-example.md) uses the experimental API for release handoffs. A supported release requires a real handoff and sign-off.
+Core owns the [rename-aware merge candidate](../research/overlay-rename-merge.md). Its input is two process-local overlay captures and their common base. It returns a standard delta and one conflict per decision. The caller can apply the delta with the existing snapshot API. The [Code Mode example](codemode-example.md) uses the experimental API for release handoffs. A supported release requires a real handoff and sign-off.
 
 ## Integration qualifications
 
