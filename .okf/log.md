@@ -2,6 +2,8 @@
 
 ## 2026-11-19
 
+- Collect previous and current package benchmark reports in one artifact per runtime, with both revisions measured on the same runner.
+
 - Record package benchmark timing and environment artifacts on main and compare the mounted Effect provider with Node MemoryProvider through the same filesystem API.
 
 ## 2026-11-17

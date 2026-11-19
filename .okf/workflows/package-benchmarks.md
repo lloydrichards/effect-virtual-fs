@@ -29,7 +29,7 @@ sources:
     title: Vitest 5 migration
   - resource: ../../bun.lock
     title: Installed runner versions
-generated: { by: codex/okf, at: "2026-11-19T16:21:59+01:00" }
+generated: { by: codex/okf, at: "2026-11-19T18:09:40+01:00" }
 ---
 
 # Package benchmarks
@@ -95,11 +95,22 @@ or use its run ID with GitHub CLI.
 gh run download RUN_ID --pattern 'package-benchmarks-*' --dir /tmp/package-benchmarks
 ```
 
+Each runtime job installs and builds two independent checkouts. On a push, the
+previous revision is the main tip before the push. On a manual run, or a push
+without a previous tip, it is the current commit's first parent. The job runs
+both checkouts sequentially on the same runner. The workflow alternates revision
+order by run number and attempt.
+
+Each runtime uploads one artifact for up to 90 days. The artifact contains
+`previous/` and `current/` directories with Vitest JSON and per-revision toolchain
+metadata. Use `comparison.txt` to check both commit IDs, measurement order, shared
+runner details, and workload controls.
+
 CI times six confinement rounds of 120 operations or read/write pairs per batch.
-Artifacts retain Vitest JSON, core confinement's round samples, and environment
-metadata for up to 90 days. Core builds both candidates from the same revision on
-a clean CI checkout. The paired timings show within-run variation, and the
-working-tree measurements form the revision history.
+Each checkout saves its own confinement round samples. Inside each checkout,
+core's existing `HEAD` control compares two builds of that checkout's sources.
+For revision-to-revision comparisons, use the working-tree candidate from each
+checkout. Compare cases only when their workload and measurement boundary match.
 
 Keep separate series by runtime, runner class, workload, candidate, and
 measurement version. Compare the median of round medians and retain the spread
