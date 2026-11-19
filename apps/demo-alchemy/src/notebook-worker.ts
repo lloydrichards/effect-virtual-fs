@@ -37,6 +37,59 @@ const json = Effect.fnUntraced(function*(body: Reply, status = 200) {
   })
 })
 
+export const notebookFetch = Effect.fnUntraced(function*(token: Redacted.Redacted) {
+  const request = yield* HttpServerRequest.HttpServerRequest
+
+  // Authenticate before opening a volume or touching the bucket.
+  if (request.headers["authorization"] !== `Bearer ${Redacted.value(token)}`) {
+    return yield* json(Reply.cases.Error.make({ error: "unauthorized" }), 401)
+  }
+
+  const notebooks = yield* NotebookService
+
+  const match = /^\/notebooks\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.exec(
+    request.url
+  )
+
+  const notebookId = match?.[1]
+
+  return yield* Match.value({ url: request.url, method: request.method, notebookId }).pipe(
+    Match.when(
+      { url: "/notebooks", method: "POST" },
+      Effect.fnUntraced(function*() {
+        const result = yield* notebooks.create
+
+        return yield* Result.match(result, {
+          onSuccess: (notebook) => json(Reply.cases.Notebook.make(notebook), 201),
+          onFailure: ({ id, cleanup }) =>
+            json(Reply.cases.CreationFailed.make({ error: "creation failed", id, cleanup }), 500)
+        })
+      })
+    ),
+    Match.when(
+      { method: "GET", notebookId: Match.string },
+      Effect.fnUntraced(function*({ notebookId }) {
+        const result = yield* notebooks.read(notebookId)
+
+        if (result === null) {
+          return yield* json(Reply.cases.Error.make({ error: "not found" }), 404)
+        }
+
+        return yield* json(Reply.cases.Notebook.make(result))
+      })
+    ),
+    Match.when(
+      { method: "DELETE", notebookId: Match.string },
+      Effect.fnUntraced(function*({ notebookId }) {
+        yield* notebooks.remove(notebookId)
+
+        return yield* json(Reply.cases.Deleted.make({ deleted: true }))
+      })
+    ),
+    Match.orElse(() => json(Reply.cases.Error.make({ error: "not found" }), 404))
+  )
+}, Effect.catch(() => json(Reply.cases.Error.make({ error: "operation failed" }), 500)))
+
 export default Cloudflare.Worker(
   "NotebookWorker",
   { main: import.meta.url },
@@ -49,61 +102,7 @@ export default Cloudflare.Worker(
     )
 
     return {
-      fetch: Effect.gen(function*() {
-        const request = yield* HttpServerRequest.HttpServerRequest
-
-        // Authenticate before opening a volume or touching the bucket.
-        if (request.headers["authorization"] !== `Bearer ${Redacted.value(token)}`) {
-          return yield* json(Reply.cases.Error.make({ error: "unauthorized" }), 401)
-        }
-
-        const notebooks = yield* NotebookService
-
-        const match = /^\/notebooks\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.exec(
-          request.url
-        )
-
-        const notebookId = match?.[1]
-
-        return yield* Match.value({ url: request.url, method: request.method, notebookId }).pipe(
-          Match.when(
-            { url: "/notebooks", method: "POST" },
-            Effect.fnUntraced(function*() {
-              const result = yield* notebooks.create
-
-              return yield* Result.match(result, {
-                onSuccess: (notebook) => json(Reply.cases.Notebook.make(notebook), 201),
-                onFailure: ({ id, cleanup }) =>
-                  json(Reply.cases.CreationFailed.make({ error: "creation failed", id, cleanup }), 500)
-              })
-            })
-          ),
-          Match.when(
-            { method: "GET", notebookId: Match.string },
-            Effect.fnUntraced(function*({ notebookId }) {
-              const result = yield* notebooks.read(notebookId)
-
-              if (result === null) {
-                return yield* json(Reply.cases.Error.make({ error: "not found" }), 404)
-              }
-
-              return yield* json(Reply.cases.Notebook.make(result))
-            })
-          ),
-          Match.when(
-            { method: "DELETE", notebookId: Match.string },
-            Effect.fnUntraced(function*({ notebookId }) {
-              yield* notebooks.remove(notebookId)
-
-              return yield* json(Reply.cases.Deleted.make({ deleted: true }))
-            })
-          ),
-          Match.orElse(() => json(Reply.cases.Error.make({ error: "not found" }), 404))
-        )
-      }).pipe(
-        Effect.provide(MainLive),
-        Effect.catch(() => json(Reply.cases.Error.make({ error: "operation failed" }), 500))
-      )
+      fetch: notebookFetch(token).pipe(Effect.provide(MainLive))
     }
   }).pipe(Effect.provide(Cloudflare.R2.ReadWriteBucketBinding))
 )

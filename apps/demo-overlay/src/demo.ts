@@ -20,7 +20,7 @@ const encode = (value: string) => new TextEncoder().encode(value)
 
 const decode = (value: Uint8Array) => new TextDecoder().decode(value)
 
-const program = Effect.scoped(Effect.gen(function*() {
+export const walkthrough = Effect.scoped(Effect.gen(function*() {
   yield* showTitle
 
   const template = yield* Vfs.fromFixture({
@@ -198,10 +198,12 @@ const program = Effect.scoped(Effect.gen(function*() {
   yield* showTakeaway
 }))
 
-await Effect.runPromise(program.pipe(
-  Effect.provide(Layer.merge(LanguageModelLive, BunCrypto.layer)),
-  Effect.catchCause(Effect.fnUntraced(function*(cause) {
-    yield* Console.error(`Demo failed:\n${Cause.pretty(cause)}`)
-    process.exitCode = 1
-  }))
-))
+if (import.meta.main) {
+  await Effect.runPromise(walkthrough.pipe(
+    Effect.provide(Layer.merge(LanguageModelLive, BunCrypto.layer)),
+    Effect.catchCause(Effect.fnUntraced(function*(cause) {
+      yield* Console.error(`Demo failed:\n${Cause.pretty(cause)}`)
+      process.exitCode = 1
+    }))
+  ))
+}

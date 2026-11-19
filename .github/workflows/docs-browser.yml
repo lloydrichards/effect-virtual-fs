@@ -1,0 +1,34 @@
+name: Docs browser smoke
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/docs-browser.yml
+      - apps/docs/**
+      - packages/**
+      - tools/**
+      - package.json
+      - bun.lock
+      - turbo.json
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.11.1
+      - run: bun install --frozen-lockfile
+      - run: bun run build --filter=@effect-vfs/docs
+      - run: bun x playwright-core install --with-deps chromium
+        working-directory: apps/docs
+      - run: bun run --cwd apps/docs test:browser:smoke

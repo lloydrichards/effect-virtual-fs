@@ -1,6 +1,6 @@
 ---
 name: package-test-design
-description: Organize, write, or refactor package test suites in effect-virtual-fs around exported modules and observable behavior. Use for new package tests, test consolidation, and reviews of test ownership or coverage.
+description: Organize, write, or refactor package test suites in effect-virtual-fs around exported modules and observable behavior. Use for new package tests, test consolidation, and reviews of test ownership or coverage. Use also for demo smoke tests and documentation validation.
 ---
 
 # Package test design
@@ -22,3 +22,17 @@ For wire protocols, send requests through the public listener and decode replies
 Before consolidating a suite, identify the distinct failure each case detects. Preserve regressions for data loss, permission checks, compatibility, interruption, and concurrency. Replace private probes with observable scenarios where possible. Record any meaningful coverage gap when a private interleaving has no public equivalent.
 
 Core is the first package organized this way. See [watch registration and cancellation](../../../packages/core/test/Watch.test.ts) and [handle lifetimes](../../../packages/core/test/FileHandle.test.ts). Use the [Effect development skill](../effect-development/SKILL.md) for Effect-specific test mechanics. Run the owning package suite and the relevant [repository checks](../../../.okf/workflows/evidence-and-validation.md).
+
+## Prove the documented demo works
+
+Give each distinct demo entry point a short smoke test that follows the documented workflow and checks its result. Launch the CLI, send requests to the protocol listener or HTTP handler, or open the built app when rendering, hydration, workers, or downloads are part of the workflow.
+
+Use real package code and isolated fixtures. Substitute external services at their boundary when credentials, availability, or unpredictable output would make the test unsuitable for ordinary CI. Keep live and privileged qualification at its established entry points.
+
+Keep additional integration cases for distinct app-owned behavior, such as cancellation, state recovery, or cleanup. Package suites own package semantics and edge cases. Remove temporary unit probes after development. Retain a focused unit test when it protects a distinct app-owned regression that would be costly to exercise through the entry point. Consolidate only after identifying which retained case detects each maintained failure.
+
+## Check documentation at the right boundary
+
+Keep metadata, generated reference, internal link and fragment, and example checks in the docs workspace. Check the published source of runnable examples. Compile snippets that promise valid code and execute examples that promise a result.
+
+Smoke-test representative routes against the built site. Check page-specific content so a fallback response cannot pass for a missing page. Use a short browser journey for each interactive example and keep separate cases for distinct failures the journey cannot expose. Follow the repository validation workflow for where each check runs.

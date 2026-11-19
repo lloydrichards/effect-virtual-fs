@@ -1,19 +1,6 @@
 #!/usr/bin/env bun
 
-/**
- * Type-checks and executes every `@example` block, asserting printed output.
- *
- * `@effect/docgen` covers part of this and misses two things. It collects
- * examples from module members, interfaces, type aliases, and class *methods*
- * only, so an example on a class' own doc comment is rendered into the API page
- * but never compiled. And while it executes the examples it does collect, it
- * asserts nothing about what they print, so a trailing `// output` comment can
- * drift from reality unnoticed.
- *
- * This script closes both gaps: it compiles every example, and for those ending
- * in `Effect.runPromise(...).then(console.log)` it runs them and compares stdout
- * against the trailing comment.
- */
+// Compile public API examples and marked handwritten guide examples. Execute examples with published expected output.
 
 import { spawn } from "bun"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -23,8 +10,10 @@ import { collectPublicExamples, expectedExampleOutput } from "./public-examples"
 
 const root = path.resolve(import.meta.dirname, "../../..")
 
+const docsDirectory = "apps/docs"
+
 const workspaces = (await validateInventory()).filter((workspace) =>
-  workspace.policy.kind === "library" && workspace.manifest.private !== true
+  workspace.directory === docsDirectory || workspace.policy.kind === "library" && workspace.manifest.private !== true
 )
 
 const tsc = path.join(root, "node_modules/.bin/tsc")
@@ -35,13 +24,44 @@ const normalise = (text: string): string => text.replace(/\s+/g, " ").trim()
 interface Example {
   readonly name: string
   readonly source: string
-  readonly line: number
   readonly body: string
   readonly expected: string | undefined
 }
 
 const collect = async (workspace: Workspace): Promise<Array<Example>> => {
   const examples: Array<Example> = []
+
+  if (workspace.directory === docsDirectory) {
+    const contentDir = path.join(docsDirectory, "app/content")
+    const marker = "{/* checked-example */}"
+
+    for (const file of [...new Bun.Glob("**/*.mdx").scanSync(path.join(root, contentDir))].sort()) {
+      if (file.startsWith("api/")) continue
+
+      const source = path.join(contentDir, file)
+      const content = await Bun.file(path.join(root, source)).text()
+
+      for (const match of content.matchAll(/^\{\/\* checked-example \*\/\}\s*$/gm)) {
+        const line = content.slice(0, match.index).split("\n").length
+        const following = content.slice(match.index + match[0].length).split(marker, 1)[0]!
+        const fences = following.matchAll(/^```(\w*)[ \t]*\r?\n([\s\S]*?)^```[ \t]*\r?$/gm)
+        const [code, output] = [...fences].slice(0, 2)
+
+        if (!code || following.slice(0, code.index).trim() !== "" || code[1] !== "ts" || output?.[1] !== "text") {
+          throw new Error(`${source}:${line}: a checked example needs a TypeScript block followed by its text output`)
+        }
+
+        examples.push({
+          name: `guide-${examples.length}`,
+          source: `${source}:${line}`,
+          body: code[2]!,
+          expected: output[2]!
+        })
+      }
+    }
+
+    return examples
+  }
 
   for (const entry of publicEntries(workspace)) {
     const content = await Bun.file(path.join(root, entry.source)).text()
@@ -51,8 +71,7 @@ const collect = async (workspace: Workspace): Promise<Array<Example>> => {
 
       examples.push({
         name: `${path.basename(entry.source, ".ts")}-${examples.length}`,
-        source: `${path.basename(entry.source)}:${example.line}`,
-        line: example.line,
+        source: `${entry.source}:${example.line}`,
         body: example.body,
         expected
       })
@@ -120,7 +139,7 @@ for (const workspace of workspaces) {
     for (const example of examples) {
       if (example.expected === undefined) continue
 
-      const runtime = workspace.policy.runtime === "bun"
+      const runtime = (packagePath === docsDirectory || workspace.policy.runtime === "bun")
         ? ["bun"]
         : ["node", ...(workspace.policy.runtime === "node" ? ["--experimental-vfs"] : []), "--import", "tsx"]
 
@@ -138,7 +157,7 @@ for (const workspace of workspaces) {
       const [stdout, stderr] = await Promise.all([stdoutFile.text(), stderrFile.text()])
 
       if (exitCode !== 0) {
-        failures.push(`${packagePath}/src/${example.source} failed to run:\n${stderr.trim()}`)
+        failures.push(`${example.source} failed to run:\n${stderr.trim()}`)
         continue
       }
 
@@ -146,7 +165,7 @@ for (const workspace of workspaces) {
 
       if (normalise(stdout) !== normalise(example.expected)) {
         failures.push(
-          `${packagePath}/src/${example.source} output comment does not match\n`
+          `${example.source} output comment does not match\n`
             + `  comment: ${normalise(example.expected)}\n`
             + `  actual:  ${normalise(stdout)}`
         )

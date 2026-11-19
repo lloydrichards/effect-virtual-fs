@@ -23,7 +23,7 @@
     "postprepare": "husky",
     "prepare": "effect-tsgo patch --oxlint",
     "release": "bun run build && changeset publish",
-    "test": "bun run test:tooling && turbo run build --filter=@effect-vfs/core --filter=@effect-vfs/memory --filter=@effect-vfs/nfs --filter=@effect-vfs/persistence --filter=@effect-vfs/effect-preview && bun --bun run vitest run --config vitest.config.ts",
+    "test": "bun run test:tooling && turbo run build --filter=@effect-vfs/core --filter=@effect-vfs/memory --filter=@effect-vfs/nfs --filter=@effect-vfs/persistence --filter=@effect-vfs/effect-preview && bun run --cwd apps/docs test:integration && bun --bun run vitest run --config vitest.config.ts",
     "type-check": "tsc --noEmit --project tools/tsconfig.json && turbo run type-check",
     "validate": "bun tools/checks/validate.mjs",
     "lint:effects": "bun tools/checks/effects.mjs",
