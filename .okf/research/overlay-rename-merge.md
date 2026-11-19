@@ -21,7 +21,7 @@ sources:
     resource: ../../packages/core/src/internal/snapshotMerge.ts
     title: Internal capture merge and shared delta emission
   - id: overlay-merge-tests
-    resource: ../../packages/core/test/internal/overlayMerge.test.ts
+    resource: ../../packages/core/test/SnapshotDelta.overlayMerge.test.ts
     title: Core overlay merge behavior and limit checks
   - id: tests
     resource: ../../packages/core/test/SnapshotDelta.test.ts
@@ -32,7 +32,9 @@ sources:
 
 If one overlay moves `/r.txt` to `/moved.txt` and another edits `/r.txt`, the proposed merge puts the edited file at `/moved.txt`. The shipped [snapshot delta merge](../contracts/snapshot-deltas.md) compares paths. In the same case it reports `ChangedRemoved` at `/r.txt` and adds `/moved.txt`. Both behaviors have a purpose. Callers opt into lineage through a separate merge interface.
 
-The release handoff in the private Code Mode demo exercised the rename-and-edit case and the divergent-destination case in [#418](https://github.com/lloydrichards/effect-virtual-fs/pull/418). Core now implements the merge privately. A public core API and inclusion in the [minimal Effect port](minimal-effect-port.md) require separate scope decisions. Issue [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271) remains outside the v1.0 requirements.
+The release handoff in the private Code Mode demo exercised the rename-and-edit case and the divergent-destination case in [#418](https://github.com/lloydrichards/effect-virtual-fs/pull/418). The internal core implementation is the scope of [#271](https://github.com/lloydrichards/effect-virtual-fs/issues/271). The demo retains its pilot implementation. The feature remains outside the v1.0 requirements.
+
+A public core API needs a named consumer and a separate decision on capture lifetime and base validation, conflict and resolution types, and measured work limits. Inclusion in the [minimal Effect port](minimal-effect-port.md) needs its own consumer and scope decision.
 
 ## Capture and merge
 
@@ -72,7 +74,7 @@ The caller submits one `{ source, take }` resolution for the whole rename group.
 
 ## Review and verification
 
-The core overlay merge tests exercise the merge through real overlays. The capture retains immutable snapshots and survives later writes. It has no dependency on an open overlay or external storage. A portable rename format, destination choice outside the existing paths, and cross-process trust require separate designs.
+The core tests call the private capture and merge functions with real overlays, then apply the resulting delta through the public snapshot API. They verify that an earlier capture retains its committed contents after later writes and accepts a base restored from encoded bytes. The tests for ordinary path-only merges remain in the snapshot delta suite. A portable rename format, destination choice outside the existing paths, and cross-process trust require separate designs.
 
 - Exercise every outcome through real overlay operations. Include timestamp-only differences, field-wise metadata, and independent same-byte additions. Verify removal followed by recreation with equal bytes yields no move.
 - Reject fabricated captures, wrong bases, pre-existing destinations, replaced parents, and ambiguous or overlapping moves. Reject a destination directory containing a child before emitting a delta. Accept equivalent base snapshots and confirm later overlay writes leave captures unchanged.
