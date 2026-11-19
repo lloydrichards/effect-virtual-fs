@@ -6,8 +6,9 @@ import type * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Base64 from "effect/encoding/Base64"
 import * as BytePath from "../src/BytePath.js"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import { VfsError } from "../src/VfsError.js"
 import { type Document, documentText, toLines } from "./support/lines.js"
-import { entryNames, rawEntryNames } from "./support/text.js"
+import { entryNames, pathText, rawEntryNames, text } from "./support/text.js"
 
 const encoder = new TextEncoder()
 
@@ -2440,4 +2441,443 @@ describe("snapshot merges", () => {
       law(6)
     )
   })
+})
+
+it.layer(BunCrypto.layer)("overlay capture merges", (it) => {
+  const encoder = new TextEncoder()
+
+  const fixture = Vfs.fromFixture({
+    entries: [
+      { kind: "directory", path: "/dir" },
+      { kind: "file", path: "/source", bytes: encoder.encode("base") },
+      { kind: "file", path: "/other", bytes: encoder.encode("untouched") },
+      { kind: "symlink", path: "/sym", target: "source" }
+    ]
+  })
+
+  const both = Effect.gen(function*() {
+    const base = yield* (yield* fixture).snapshot
+    const ours = yield* Vfs.makeOverlay(base)
+    const theirs = yield* Vfs.makeOverlay(base)
+
+    return { base, ours, theirs, left: yield* ours.caller(), right: yield* theirs.caller() }
+  })
+
+  const write = (fs: Vfs.Caller, path: string | BytePath.BytePath, bytes: string) =>
+    fs.writeFile(path, encoder.encode(bytes), { access: "write", truncate: true, create: "ifMissing" })
+
+  const merge = Effect.fnUntraced(function*(
+    base: Vfs.Snapshot,
+    ours: Vfs.OverlayVolume,
+    theirs: Vfs.OverlayVolume,
+    options?: Vfs.OverlayMergeOptions
+  ) {
+    return yield* Vfs.mergeOverlayCaptures(
+      base,
+      yield* Vfs.captureOverlayForMerge(ours),
+      yield* Vfs.captureOverlayForMerge(theirs),
+      options
+    )
+  })
+
+  const renameConflict = (result: Vfs.OverlayMergeResult) => {
+    const conflict = result.conflicts[0]
+
+    if (conflict?.kind !== "rename") throw new Error("Expected a rename conflict")
+
+    return conflict
+  }
+
+  const apply = Effect.fnUntraced(function*(base: Vfs.Snapshot, delta: Vfs.SnapshotDelta) {
+    const volume = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, delta))
+
+    return yield* volume.caller()
+  })
+
+  const readText = (caller: Vfs.Caller, path: string | BytePath.BytePath) => Effect.map(caller.readFile(path), text)
+
+  const isVfsError = Schema.is(VfsError)
+
+  const mergeFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.flip(effect).pipe(Effect.map((error) => {
+      if (!isVfsError(error)) throw new Error("Expected a VFS failure", { cause: error })
+
+      return error
+    }))
+
+  it.effect("should follow an edit to the renamed path when merging an earlier capture", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      yield* left.rename("/source", "/dir/moved")
+      yield* left.chmod("/dir/moved", 0o600)
+      yield* write(right, "/source", "edit")
+      const capture = yield* Vfs.captureOverlayForMerge(ours)
+      const edited = yield* Vfs.captureOverlayForMerge(theirs)
+      yield* write(left, "/dir/moved", "later")
+
+      const equivalent = yield* Vfs.decodeSnapshot(yield* Vfs.encodeSnapshot(base), {
+        maxEncodedBytes: ByteSize.kilobytes(10),
+        maxDecodedBytes: ByteSize.kilobytes(10),
+        maxEntries: 10,
+        maxRecords: 10
+      })
+
+      const result = yield* Vfs.mergeOverlayCaptures(equivalent, capture, edited)
+      const mirrored = yield* Vfs.mergeOverlayCaptures(equivalent, edited, capture)
+      const fs = yield* apply(equivalent, result.delta)
+
+      assert.deepStrictEqual(result.conflicts, [])
+      assert.strictEqual(yield* readText(fs, "/dir/moved"), "edit")
+      assert.strictEqual((yield* fs.stat("/dir/moved")).mode, 0o600)
+      assert.deepStrictEqual(
+        yield* Vfs.inspectSnapshotDelta(equivalent, result.delta),
+        yield* Vfs.inspectSnapshotDelta(equivalent, mirrored.delta)
+      )
+      assert.strictEqual((yield* Effect.flip(fs.stat("/source"))).code, "NotFound")
+    }))
+
+  it.effect("should preserve the base paths until a divergent move is resolved as a group", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      yield* left.rename("/source", "/a")
+      yield* right.rename("/source", "/b")
+      yield* write(right, "/b", "right")
+      yield* write(left, "/other", "clean")
+      const oursCapture = yield* Vfs.captureOverlayForMerge(ours)
+      const theirsCapture = yield* Vfs.captureOverlayForMerge(theirs)
+      const result = yield* Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture)
+      assert.lengthOf(result.conflicts, 1)
+      const { detail: conflict, key } = renameConflict(result)
+      assert.strictEqual(conflict.reason, "RenameDiverged")
+      assert.strictEqual(yield* pathText(conflict.path), "/source")
+      assert.strictEqual(yield* pathText(conflict.ours.destination), "/a")
+      assert.strictEqual(yield* pathText(conflict.theirs.destination), "/b")
+      assert.strictEqual(conflict.theirs.changes._tag, "Updated")
+      const fs = yield* apply(base, result.delta)
+      assert.strictEqual(yield* readText(fs, "/source"), "base")
+      assert.strictEqual(yield* readText(fs, "/other"), "clean")
+      assert.strictEqual((yield* Effect.flip(fs.stat("/a"))).code, "NotFound")
+      assert.strictEqual((yield* Effect.flip(fs.stat("/b"))).code, "NotFound")
+
+      for (const take of ["ours", "theirs", "base"] as const) {
+        const chosen = yield* Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture, {
+          resolutions: [{ key, take }]
+        })
+
+        const fs = yield* apply(base, chosen.delta)
+        assert.deepStrictEqual(chosen.conflicts, [])
+        const path = take === "ours" ? "/a" : take === "theirs" ? "/b" : "/source"
+        assert.strictEqual(yield* readText(fs, path), take === "theirs" ? "right" : "base")
+        assert.strictEqual(yield* readText(fs, "/other"), "clean")
+        assert.deepStrictEqual(
+          entryNames(yield* fs.readDirectory("/")),
+          ["dir", "other", "sym", path.slice(1)].sort()
+        )
+      }
+
+      const choice = { key, take: "base" } as const
+      assert.strictEqual(
+        (yield* mergeFailure(
+          Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture, { resolutions: [choice, choice] })
+        )).code,
+        "InvalidArgument"
+      )
+      assert.strictEqual(
+        (yield* mergeFailure(Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture, {
+          resolutions: [{ ...choice, key: "unknown" }]
+        }))).code,
+        "InvalidArgument"
+      )
+    }))
+
+  it.effect("should take a removal against a clean move and conflict against an edited move", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      yield* left.rename("/source", "/moved")
+      yield* right.remove("/source")
+      const clean = yield* merge(base, ours, theirs)
+      assert.deepStrictEqual(clean.conflicts, [])
+      const fs = yield* apply(base, clean.delta)
+      assert.strictEqual((yield* Effect.flip(fs.stat("/source"))).code, "NotFound")
+      assert.strictEqual((yield* Effect.flip(fs.stat("/moved"))).code, "NotFound")
+
+      yield* write(left, "/moved", "edit")
+      const edited = yield* merge(base, ours, theirs)
+      assert.strictEqual(renameConflict(edited).detail.reason, "ChangedRemoved")
+      assert.strictEqual(yield* pathText(renameConflict(edited).detail.path), "/moved")
+    }))
+
+  it.effect("should combine source edits before comparing an independent addition", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      yield* left.rename("/source", "/moved")
+      yield* write(right, "/source", "combined")
+      yield* write(right, "/moved", "different")
+      const oursCapture = yield* Vfs.captureOverlayForMerge(ours)
+      const theirsCapture = yield* Vfs.captureOverlayForMerge(theirs)
+      const disputed = yield* Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture)
+      const { detail: conflict, key } = renameConflict(disputed)
+      assert.strictEqual(conflict.reason, "BothAddedDifferent")
+      assert.isTrue(conflict.theirs.independentAddition)
+
+      const chosen = yield* Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture, {
+        resolutions: [{ key, take: "theirs" }]
+      })
+
+      const fs = yield* apply(base, chosen.delta)
+      assert.strictEqual(yield* readText(fs, "/source"), "combined")
+      assert.strictEqual(yield* readText(fs, "/moved"), "different")
+
+      yield* write(right, "/moved", "combined")
+      const combined = yield* merge(base, ours, theirs)
+      assert.deepStrictEqual(combined.conflicts, [])
+      const merged = yield* apply(base, combined.delta)
+      assert.strictEqual(yield* readText(merged, "/moved"), "combined")
+      assert.strictEqual((yield* mergeFailure(merged.stat("/source"))).code, "NotFound")
+
+      yield* write(left, "/moved", "left")
+      const changed = yield* merge(base, ours, theirs)
+      assert.strictEqual(renameConflict(changed).detail.reason, "BothChanged")
+    }))
+
+  it.effect("should reject fabricated captures and captures from a foreign base", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs } = yield* both
+      const retained = yield* Vfs.captureOverlayForMerge(ours)
+      const publicCapture: object = yield* theirs.capture()
+      // SAFETY: Intentionally forge an input to exercise the runtime registry check.
+      const fake = publicCapture as typeof retained
+      assert.strictEqual(
+        (yield* mergeFailure(Vfs.mergeOverlayCaptures(base, retained, fake))).code,
+        "InvalidArgument"
+      )
+      assert.strictEqual((yield* Effect.flip(Vfs.captureOverlayForMerge({ ...ours }))).code, "InvalidArgument")
+
+      const empty = yield* (yield* Vfs.make()).snapshot
+      const foreign = yield* Vfs.captureOverlayForMerge(yield* Vfs.makeOverlay(empty))
+      assert.strictEqual(
+        (yield* mergeFailure(Vfs.mergeOverlayCaptures(base, retained, foreign))).code,
+        "BaseMismatch"
+      )
+      assert.strictEqual(
+        (yield* mergeFailure(Vfs.mergeOverlayCaptures(base, foreign, retained))).code,
+        "BaseMismatch"
+      )
+    }))
+
+  it.effect("should reject a destination directory together with its children", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+
+      yield* left.rename("/source", "/moved")
+      yield* right.mkdir("/moved")
+      yield* write(right, "/moved/child", "directory collision")
+      const collision = yield* mergeFailure(merge(base, ours, theirs))
+      assert.strictEqual(collision.code, "InvalidStructure")
+      assert.strictEqual(collision.field, "renameDestination")
+      assert.strictEqual(yield* pathText(collision.path), "/moved")
+    }))
+
+  it.effect("should merge moves to the same byte path and preserve identity and idempotence", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      const untouched = yield* merge(base, ours, theirs)
+      assert.deepStrictEqual(yield* Vfs.inspectSnapshotDelta(base, untouched.delta), [])
+      const raw = yield* BytePath.fromBytes(Uint8Array.of(47, 255))
+      yield* left.rename("/source", raw)
+      const oneSided = yield* merge(base, ours, theirs)
+      const moved = yield* Vfs.diffSnapshots(base, (yield* ours.capture()).snapshot)
+      assert.deepStrictEqual(oneSided.conflicts, [])
+      assert.deepStrictEqual(
+        yield* Vfs.inspectSnapshotDelta(base, oneSided.delta),
+        yield* Vfs.inspectSnapshotDelta(base, moved)
+      )
+
+      yield* right.rename("/source", raw)
+      yield* write(left, raw, "edited")
+      yield* right.chmod(raw, 0o640)
+      const combined = yield* merge(base, ours, theirs)
+      const same = yield* merge(base, ours, ours)
+      const reader = yield* apply(base, combined.delta)
+      assert.deepStrictEqual(combined.conflicts, [])
+      assert.strictEqual(yield* readText(reader, raw), "edited")
+      assert.strictEqual((yield* reader.stat(raw)).mode, 0o640)
+      const standalone = yield* Vfs.diffSnapshots(base, (yield* ours.capture()).snapshot)
+      assert.deepStrictEqual(
+        yield* Vfs.inspectSnapshotDelta(base, same.delta),
+        yield* Vfs.inspectSnapshotDelta(base, standalone)
+      )
+    }))
+
+  it.effect("should treat an equal-byte replacement as an addition and removal", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      yield* left.remove("/source")
+      yield* write(left, "/moved", "base")
+      yield* write(right, "/source", "edit")
+
+      const result = yield* merge(base, ours, theirs)
+
+      assert.lengthOf(result.conflicts, 1)
+      const conflict = result.conflicts[0]
+
+      if (conflict?.kind !== "path") throw new Error("Expected an ordinary path conflict")
+
+      assert.strictEqual(conflict.details[0]?.reason, "ChangedRemoved")
+      const fs = yield* apply(base, result.delta)
+      assert.strictEqual(yield* readText(fs, "/source"), "base")
+      assert.strictEqual(yield* readText(fs, "/moved"), "base")
+    }))
+
+  it.effect("should resolve ordinary path conflicts alongside rename groups", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      yield* left.rename("/source", "/a")
+      yield* right.rename("/source", "/b")
+      yield* write(left, "/other", "left")
+      yield* write(right, "/other", "right")
+      const oursCapture = yield* Vfs.captureOverlayForMerge(ours)
+      const theirsCapture = yield* Vfs.captureOverlayForMerge(theirs)
+      const pending = yield* Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture)
+      const rename = renameConflict(pending)
+      const ordinary = pending.conflicts.find((conflict) => conflict.kind === "path")
+
+      if (ordinary === undefined) throw new Error("Expected an ordinary path conflict")
+
+      const first = { key: rename.key, take: "ours" } as const
+      const partial = yield* Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture, { resolutions: [first] })
+      assert.deepStrictEqual(partial.conflicts.map((conflict) => conflict.key), [ordinary.key])
+
+      const chosen = yield* Vfs.mergeOverlayCaptures(base, oursCapture, theirsCapture, {
+        resolutions: [first, { key: ordinary.key, take: "theirs" }]
+      })
+
+      const fs = yield* apply(base, chosen.delta)
+      assert.deepStrictEqual(chosen.conflicts, [])
+      assert.strictEqual(yield* readText(fs, "/a"), "base")
+      assert.strictEqual(yield* readText(fs, "/other"), "right")
+
+      const otherCapture = yield* Vfs.captureOverlayForMerge(theirs)
+      assert.strictEqual(
+        (yield* mergeFailure(Vfs.mergeOverlayCaptures(base, oursCapture, otherCapture, { resolutions: [first] })))
+          .code,
+        "InvalidArgument"
+      )
+    }))
+
+  it.effect.each(
+    [
+      ["directory move", (fs: Vfs.Caller) => fs.rename("/dir", "/moved"), "renameLineage"],
+      ["symlink move", (fs: Vfs.Caller) => fs.rename("/sym", "/moved"), "renameLineage"],
+      ["hard-linked file move", (fs: Vfs.Caller) =>
+        Effect.gen(function*() {
+          yield* fs.link("/source", "/alias")
+          yield* fs.rename("/source", "/moved")
+        }), "renameLineage"],
+      ["occupied destination", (fs: Vfs.Caller) => fs.rename("/source", "/other"), "renameOverlap"],
+      ["swap", (fs: Vfs.Caller) =>
+        Effect.gen(function*() {
+          yield* fs.rename("/source", "/temp")
+          yield* fs.rename("/other", "/source")
+          yield* fs.rename("/temp", "/other")
+        }), "renameOverlap"]
+    ] as const
+  )("should reject an unsupported move when the scenario is %s", ([, edit, field]) =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left } = yield* both
+      yield* edit(left)
+
+      const error = yield* mergeFailure(merge(base, ours, theirs))
+
+      assert.strictEqual(error.code, "InvalidStructure")
+      assert.strictEqual(error.field, field)
+    }))
+
+  it.effect("should reject moves from different sources to the same destination", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      yield* left.rename("/source", "/moved")
+      yield* right.rename("/other", "/moved")
+
+      const error = yield* mergeFailure(merge(base, ours, theirs))
+
+      assert.strictEqual(error.code, "InvalidStructure")
+      assert.strictEqual(error.field, "renameOverlap")
+      assert.strictEqual(yield* pathText(error.path), "/moved")
+    }))
+
+  it.effect("should reject a move when the other side replaces its destination parent", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      yield* left.rename("/source", "/dir/moved")
+      yield* right.remove("/dir")
+      yield* right.mkdir("/dir")
+
+      const error = yield* mergeFailure(merge(base, ours, theirs))
+
+      assert.strictEqual(error.code, "InvalidStructure")
+      assert.strictEqual(error.field, "renameParent")
+    }))
+
+  it.effect("should enforce the path count limit when unresolved moves produce an empty delta", () =>
+    Effect.gen(function*() {
+      const count = 12
+      const sources = Array.from({ length: count }, (_, index) => "/s" + index)
+
+      const volume = yield* Vfs.fromFixture({
+        entries: sources.map((path) => ({ kind: "file" as const, path, bytes: encoder.encode("base") }))
+      })
+
+      const base = yield* volume.snapshot
+      const ours = yield* Vfs.makeOverlay(base)
+      const theirs = yield* Vfs.makeOverlay(base)
+      const left = yield* ours.caller()
+      const right = yield* theirs.caller()
+
+      for (const [index, source] of sources.entries()) {
+        yield* left.rename(source, "/a" + index)
+        yield* right.rename(source, "/b" + index)
+      }
+
+      const exact = count * 3
+
+      const at = yield* merge(base, ours, theirs, {
+        limits: { ...Vfs.SnapshotDeltaLimits.default, maxEntries: exact }
+      })
+
+      assert.strictEqual(at.conflicts.length, count)
+      assert.deepStrictEqual(yield* Vfs.inspectSnapshotDelta(base, at.delta), [])
+
+      const over = yield* mergeFailure(
+        merge(base, ours, theirs, { limits: { ...Vfs.SnapshotDeltaLimits.default, maxEntries: exact - 1 } })
+      )
+
+      assert.strictEqual(over.code, "LimitExceeded")
+      assert.strictEqual(over.field, "renamePaths")
+    }))
+
+  it.effect("should enforce the byte limit for paths in rename groups", () =>
+    Effect.gen(function*() {
+      const { base, ours, theirs, left, right } = yield* both
+      const a = "/" + "é".repeat(40)
+      const b = "/" + "b".repeat(80)
+      yield* left.rename("/source", a)
+      yield* right.rename("/source", b)
+      const exact = encoder.encode(a).length + encoder.encode(b).length + encoder.encode("/source").length
+
+      const at = yield* merge(base, ours, theirs, {
+        limits: { ...Vfs.SnapshotDeltaLimits.default, maxDecodedDeltaBytes: ByteSize.bytes(exact) }
+      })
+
+      assert.strictEqual(renameConflict(at).detail.reason, "RenameDiverged")
+
+      const fail = yield* mergeFailure(
+        merge(base, ours, theirs, {
+          limits: { ...Vfs.SnapshotDeltaLimits.default, maxDecodedDeltaBytes: ByteSize.bytes(exact - 1) }
+        })
+      )
+
+      assert.strictEqual(fail.code, "LimitExceeded")
+      assert.strictEqual(fail.field, "renamePathBytes")
+    }))
 })
