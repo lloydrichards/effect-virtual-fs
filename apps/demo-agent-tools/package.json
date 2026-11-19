@@ -7,7 +7,8 @@
     "type-check": "tsc --noEmit",
     "start": "bun src/mcp.ts",
     "start:codemode": "bun src/codemode-mcp.ts",
-    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project demo-agent-tools"
+    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project demo-agent-tools",
+    "test:packed-trial": "bash scripts/check-packed-trial.sh"
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*",

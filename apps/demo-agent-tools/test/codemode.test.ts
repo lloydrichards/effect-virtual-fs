@@ -2,13 +2,13 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it, live } from "@effect/vitest"
 import { Clock, Deferred, Effect, Fiber } from "effect"
 import { describe } from "vitest"
-import { makeCodeModeHandlers, maxRetainedRuns, maxSourceBytes } from "../src/codemode.js"
+import { codeModeHandlers, maxRetainedRuns, maxSourceBytes } from "../src/codemode.js"
 
 describe("Code Mode workspaces", () => {
   it.layer(BunCrypto.layer)((it) => {
     it.effect("should retain isolated edits when a program updates the workspace", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const first = yield* handlers.execute({
           code: `
@@ -68,7 +68,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should retain independent files when requests arrive concurrently", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const results = yield* Effect.forEach(["alpha", "beta"], (content) =>
           handlers.execute({
@@ -90,7 +90,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should retain partial edits without changing the base when a program throws", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const result = yield* handlers.execute({
           code: `
@@ -113,7 +113,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should deny access outside the workspace when guest or inspection paths escape", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const result = yield* handlers.execute({
           code: `
@@ -143,7 +143,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should reject unregistered operations when a guest calls an unavailable tool", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
         const unknown = yield* handlers.execute({ code: "await tools.workspace.remove({path: 'temporary.txt'})" })
         assert.isFalse(unknown.execution.ok)
 
@@ -152,7 +152,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should reject oversized source when it exceeds the execution limit", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
         assert.strictEqual(
           (yield* handlers.execute({ code: " ".repeat(maxSourceBytes + 1) }).pipe(Effect.flip)).code,
           "SourceLimitExceeded"
@@ -161,7 +161,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should leave no changes when a write exceeds the text limit", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const tooLarge = yield* handlers.execute({
           code: `
@@ -188,7 +188,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should capture a write when its text is exactly 64 KiB", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const result = yield* handlers.execute({
           code: "return await tools.workspace.write_file({path:\"boundary.txt\", content:\"x\".repeat(65536)})"
@@ -207,7 +207,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should retain completed writes and bound diagnostics when a program throws a large multibyte error", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const result = yield* handlers.execute({
           code: `
@@ -240,7 +240,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should stop guest calls when the tool call limit is exceeded", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const calls = yield* handlers.execute({
           code: "for (let i=0; i<33; i++) await tools.workspace.stat({path:\"BRIEF.md\"})"
@@ -253,7 +253,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should return a parse failure when source contains TypeScript syntax", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
         const invalid = yield* handlers.execute({ code: "const value: string = 'unsupported'" })
         assert.isFalse(invalid.execution.ok)
 
@@ -262,7 +262,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should preserve retained runs when the retention limit rejects another execution", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         for (let index = 0; index < maxRetainedRuns; index++) yield* handlers.execute({ code: "return null" })
         assert.strictEqual(
@@ -276,7 +276,7 @@ describe("Code Mode workspaces", () => {
 
     it.effect("should discard the run and release its slot when execution is externally interrupted", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
         const baseBefore = yield* handlers.inspect_base({ action: "list", path: "." })
         const started = yield* Deferred.make<void>()
         const clock = yield* Clock.Clock
@@ -313,7 +313,7 @@ describe("Code Mode workspaces", () => {
 
     live("should retain completed writes and recover when a program times out", () =>
       Effect.gen(function*() {
-        const handlers = yield* makeCodeModeHandlers()
+        const handlers = yield* codeModeHandlers
 
         const timedOut = yield* handlers.execute({
           code: `

@@ -1,3 +1,5 @@
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { it } from "@effect/vitest"
 import { Effect, Option, Schema } from "effect"
 // Native subprocess I/O keeps the test client independent of the server’s BunStdio implementation.
@@ -5,8 +7,10 @@ import { Effect, Option, Schema } from "effect"
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { expect } from "vitest"
+import { TrialCodeModeTools } from "../src/codemode-trial.js"
 import { CodeModeTools, RunResult } from "../src/codemode.js"
 import { ToolFailure } from "../src/tools.js"
+import { makeBaseSnapshot, projectRoot } from "../src/workspace.js"
 
 const ResultSchema = Schema.Struct({
   protocolVersion: Schema.optionalKey(Schema.String),
@@ -59,9 +63,14 @@ const stop = Effect.fnUntraced(function*(child: ChildProcessWithoutNullStreams) 
   }
 })
 
-const connect = Effect.fnUntraced(function*(protocolVersion = "2025-11-25", entry = "mcp.ts") {
+const connect = Effect.fnUntraced(function*(protocolVersion = "2025-11-25", entry = "mcp.ts", trial = false) {
   const child = yield* Effect.acquireRelease(
-    Effect.sync(() => spawn("bun", [fileURLToPath(new URL(`../src/${entry}`, import.meta.url))], { stdio: "pipe" })),
+    Effect.sync(() =>
+      spawn("bun", [fileURLToPath(new URL(`../src/${entry}`, import.meta.url))], {
+        stdio: "pipe",
+        env: { ...process.env, EFFECT_VFS_CODEMODE_TRIAL: trial ? "1" : "0" }
+      })
+    ),
     stop
   )
 
@@ -346,3 +355,114 @@ it.live("should discard the workspace and recover when an MCP client cancels exe
     expect(fresh.execution).toMatchObject({ ok: true, value: { ok: false, error: { code: "NotFound" } } })
     expect(fresh.changes).toEqual([])
   }))
+
+it.live("should complete the packed Code Mode release handoff over MCP", () =>
+  Effect.gen(function*() {
+    const { call } = yield* connect("2025-11-25", "codemode-mcp.ts", true)
+
+    const execute = Effect.fnUntraced(function*(code: string) {
+      const result = yield* call("execute", { code })
+      const run = yield* Schema.decodeUnknownEffect(RunResult)(result.structuredContent)
+      expect(run.execution.ok).toBe(true)
+
+      return run.runId
+    })
+
+    const merge = Effect.fnUntraced(function*(args: Record<string, Schema.Json>) {
+      const result = yield* call("combine_runs", args)
+      expect(result.isError).toBe(false)
+
+      return yield* Schema.decodeUnknownEffect(TrialCodeModeTools.tools.combine_runs.successSchema)(
+        result.structuredContent
+      )
+    })
+
+    const apply = Effect.fnUntraced(function*(delta: string) {
+      const base = yield* makeBaseSnapshot(true)
+      const decoded = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(new TextEncoder().encode(delta))
+      const volume = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, decoded))
+
+      return yield* (yield* volume.caller()).withRoot(projectRoot)
+    })
+
+    const read = (caller: Vfs.Caller, path: string) =>
+      Effect.map(caller.readFile(path), (bytes) => new TextDecoder().decode(bytes))
+
+    const rename = yield* execute(
+      "return await tools.workspace.rename({from:\"plans/draft.md\",to:\"plans/moved.md\"})"
+    )
+
+    const edit = yield* execute(
+      "return await tools.workspace.write_file({path:\"plans/draft.md\",content:\"QA approved\"})"
+    )
+
+    const clean = yield* merge({ ours: rename, theirs: edit })
+
+    if (clean.status !== "ready") throw new Error("Expected a ready handoff")
+
+    const applied = yield* apply(clean.delta)
+    expect(yield* read(applied, "plans/moved.md")).toBe("QA approved")
+    expect((yield* Effect.flip(applied.stat("plans/draft.md"))).code).toBe("NotFound")
+
+    const ours = yield* execute(
+      "await tools.workspace.rename({from:\"plans/draft.md\",to:\"plans/friday.md\"});" +
+        "return await tools.workspace.write_file({path:\"BRIEF.md\",content:\"Friday brief\"})"
+    )
+
+    const theirs = yield* execute(
+      "await tools.workspace.rename({from:\"plans/draft.md\",to:\"plans/rollback.md\"});" +
+        "return await tools.workspace.write_file({path:\"BRIEF-copy.md\",content:\"Rollback brief\"})"
+    )
+
+    const preview = yield* merge({ ours, theirs })
+
+    if (preview.status !== "preview") throw new Error("Expected a preview with two choices")
+
+    expect(preview.conflicts).toHaveLength(2)
+    const renameGroup = preview.conflicts.find((group) => group.kind === "rename")!
+    const linkGroup = preview.conflicts.find((group) => group.kind === "path")!
+    expect(renameGroup.affectedPaths).toEqual(
+      ["draft.md", "friday.md", "rollback.md"].map((name) => projectRoot + "/plans/" + name)
+    )
+    expect(linkGroup.affectedPaths).toEqual(["BRIEF-copy.md", "BRIEF.md"].map((name) => projectRoot + "/" + name))
+    expect(yield* read(yield* apply(preview.previewDelta), "plans/draft.md")).toContain("Release on Friday.")
+
+    const first = { key: renameGroup.key, take: "ours" } as const
+    const partial = yield* merge({ ours, theirs, resolutions: [first] })
+
+    if (partial.status !== "preview") throw new Error("Expected the remaining hard-link conflict")
+
+    expect(partial.conflicts.map((group) => group.key)).toEqual([linkGroup.key])
+    const stale = yield* call("combine_runs", { ours: theirs, theirs: ours, resolutions: [first] })
+    expect((yield* failure(stale)).code).toBe("InvalidArgument")
+    const duplicate = yield* call("combine_runs", { ours, theirs, resolutions: [first, first] })
+    expect((yield* failure(duplicate)).code).toBe("InvalidArgument")
+
+    const final = yield* merge({ ours, theirs, resolutions: [first, { key: linkGroup.key, take: "theirs" }] })
+
+    if (final.status !== "ready") throw new Error("Expected all choices to settle the handoff")
+
+    const handoff = yield* apply(final.delta)
+    expect(yield* read(handoff, "plans/friday.md")).toContain("Release on Friday.")
+    expect((yield* Effect.flip(handoff.stat("plans/draft.md"))).code).toBe("NotFound")
+    expect((yield* Effect.flip(handoff.stat("plans/rollback.md"))).code).toBe("NotFound")
+    expect(yield* read(handoff, "BRIEF.md")).toBe("Rollback brief")
+    expect(yield* read(handoff, "BRIEF-copy.md")).toBe("Rollback brief")
+    expect(
+      (yield* call("inspect_run", { runId: ours, action: "read", path: "BRIEF.md" }))
+        .structuredContent!["entry"]
+    ).toEqual({ path: "BRIEF.md", content: "Friday brief" })
+
+    const unsupported = yield* execute("return await tools.workspace.rename({from:\"plans\",to:\"archived-plans\"})")
+    expect(yield* failure(yield* call("combine_runs", { ours: unsupported, theirs: edit }))).toMatchObject({
+      code: "InvalidStructure",
+      field: "renameLineage",
+      path: projectRoot + "/plans"
+    })
+
+    const restarted = yield* connect("2025-11-25", "codemode-mcp.ts", true)
+    yield* restarted.call("execute", { code: "return 1" })
+    yield* restarted.call("execute", { code: "return 2" })
+    expect((yield* failure(yield* restarted.call("combine_runs", { ours: rename, theirs: edit }))).code)
+      .toBe("RunNotAvailable")
+  }).pipe(Effect.provide(BunCrypto.layer)))

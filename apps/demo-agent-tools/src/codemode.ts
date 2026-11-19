@@ -215,8 +215,11 @@ const inspect = Effect.fnUntraced(function*(snapshot: Vfs.Snapshot, request: typ
   })).pipe(Effect.catchTag("VfsError", infrastructureFailure))
 })
 
-export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
-  const base = yield* makeBaseSnapshot()
+export const makeCodeModeSession = Effect.fn("CodeMode.make")(function*(
+  baseOverride?: Vfs.Snapshot,
+  trialInstance?: string
+) {
+  const base = baseOverride ?? (yield* makeBaseSnapshot())
 
   // Only these two services: the full fiber context would also pin services such as Clock.
   const cryptography = Context.make(Digest.Digest, yield* Digest.Digest).pipe(
@@ -224,10 +227,16 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
   )
 
   const gate = yield* Semaphore.make(1)
-  const runs = new Map<string, { readonly capture: Vfs.OverlayCapture; readonly result: typeof RunResult.Type }>()
+
+  const runs = new Map<string, {
+    readonly capture: Vfs.OverlayCapture
+    readonly mergeCapture: Vfs.OverlayMergeCapture | undefined
+    readonly result: typeof RunResult.Type
+  }>()
+
   let sequence = 0
 
-  return CodeModeTools.of({
+  const handlers = CodeModeTools.of({
     execute: Effect.fn("CodeMode.execute")(function*({ code }) {
       if (encoder.encode(code).byteLength > maxSourceBytes) {
         return yield* Effect.fail({
@@ -262,8 +271,16 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
 
         const execution = boundDiagnostic(yield* runtime.execute(code))
         const captured = yield* overlay.capture()
-        const result = { runId: String(++sequence), execution, changes: yield* summarize(captured.changes) }
-        runs.set(result.runId, { capture: captured, result })
+
+        const mergeCapture = trialInstance !== undefined && execution.ok
+          ? yield* Vfs.captureOverlayForMerge(overlay)
+          : undefined
+
+        const changes = yield* summarize(captured.changes)
+        const ordinal = String(++sequence)
+        const runId = trialInstance === undefined ? ordinal : trialInstance + "/" + ordinal
+        const result = { runId, execution, changes }
+        runs.set(runId, { capture: captured, mergeCapture, result })
 
         return result
       }))).pipe(Effect.catchTag("VfsError", infrastructureFailure))
@@ -315,4 +332,8 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
       inspect(base, request).pipe(Effect.provideContext(cryptography))
     )
   })
+
+  return { handlers, mergeCaptureFor: (runId: string) => runs.get(runId)?.mergeCapture }
 })
+
+export const codeModeHandlers = Effect.map(makeCodeModeSession(), (session) => session.handlers)
