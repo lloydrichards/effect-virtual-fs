@@ -2,9 +2,9 @@
 "@effect-vfs/persistence": minor
 ---
 
-D1 live-image storage now supports bounded images through a supplied native Effect D1 client and explicit migrations.
+Store live filesystem images in Cloudflare D1 with an Effect D1 client.
 
-Install the optional `@effect/sql-d1` peer and apply the packaged D1 migration before opening a store:
+Install the optional `@effect/sql-d1` peer and apply the packaged D1 migration before opening a store.
 
 ```ts
 import * as D1LiveImageStore from "@effect-vfs/persistence/D1LiveImageStore"
@@ -18,4 +18,4 @@ const store = (db: D1Client.D1ClientConfig["db"]) =>
   }).pipe(Layer.provide(D1Client.layer({ db })))
 ```
 
-Applications enforce single ownership. Distinct store keys may share a primary-serving client while each store drains its own pending writes before handoff. The image cap is 1 MiB and the guarantee is `memory-only`.
+Keep one active owner per store key. Stores with distinct keys can share a client that serves requests from the primary. Drain each store’s pending writes before handoff. D1 caps images at 1 MiB and reports the `memory-only` guarantee.

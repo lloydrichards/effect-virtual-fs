@@ -2,9 +2,9 @@
 "@effect-vfs/core": minor
 ---
 
-Merge overlay captures so edits follow file renames. When two overlays move the same file to different destinations, the merge reports one conflict covering the original path and both destinations.
+Merge two overlays so edits to a file follow its rename. When two overlays move the same file to different destinations, the merge reports one conflict covering the original path and both destinations.
 
-Create both overlays from the same base. After editing them, capture each overlay and merge the captures:
+Start both overlays from the same snapshot. Capture them after editing, then merge and apply the delta if there are no conflicts.
 
 ```ts
 const handoff = Effect.gen(function*() {
@@ -18,4 +18,4 @@ const handoff = Effect.gen(function*() {
 })
 ```
 
-Keep the captures if you need to resolve conflicts. Retry with the same captures and pass `resolutions: [{ key, take }]` in the options. Use the returned conflict key and choose `"ours"`, `"theirs"`, or `"base"`. Captures are process-local. Include all previous choices on each retry.
+Keep the captures in the same process to resolve conflicts. Retry with the same base and captures in the same order. Pass every choice so far in `resolutions`. Each choice pairs a returned conflict `key` with `take` set to `"ours"`, `"theirs"`, or `"base"`.
