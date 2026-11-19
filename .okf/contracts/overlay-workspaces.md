@@ -26,7 +26,7 @@ sources:
   - id: checkpoint
     resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Captured snapshot checkpoint compatibility
-generated: { by: codex/okf-dream, at: 2026-11-16T22:02:33Z }
+generated: { by: codex/okf, at: "2026-11-19T09:44:08+01:00" }
 ---
 
 # Overlay workspaces
@@ -41,7 +41,7 @@ Logical entry and byte limits apply to the complete visible volume. Shared base 
 
 `capture()` returns a complete snapshot and matching summary from one committed state. Both are owned and stable after later writes. The snapshot uses the current version 1 encoding and can be stored by `CheckpointStore`. While version 1 is being solidified, compatibility with snapshots written by earlier schema revisions is not guaranteed. Restoring it recovers filesystem state only; it does not recover the previous overlay base, lineage or summary. Reset is application-level replacement with a fresh workspace, so old resources keep their independent lifetimes.[^core][^behavior]
 
-This contract implements the accepted [staged overlay delivery](../decisions/overlay/staged-overlay-delivery.md "implements"). Overlay capture produces complete snapshots; exact base-dependent deltas are a separate capability defined by the [snapshot delta contract](snapshot-deltas.md "contrasts with"). Live backing volumes, merge or rebase, in-place reset, changed-data budgets, block copying and performance guarantees remain deferred.
+This contract implements the accepted [staged overlay delivery](../decisions/overlay/staged-overlay-delivery.md "implements"). Overlay capture produces complete snapshots; exact base-dependent deltas are a separate capability defined by the [snapshot delta contract](snapshot-deltas.md "contrasts with"). The [experimental rename-aware merge](../research/overlay-rename-merge.md) takes separate process-local captures and produces a delta against the common base. Live backing volumes, overlay rebase, in-place reset, changed-data budgets, block copying and performance guarantees remain deferred.
 
 [^core]: `makeOverlay`, the private content store, mutation paths and the shared observation routine define runtime behavior.
 
