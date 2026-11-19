@@ -3,7 +3,7 @@
 Use Node 26.11.1 and run these commands from the repository root.
 
 ```sh
-bun run --cwd packages/core build
+bun run build --filter=@effect-vfs/node
 bun run --cwd packages/node benchmark -- --reporter=json --outputFile=/tmp/node-mounted-benchmark.json
 ```
 

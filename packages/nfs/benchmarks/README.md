@@ -3,7 +3,7 @@
 Build NFS, then compare its production codec with the experimental codecs:
 
 ```sh
-bun run --cwd packages/nfs build
+bun run build --filter=@effect-vfs/nfs
 bun run --cwd packages/nfs benchmark
 ```
 

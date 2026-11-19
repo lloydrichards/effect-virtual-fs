@@ -3,7 +3,7 @@
 Build core first, then run its Vitest benchmark project from the repository root:
 
 ```sh
-bun run --cwd packages/core build
+bun run build --filter=@effect-vfs/core
 CONFINEMENT_BENCH_BASELINE=HEAD \
 CONFINEMENT_BENCH_BASELINE_CONFINED=1 \
 CONFINEMENT_BENCH_ITERATIONS=10000 \

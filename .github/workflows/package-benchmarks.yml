@@ -56,10 +56,9 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: bun install --frozen-lockfile
-      - run: bun run --cwd packages/core build
-      - run: bun run --cwd packages/nfs build
+      - run: bun run build --filter=@effect-vfs/nfs
         if: matrix.suite != 'node-vfs'
-      - run: bun run --cwd packages/node build
+      - run: bun run build --filter=@effect-vfs/node
         if: matrix.suite == 'node-vfs'
       - name: Record measurement environment
         env:
