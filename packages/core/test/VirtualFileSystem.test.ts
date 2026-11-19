@@ -2893,6 +2893,26 @@ for (const execution of ["cooperative", "sync"] as const) {
         )
         assert.strictEqual(yield* caller.writeFile(new Uint8Array(0), { access: "write" })("/alias"), reference)
         assert.deepStrictEqual(yield* caller.readFile(reference), new Uint8Array([2]))
+        yield* caller.symlink("/created", "/dangling-write")
+
+        const throughLink = yield* caller.writeFile("/dangling-write", new Uint8Array([4]), {
+          access: "write",
+          create: "ifMissing",
+          truncate: true
+        })
+
+        assert.strictEqual(throughLink, yield* caller.lookup("/created"))
+        assert.deepStrictEqual(yield* caller.readFile("/created"), new Uint8Array([4]))
+        assert.deepStrictEqual(yield* caller.readLink("/dangling-write"), new TextEncoder().encode("/created"))
+        assert.strictEqual(
+          (yield* Effect.flip(caller.writeFile("/absent/file", new Uint8Array([5]), {
+            access: "write",
+            create: "ifMissing",
+            truncate: true
+          }))).code,
+          "NotFound"
+        )
+
         const link = yield* caller.symlink("/file", "/link")
 
         const replaced = yield* caller.writeFile("/link", new Uint8Array([3]), {
