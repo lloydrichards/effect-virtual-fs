@@ -2,9 +2,9 @@ import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Clock, Deferred, Duration, Effect, Fiber } from "effect"
 import { assert, test } from "vitest"
-import { Operation, Status } from "../../src/internal/nfs4.js"
-import { XdrCodec } from "../../src/internal/xdr.js"
-import { call, connection, makeHandler, parseOpen, sequence, startSession, statuses } from "../support/harness.js"
+import { Operation, Status } from "../src/internal/nfs4.js"
+import { XdrCodec } from "../src/internal/xdr.js"
+import { call, connection, makeHandler, parseOpen, sequence, startSession, statuses } from "../test/support/harness.js"
 
 const elapsedMs = (start: bigint, end: bigint) => Number(end - start) / 1_000_000
 

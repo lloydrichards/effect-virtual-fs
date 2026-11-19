@@ -11,7 +11,7 @@ sources:
     title: Session replay and state ownership work
   - resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: Compound admission and lease sweep gate
-  - resource: ../../../packages/nfs/test/internal/clientScheduling.test.ts
+  - resource: ../../../packages/nfs/benchmarks/clientScheduling.test.ts
     title: Reproducible in-process experiment
   - resource: ../../../packages/core/src/LiveVolume.ts
     title: Live volume store contract

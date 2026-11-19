@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect } from "effect"
-import { xdrControls } from "../benchmarks/config.ts"
+import { xdrControls } from "./config.ts"
 
 describe("Benchmark configuration", () => {
   it.effect("should supply workload defaults when controls are missing", () =>

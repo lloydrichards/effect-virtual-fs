@@ -6,7 +6,7 @@ const project = (name: string, directory: string) => ({
   test: {
     name,
     root: fileURLToPath(new URL(directory, import.meta.url)),
-    include: ["test/**/*.test.ts"],
+    include: name === "nfs" ? ["test/**/*.test.ts", "benchmarks/*.test.ts"] : ["test/**/*.test.ts"],
     exclude: ["test/HostFileSystem.test.ts"],
     benchmark: { include: ["benchmarks/**/*.bench.ts"] }
   }
