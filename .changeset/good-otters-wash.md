@@ -2,4 +2,6 @@
 "@effect-vfs/persistence": minor
 ---
 
-R2 live-image stores now enforce the configured image limit during S3 reads. Custom transports can provide an optional `readBounded` operation to enforce the same limit.
+R2 live-image stores enforce `maxImageBytes` while reading through the S3 adapter.
+
+If you supply a custom R2 transport, implement the optional `readBounded(key, maxImageBytes)` operation to enforce the limit during the read.

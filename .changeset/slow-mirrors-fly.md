@@ -2,4 +2,4 @@
 "@effect-vfs/core": patch
 ---
 
-Reclaim compatibility state as filesystem objects and handles retire so long-lived volumes do not accumulate closed-handle history.
+Long-lived volumes release compatibility state for retired filesystem objects and closed handles.

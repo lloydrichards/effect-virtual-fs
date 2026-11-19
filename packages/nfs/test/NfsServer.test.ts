@@ -2310,6 +2310,23 @@ it.layer(NodeCrypto.layer)("negotiated channel limits over TCP", (it) => {
       }
     }).pipe(Effect.provide(Testing.layer())))
 
+  it.effect("keeps client capacity when an EXCHANGE_ID reply exceeds the RPC record limit", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      const maxRecordBytes = 128
+
+      const handler = yield* wireClient(caller, {
+        limits: { maxClients: 1, maxRecordBytes: ByteSize.bytes(maxRecordBytes) }
+      })
+
+      const oversized = yield* handler.send(yield* call([ownerExchange("first")], "long exchange"))
+      assert.strictEqual(yield* replyReader(oversized).read(Xdr.uint32), Status.REP_TOO_BIG)
+
+      const fitting = yield* handler.send(yield* call([ownerExchange("second")], "fit reply"))
+      assert.strictEqual(yield* replyReader(fitting).read(Xdr.uint32), Status.OK)
+      assert.strictEqual(fitting.length + 24, maxRecordBytes)
+    }).pipe(Effect.provide(Testing.layer())))
+
   it.effect("advertises request and response record limits when the client offers larger sizes", () =>
     Effect.gen(function*() {
       const caller = yield* Vfs.Caller

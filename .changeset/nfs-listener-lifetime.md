@@ -2,9 +2,9 @@
 "@effect-vfs/nfs": minor
 ---
 
-Observe NFS listener termination through `server.awaitTermination`. It reports listener failures as `NfsServerError` and completes normally on scoped shutdown.
+Wait for the NFS listener to stop with `server.awaitTermination`. The effect fails with `NfsServerError` if the listener fails and succeeds on scoped shutdown.
 
-After acquiring the server, keep the serving program in the same scope while it waits.
+Run the effect in the scope that owns the server.
 
 ```ts
 const serve = Effect.scoped(Effect.gen(function*() {

@@ -2,4 +2,4 @@
 "@effect-vfs/persistence": patch
 ---
 
-Wait for pending R2 requests before closing a live-image store so interrupted writes cannot outlive local ownership handoff.
+R2 live-image stores drain pending requests before closing so writes finish before ownership handoff.

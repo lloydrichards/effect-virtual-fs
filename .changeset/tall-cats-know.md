@@ -2,9 +2,9 @@
 "@effect-vfs/persistence": minor
 ---
 
-PostgreSQL live-image storage now supports explicit migrations and a supplied native Effect PostgreSQL client.
+Store live filesystem images in PostgreSQL with an Effect PostgreSQL client.
 
-Install the optional `@effect/sql-pg` peer and run the packaged PostgreSQL migration before opening a store:
+Install the optional `@effect/sql-pg` peer and run the packaged PostgreSQL migration before opening a store.
 
 ```ts
 import * as PgLiveImageStore from "@effect-vfs/persistence/PgLiveImageStore"
@@ -21,4 +21,4 @@ const store = PgLiveImageStore.layer({
 }).pipe(Layer.provide(Client))
 ```
 
-Supply a dedicated single-connection client per store. Do not share it with application queries or another store. Configure its receive budget for at least `max(16 MiB, maxImageBytes + 90 bytes)` and close both store and client before reopening. The v1 guarantee is `memory-only`, so writable NFS remains unavailable.
+Reserve one single-connection client for each store. Set its receive budget to at least `max(16 MiB, maxImageBytes + 90 bytes)`. Close the store and its client before reopening the store. PostgreSQL reports the `memory-only` guarantee, which is below the durability required for writable NFS.
