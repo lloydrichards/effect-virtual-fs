@@ -1,7 +1,5 @@
-import * as Rpc from "effect/rpc/Rpc"
-import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as Schema from "effect/Schema"
-import { SharedMemory, Transferable } from "effect/workers"
+import { SharedMemory } from "effect/workers"
 
 export const TileGrid = Schema.Literals(["2x2", "4x3", "6x4"])
 
@@ -9,7 +7,7 @@ export const grids = {
   "2x2": { columns: 2, rows: 2 },
   "4x3": { columns: 4, rows: 3 },
   "6x4": { columns: 6, rows: 4 }
-} as const
+} as const satisfies Record<typeof TileGrid.Type, { readonly columns: number; readonly rows: number }>
 
 export const WorkerCount = Schema.Literals([2, 3, 4])
 
@@ -25,9 +23,10 @@ export const maxImageEdge = 1200
 
 export const outputPath = "/output/result.png"
 
-const Png = Schema.Uint8Array.annotate({ toCodecJson: () => undefined })
+// Page replies keep PNG bytes as binary on the structured-clone transport.
+export const Png = Schema.Uint8Array.annotate({ toCodecJson: () => undefined })
 
-const Source = Schema.Struct({
+export const Source = Schema.Struct({
   width: Schema.Int.check(Schema.isBetween({ minimum: largestGrid.columns, maximum: maxImageEdge })),
   height: Schema.Int.check(Schema.isBetween({ minimum: largestGrid.rows, maximum: maxImageEdge })),
   pixels: SharedMemory.schema(Uint8ClampedArray)
@@ -35,7 +34,9 @@ const Source = Schema.Struct({
 
 export type Source = typeof Source.Type
 
-const TileId = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: largestGrid.columns * largestGrid.rows - 1 }))
+export const TileId = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: largestGrid.columns * largestGrid.rows - 1 })
+)
 
 export const Filter = Schema.Literals(["normal", "blur", "grayscale", "invert", "sepia"])
 
@@ -78,32 +79,8 @@ export class WorkshopError extends Schema.TaggedError<WorkshopError>()("Workshop
   message: Schema.String
 }) {}
 
-export class WorkshopRpc extends RpcGroup.make(
-  Rpc.make("render", {
-    payload: { source: Source, filter: Filter, setup: RenderSetup },
-    success: RenderEvent,
-    error: WorkshopError,
-    stream: true
-  }),
-  Rpc.make("rebuild", {
-    payload: {
-      tiles: Schema.Array(TileId).check(
-        Schema.isMinLength(1),
-        Schema.isMaxLength(largestGrid.columns * largestGrid.rows)
-      ),
-      filter: Filter
-    },
-    success: RenderEvent,
-    error: WorkshopError,
-    stream: true
-  }),
-  Rpc.make("swap", {
-    payload: { tile: TileId, position: TileId },
-    success: Schema.Array(TileId),
-    error: WorkshopError
-  }),
-  Rpc.make("download", { success: Png, error: WorkshopError })
-) {}
+export const workshopError = (cause: unknown) =>
+  Schema.is(WorkshopError)(cause) ? cause : new WorkshopError({ message: String(cause) })
 
 export const TileBounds = Schema.Struct({ x: Schema.Int, y: Schema.Int, width: Schema.Int, height: Schema.Int })
 
@@ -131,37 +108,4 @@ export function tilePath(tile: number, columns: number) {
   return `/tiles/${Math.floor(tile / columns) + 1}-${tile % columns + 1}.png`
 }
 
-const Placement = Schema.Struct({ tile: TileId, bounds: TileBounds })
-
-export class TileRpc extends RpcGroup.make(
-  Rpc.make("renderTile", {
-    payload: { source: Source, bounds: TileBounds, filter: Filter },
-    success: Transferable.Uint8Array,
-    error: WorkshopError
-  })
-) {}
-
-export const WorkerJob = Schema.TaggedUnion({
-  reset: { width: Schema.Int, height: Schema.Int },
-  apply: { ...Placement.fields, path: Schema.String },
-  swap: { first: Placement, second: Placement },
-  encode: {}
-})
-
-export type WorkerJob = typeof WorkerJob.Type
-
-export const WorkerReply = Schema.TaggedUnion({
-  bytes: { bytes: Schema.Uint8Array },
-  done: {},
-  read: { path: Schema.String },
-  error: { message: Schema.String }
-})
-
-export type WorkerReply = typeof WorkerReply.Type
-
-export const FileReply = Schema.TaggedUnion({
-  bytes: { bytes: Schema.Uint8Array },
-  error: { message: Schema.String }
-})
-
-export type FileReply = typeof FileReply.Type
+export const Placement = Schema.Struct({ tile: TileId, bounds: TileBounds })

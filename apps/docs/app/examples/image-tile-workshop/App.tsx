@@ -179,7 +179,7 @@ export function App() {
                 if (Schema.is(WorkerCount)(workers)) setSetup({ ...setup, workers })
               }}
             >
-              {[2, 3, 4].map((workers) => <option key={workers} value={workers}>{workers}</option>)}
+              {WorkerCount.literals.map((workers) => <option key={workers} value={workers}>{workers}</option>)}
             </NativeSelect>
           </label>
           <label className="effect-control">
@@ -193,7 +193,7 @@ export function App() {
                 if (Schema.is(TileGrid)(grid)) setSetup({ ...setup, grid })
               }}
             >
-              {Object.keys(grids).map((grid) => <option key={grid} value={grid}>{grid.replace("x", " × ")}</option>)}
+              {TileGrid.literals.map((grid) => <option key={grid} value={grid}>{grid.replace("x", " × ")}</option>)}
             </NativeSelect>
           </label>
         </div>
@@ -202,7 +202,7 @@ export function App() {
 
       {sample && !isolated && (
         <p role="alert" className="error">
-          Open this workshop on localhost or a cross-origin isolated HTTPS page to share pixels.
+          Sharing pixels requires a secure context and cross-origin isolation. Check the workshop response headers.
         </p>
       )}
       {(fileError || error) && <p role="alert" className="error">{fileError || error}</p>}

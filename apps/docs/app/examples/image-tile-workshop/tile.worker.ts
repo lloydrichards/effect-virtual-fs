@@ -2,10 +2,9 @@ import * as BrowserWorkerRunner from "@effect/platform-browser/BrowserWorkerRunn
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as RpcServer from "effect/rpc/RpcServer"
-import { TileRpc, WorkshopError } from "./domain.ts"
+import { workshopError } from "./domain.ts"
 import { filterTile } from "./pixels.ts"
-
-const failure = (error: unknown) => new WorkshopError({ message: String(error) })
+import { TileRpc } from "./protocol.ts"
 
 const handlers = TileRpc.toLayer({
   renderTile: Effect.fnUntraced(function*({ bounds, source, filter }) {
@@ -21,7 +20,7 @@ const handlers = TileRpc.toLayer({
 
         return canvas
       },
-      catch: failure
+      catch: workshopError
     })
 
     return yield* Effect.tryPromise({
@@ -29,7 +28,7 @@ const handlers = TileRpc.toLayer({
         canvas.convertToBlob({ type: "image/png" }).then((png) => png.arrayBuffer()).then((bytes) =>
           new Uint8Array(bytes)
         ),
-      catch: failure
+      catch: workshopError
     })
   })
 })

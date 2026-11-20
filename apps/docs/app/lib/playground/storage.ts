@@ -8,6 +8,7 @@ import { PlaygroundError } from "./error"
 
 const key = "workspace.sqlite"
 
+// The workspace runs in a worker, where IndexedDb.layerWindow has no window.
 const storeLayer = BrowserKeyValueStore.layerIndexedDb({ database: "effect-vfs-checkpoints" }).pipe(
   Layer.provide(
     Layer.effect(

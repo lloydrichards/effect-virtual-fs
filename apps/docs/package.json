@@ -10,7 +10,7 @@
     "docs:generate": "bun run scripts/generate-api-docs.ts",
     "type-check": "react-router typegen && tsc --noEmit",
     "test": "bun --bun run vitest run test/Documentation.test.ts",
-    "test:integration": "bun --bun run vitest run test/PlaygroundController.test.ts",
+    "test:integration": "bun --bun run vitest run test/PlaygroundController.test.ts test/WorkshopSession.test.ts",
     "test:browser": "vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {

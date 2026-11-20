@@ -90,7 +90,9 @@ export async function loadPicture(file: File): Promise<Picture> {
 
 export function sharePixels({ canvas }: Picture): Source {
   if (!SharedMemory.isAvailable()) {
-    throw new Error("Shared pixels require a cross-origin isolated page. Open the workshop on localhost or HTTPS.")
+    throw new Error(
+      "Shared pixels require a cross-origin isolated page. Use a secure context and check the cross-origin isolation headers."
+    )
   }
 
   const { height, width } = canvas
