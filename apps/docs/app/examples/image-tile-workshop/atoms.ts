@@ -182,4 +182,4 @@ export const actionAtom = WorkshopClient.runtime.fn(Effect.fnUntraced(function*(
     ),
     Effect.ensuring(Atom.set(busyAtom, null))
   )
-}))
+})).pipe(Atom.withServerValueInitial)
