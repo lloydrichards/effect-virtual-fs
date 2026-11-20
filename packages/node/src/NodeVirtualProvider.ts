@@ -71,6 +71,8 @@ type WholeFileOptions = BufferEncoding | FileOptions | null
 
 const noFollow = (path: string) => ({ _tag: "Path" as const, path, followFinalSymlink: false })
 
+const ownedWholeFileReads = new WeakMap<Provider, NonNullable<Adapter.Binding["tryReadFile"]>>()
+
 /**
  * A provider over an existing synchronous volume. Node allocates numeric descriptors above this protocol.
  * Instances are constructed with bind and remain valid for its enclosing Effect scope.
@@ -409,7 +411,9 @@ export class Provider extends VirtualProvider {
       const bytes = invoke("open", name, () => read(name))
 
       if (bytes !== undefined) {
-        const data = Buffer.from(bytes)
+        const data = ownedWholeFileReads.get(this) === read
+          ? Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+          : Buffer.from(bytes)
 
         return encoding === undefined ? data : data.toString(encoding)
       }
@@ -533,6 +537,12 @@ export const bind = Effect.fnUntraced(
       Effect.mapError((cause) => failure({ code: "InvalidArgument", operation: "bind", field: "options", cause }))
     )
 
-    return new Provider(yield* Adapter.bind(volume, chosen.caller), chosen.readonly)
+    const binding = yield* Adapter.bind(volume, chosen.caller)
+    const provider = new Provider(binding, chosen.readonly)
+
+    // The built-in binding returns a fresh copy of the file on each successful read.
+    if (binding.tryReadFile !== undefined) ownedWholeFileReads.set(provider, binding.tryReadFile)
+
+    return provider
   }
 )
