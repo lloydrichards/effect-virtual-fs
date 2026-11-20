@@ -195,11 +195,20 @@ export const bind = Effect.fnUntraced(
       throw Errors.fsFailure("InvalidArgument", "entry")
     }
 
-    const stat = (t: Target) =>
-      metadata(
+    const stat = (t: Target) => {
+      if (Predicate.isString(t)) {
+        const valid = Paths.validatePath(t, "path", runtime.owner.limits.expandedPathBytes)
+
+        if (Result.isFailure(valid)) throw valid.failure
+
+        return metadata(runtime, unwrap(sync.stat(t)))
+      }
+
+      return metadata(
         runtime,
         unwrap(isPath(t) && t.followFinalSymlink === false ? sync.linkStat(resolveEntry(t)) : sync.stat(resolve(t)))
       )
+    }
 
     const attributes = (t: Target, a: Vfs.Attributes) => {
       const selected = CoreTarget.of(t)

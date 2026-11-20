@@ -351,6 +351,24 @@ describe("direct Node provider", () => {
     ])
     expect(provider.readdirSync("/", { encoding: "buffer" })).toEqual([Buffer.from("file"), Buffer.from("sym")])
   })
+  it("should validate stat paths before resolving restricted directories", async () => {
+    const { provider, volume, scope } = await make()
+    provider.mkdirSync("/restricted", { mode: 0o700 })
+    provider.writeFileSync("/restricted/file", "bytes")
+    provider.symlinkSync("/missing", "/dangling")
+
+    const guest = await Effect.runPromise(
+      NodeVfs.bind(volume, {
+        caller: { identity: { uid: 1000, gid: 1000, groups: [], privileged: false } }
+      }).pipe(Effect.provideService(Scope.Scope, scope))
+    )
+
+    const longPath = "/restricted/" + "a".repeat(256)
+    expect(() => guest.statSync(longPath)).toThrow(error("ENAMETOOLONG", "stat", longPath))
+    expect(() => guest.statSync("/restricted/file")).toThrow(error("EACCES", "stat", "/restricted/file"))
+    expect(() => provider.statSync("/dangling")).toThrow(error("ENOENT", "stat", "/dangling"))
+    expect(provider.lstatSync("/dangling").isSymbolicLink()).toBe(true)
+  })
   it("should apply metadata hooks to open objects and symlinks independently", async () => {
     const { provider } = await make()
     provider.writeFileSync("/file", "x")
