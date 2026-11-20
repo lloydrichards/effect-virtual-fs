@@ -13,6 +13,8 @@ sources:
     title: Production and experimental XDR measurements
   - resource: ../../packages/node/benchmarks/mountedMemory.bench.ts
     title: Mounted filesystem comparison with Node MemoryProvider
+  - resource: ../../packages/node/benchmarks/mountedTree.bench.ts
+    title: Mounted tree scan and batched I/O workload definitions
   - resource: ../../vitest.config.ts
     title: Package benchmark projects
   - resource: ../../.github/workflows/pr-validation.yml
@@ -29,7 +31,7 @@ sources:
     title: Vitest 5 migration
   - resource: ../../bun.lock
     title: Installed runner versions
-generated: { by: codex/okf, at: "2026-11-19T18:09:40+01:00" }
+generated: { by: codex/okf, at: "2026-11-20T10:26:56+01:00" }
 ---
 
 # Package benchmarks
@@ -115,8 +117,11 @@ checkout. Compare cases only when their workload and measurement boundary match.
 Keep separate series by runtime, runner class, workload, candidate, and
 measurement version. Compare the median of round medians and retain the spread
 and sample count. Core confinement reports latency per batch and throughput in
-batches per second. XDR and the mounted provider comparison report latency and
-throughput per operation. Confirm apparent regressions on an idle controlled host
+batches per second. XDR and the mounted single-file cases report latency and
+throughput per operation. Mounted tree cases report per tree and repeated 4 KiB
+cases report per batch of 32 calls. CI supplies the new mounted tree benchmark
+to the previous revision when the file is missing and records its hash for both
+revisions. Confirm apparent regressions on an idle controlled host
 before setting a threshold.
 
 For history beyond artifact retention, publish normalized results from successful

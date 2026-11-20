@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-11-20
+
+- Updated [Package benchmarks](workflows/package-benchmarks.md) for mounted tree and repeated I/O units and paired workload backfill.
+
 ## 2026-11-19
 
 - Collect previous and current package benchmark reports in one artifact per runtime, with both revisions measured on the same runner.

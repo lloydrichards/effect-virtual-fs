@@ -78,11 +78,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Supply the new whole-file workload to older revisions
-        if: matrix.suite != 'node-vfs'
+      - name: Supply new benchmark files to older revisions
         shell: bash
         run: |
-          workload=packages/core/benchmarks/wholeFileWrites.bench.ts
+          if [[ "$BENCHMARK_SUITE" == node-vfs ]]; then
+            workload=packages/node/benchmarks/mountedTree.bench.ts
+          else
+            workload=packages/core/benchmarks/wholeFileWrites.bench.ts
+          fi
           if [[ ! -f "previous/$workload" ]]; then
             cp "current/$workload" "previous/$workload"
           fi
@@ -131,6 +134,8 @@ jobs:
                 sha256sum bun.lock
                 if [[ "$BENCHMARK_SUITE" != node-vfs ]]; then
                   sha256sum packages/core/benchmarks/wholeFileWrites.bench.ts
+                else
+                  sha256sum packages/node/benchmarks/mountedTree.bench.ts
                 fi
                 node --version
                 bun --version
