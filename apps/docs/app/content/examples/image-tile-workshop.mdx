@@ -1,10 +1,12 @@
 import { WorkerFlowDiagram } from "~/components/worker-flow-diagram"
 import ImageTileWorkshop from "~/examples/image-tile-workshop/Workshop"
 
-# Share a browser filesystem across workers
+# Share image pixels across workers and publish tiles with Effect VFS
 
 Render an image in 12 tiles with three tile workers. Then rebuild one tile on
-a different worker and follow its replacement through Effect VFS.
+a different worker and follow its replacement through Effect VFS. The tile
+workers share one input buffer. One filesystem worker owns the volume and serves
+committed files by path.
 
 <ImageTileWorkshop />
 
@@ -21,7 +23,7 @@ For these steps, use **Blur**, **3** workers, and the **4 × 3** tile grid.
 6. Hold **Shift** and select another tile, or turn on **Multi-select** and tap another tile. Choose **Invert colors**, then select **Rebuild 2 tiles**. The selected tiles change while the rest of the image stays as it was. Watch the worker bars count published tiles and the compositor count applied tiles.
 7. If **Multi-select** is on, turn it off. Select one tile and choose a destination under **Swap with position**. The tiles trade places in the preview and the downloaded PNG. Each tile keeps its VFS path and version, and rebuilding it updates its new position. A full **Render** starts a fresh grid.
 
-Open **Inspect virtual filesystem** to see the tile files grouped under `/tiles`. Select a file to inspect its tile. **Download PNG** writes the composed image to `/output/result.png`.
+Open **Inspect virtual filesystem** to see the tile paths the session has published under `/tiles`. The tree is built from render events and the export state. Select a path to inspect its tile. **Download PNG** writes the composed image to `/output/result.png`.
 
 ## Change the render setup
 
@@ -67,6 +69,32 @@ The render RPC declares the pixel field as `SharedMemory.schema(Uint8ClampedArra
 Each tile worker receives a view of the same bytes alongside its tile bounds and effect.
 The tile RPC returns `Transferable.Uint8Array` to hand off the PNG buffer it owns.
 
+### Create the volume in its owner
+
+The filesystem worker provides browser digest and secure random services to
+`Vfs.make()`. When a full render starts, the session runs that Effect to create
+a fresh volume and calls `volume.caller()` to get the object that can write,
+rename, and read files. Rebuilds reuse that caller.
+
+```ts title="Create a volume and its caller"
+import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto"
+import * as Effect from "effect/Effect"
+
+const makeVolume = Vfs.make().pipe(
+  Effect.provide([BrowserCrypto.layerDigest, BrowserCrypto.layerSecureRandom])
+)
+
+// Inside the filesystem worker's render effect
+const volume = yield* makeVolume
+const filesystem = yield* volume.caller()
+yield* filesystem.mkdir("/staging")
+yield* filesystem.mkdir("/tiles")
+yield* filesystem.mkdir("/output")
+```
+
+### Publish a tile and reopen it by path
+
 The render session writes each tile to a staging path, then renames the completed file onto the
 final path. The compositor requests that path over a per-job message port, so it can read
 while the filesystem worker is still serving the render RPC. Effect VFS
@@ -100,6 +128,19 @@ The page needs a secure context, including localhost during development, and
 cross-origin isolation. Serve the page with `Cross-Origin-Opener-Policy: same-origin`
 and `Cross-Origin-Embedder-Policy: require-corp`. Serve each worker entry script
 with `Cross-Origin-Embedder-Policy: require-corp`.
+
+## Use this pattern in your own app
+
+Start with one compute worker and one output path. Keep the transform in a
+module that takes input and returns bytes. Give one render session ownership of
+the VFS caller and the decision about when a result is committed. Put worker
+startup and messages in adapters, and let the UI send commands and display
+events. The workshop's `makeRenderSession` takes the volume factory, tile
+renderer factory, and compositor as inputs. That lets a test use a real
+in-memory VFS with an in-process renderer and compositor.
+
+Add shared memory when multiple jobs need to read the same large input. Keep
+the published files under the same owner as you add workers.
 
 ## Inspect the workers in DevTools
 
