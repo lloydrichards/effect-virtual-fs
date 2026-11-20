@@ -82,7 +82,7 @@ jobs:
         shell: bash
         run: |
           if [[ "$BENCHMARK_SUITE" == node-vfs ]]; then
-            for workload in packages/node/benchmarks/{mountedTree,mountedStreams}.bench.ts; do
+            for workload in packages/node/benchmarks/{mountedTree,mountedStreams,mountedReadRouting}.bench.ts; do
               cp "current/$workload" "previous/$workload"
             done
           else
@@ -137,7 +137,7 @@ jobs:
                 if [[ "$BENCHMARK_SUITE" != node-vfs ]]; then
                   sha256sum packages/core/benchmarks/wholeFileWrites.bench.ts
                 else
-                  sha256sum packages/node/benchmarks/{mountedTree,mountedStreams}.bench.ts
+                  sha256sum packages/node/benchmarks/{mountedTree,mountedStreams,mountedReadRouting}.bench.ts
                 fi
                 node --version
                 bun --version
