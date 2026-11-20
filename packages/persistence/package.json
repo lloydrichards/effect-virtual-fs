@@ -75,19 +75,19 @@
     "@effect-vfs/core": "^0.12.0"
   },
   "peerDependencies": {
-    "@effect/sql-d1": "~4.1.4",
-    "@effect/sql-pg": "~4.1.4",
-    "effect": "~4.1.4"
+    "@effect/sql-d1": "~4.1.5",
+    "@effect/sql-pg": "~4.1.5",
+    "effect": "~4.1.5"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.1.4",
-    "@effect/sql-d1": "4.1.4",
-    "@effect/sql-pg": "4.1.4",
-    "@effect/sql-sqlite-bun": "4.1.4",
-    "@effect/vitest": "4.1.4",
+    "@effect/platform-node-shared": "4.1.5",
+    "@effect/sql-d1": "4.1.5",
+    "@effect/sql-pg": "4.1.5",
+    "@effect/sql-sqlite-bun": "4.1.5",
+    "@effect/vitest": "4.1.5",
     "@repo/config-typescript": "workspace:*",
     "@types/node": "26.6.6",
-    "effect": "4.1.4",
+    "effect": "4.1.5",
     "miniflare": "5.20261109.0-beta",
     "wrangler": "4.159.0"
   },

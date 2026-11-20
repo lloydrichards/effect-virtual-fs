@@ -13,8 +13,8 @@
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
     "@effect-vfs/memory": "workspace:*",
-    "@effect/platform-bun": "4.1.4",
-    "effect": "4.1.4",
+    "@effect/platform-bun": "4.1.5",
+    "effect": "4.1.5",
     "vite": "8.3.7"
   },
   "devDependencies": {

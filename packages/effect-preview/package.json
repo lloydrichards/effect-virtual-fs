@@ -47,13 +47,13 @@
     "test:sync": "bun scripts/check-sync.mjs"
   },
   "peerDependencies": {
-    "effect": "4.1.4"
+    "effect": "4.1.5"
   },
   "devDependencies": {
-    "@effect/vitest": "4.1.4",
+    "@effect/vitest": "4.1.5",
     "@repo/config-typescript": "workspace:*",
     "@types/node": "26.6.6",
-    "effect": "4.1.4",
+    "effect": "4.1.5",
     "tstyche": "7.2.5",
     "typescript-js": "npm:typescript@5.9.3"
   }

@@ -12,8 +12,8 @@
     "@effect-vfs/memory": "workspace:*",
     "@effect-vfs/core": "workspace:*",
     "@effect-vfs/persistence": "workspace:*",
-    "@effect/platform-bun": "4.1.4",
-    "effect": "4.1.4"
+    "@effect/platform-bun": "4.1.5",
+    "effect": "4.1.5"
   },
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",

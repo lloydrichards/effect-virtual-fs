@@ -1,7 +1,7 @@
 # Effect VirtualFileSystem preview
 
 This private workspace package supplies the filesystem engine for `@effect-vfs/core`. Memory, Node and LiveVolume
-use it through core. It shares Effect 4.1.4 with the workspace. The exact revision of [Effect PR #9960](https://github.com/Effect-TS/effect/pull/9960)
+use it through core. It shares Effect 4.1.5 with the workspace. The exact revision of [Effect PR #9960](https://github.com/Effect-TS/effect/pull/9960)
 and the checksums of the imported files are in [the upstream manifest](upstream/manifest.json).
 
 ## Build and test
