@@ -13,7 +13,7 @@ import type { Budget } from "./budget.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { ENCODING_CHECK, imageFailure, isEncodingIssue, issueSite } from "./errors.js"
 import { KeySecret, VolumeEpoch } from "./hex128.js"
-import { byteLimit, encodeLine, frame, type FrameMeter, type LineFold } from "./lines.js"
+import { byteLimit, concat, encodeLine, type FrameMeter, type LineFold } from "./lines.js"
 import { StoredMetadata } from "./metadata.js"
 
 import { Paths, State } from "./model.js"
@@ -538,7 +538,8 @@ export const writeTree = <N extends TreeNode>(
   writer: Writer<N>,
   nodes: ReadonlyArray<Node>
 ): Stream.Stream<Uint8Array, ImageFailure> => {
-  const charge = (line: Uint8Array) => writer.meter === undefined ? Result.void : writer.meter.line(line.length, true)
+  const charge = (line: Uint8Array) =>
+    writer.meter === undefined ? Result.void : writer.meter.line(line.length - 1, true)
 
   // Match the reader's charge order: line, then node.
   const encode = (source: Node): Result.Result<Uint8Array, ImageFailure> => {
@@ -549,7 +550,7 @@ export const writeTree = <N extends TreeNode>(
       return Result.fail(encodeFailure(writer.operation, writer.documentField, text.failure))
     }
 
-    const line = encodeLine(text.success)
+    const line = encodeLine(text.success + "\n")
 
     return Result.map(Result.flatMap(charge(line), () => writer.meter?.node(node) ?? Result.void), () => line)
   }
@@ -561,7 +562,7 @@ export const writeTree = <N extends TreeNode>(
 
   const chunk = ({ carried, index }: Next): Result.Result<readonly [Uint8Array, Next] | undefined, ImageFailure> => {
     const lines: Array<Uint8Array> = carried === undefined ? [] : [carried]
-    let bytes = carried === undefined ? 0 : carried.length + 1
+    let bytes = carried === undefined ? 0 : carried.length
     let next = index
 
     while (lines.length < WALK_YIELD_INTERVAL) {
@@ -574,22 +575,25 @@ export const writeTree = <N extends TreeNode>(
 
       if (Result.isFailure(line)) return Result.fail(line.failure)
 
-      if (lines.length > 0 && bytes + line.success.length + 1 > ENCODED_CHUNK_BYTES) {
-        return Result.succeed([frame(lines), { index: next, carried: line.success }])
+      if (lines.length > 0 && bytes + line.success.length > ENCODED_CHUNK_BYTES) {
+        return Result.succeed([lines.length === 1 ? lines[0]! : concat(lines, bytes), {
+          index: next,
+          carried: line.success
+        }])
       }
 
       lines.push(line.success)
-      bytes += line.success.length + 1
+      bytes += line.success.length
     }
 
     return lines.length === 0
       ? Result.succeed(undefined)
-      : Result.succeed([frame(lines), { index: next, carried: undefined }])
+      : Result.succeed([lines.length === 1 ? lines[0]! : concat(lines, bytes), { index: next, carried: undefined }])
   }
 
-  const header = encodeLine(writer.header)
+  const header = encodeLine(writer.header + "\n")
 
-  return Stream.fromEffect(Effect.fromResult(Result.map(charge(header), () => frame([header])))).pipe(
+  return Stream.fromEffect(Effect.fromResult(Result.map(charge(header), () => header))).pipe(
     Stream.concat(
       Stream.unfold<Next, Uint8Array, ImageFailure, never>(
         { index: 0, carried: undefined },

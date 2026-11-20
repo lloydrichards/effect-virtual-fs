@@ -42,7 +42,8 @@ export const byteLimit = (limit: ByteSize.ByteSize): number => {
   return bytes > BigInt(Number.MAX_SAFE_INTEGER) ? Number.POSITIVE_INFINITY : Number(bytes)
 }
 
-const concat = (pieces: ReadonlyArray<Uint8Array>, length: number): Uint8Array => {
+/** @internal */
+export const concat = (pieces: ReadonlyArray<Uint8Array>, length: number): Uint8Array => {
   const out = new Uint8Array(length)
   let offset = 0
 
