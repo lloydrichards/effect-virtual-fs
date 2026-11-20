@@ -1,5 +1,7 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as Schema from "effect/Schema"
 import { SharedMemory } from "effect/workers"
 import { Check } from "lucide-react"
@@ -10,6 +12,7 @@ import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group"
 import { actionAtom, busyAtom, errorAtom, initialWorkshop, selectionAtom, workshopAtom } from "./atoms.ts"
 import { loadPicture, type Picture, pngUrl, sampleImage, samplePicture } from "./browser-image.ts"
 import { boundsOf, defaultSetup, Filter, filterLabels, grids, TileGrid, WorkerCount } from "./domain.ts"
+import { workshopError } from "./errors.ts"
 import { FilesystemTree, WorkerProgress } from "./RunDetails.tsx"
 import { TileInspector, tileState } from "./TileInspector.tsx"
 
@@ -41,7 +44,9 @@ export function WorkshopView() {
   const [view, setView] = useAtom(workshopAtom)
   const { sharedBytes, tiles } = view
   const busy = useAtomValue(busyAtom)
-  const error = useAtomValue(errorAtom)
+  const action = useAtomValue(actionAtom)
+  const commandError = useAtomValue(errorAtom)
+  const error = AsyncResult.isFailure(action) ? workshopError(Cause.squash(action.cause)).message : commandError
   const perform = useAtomSet(actionAtom)
   const sourceImage = useRef<HTMLCanvasElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
