@@ -12,7 +12,7 @@ import { constants } from "node:fs"
 import { constants as osConstants } from "node:os"
 import { setImmediate } from "node:timers/promises"
 import { VirtualProvider } from "node:vfs"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import * as NodeVfs from "../src/NodeVirtualProvider.js"
 
 const scopes: Array<Scope.Closeable> = []
@@ -369,6 +369,43 @@ describe("direct Node provider", () => {
     expect(() => provider.statSync("/dangling")).toThrow(error("ENOENT", "stat", "/dangling"))
     expect(provider.lstatSync("/dangling").isSymbolicLink()).toBe(true)
   })
+  it("should preserve link following and denied searches when checking existence", async () => {
+    const { provider, volume, scope } = await make()
+    provider.mkdirSync("/restricted", { mode: 0o700 })
+    provider.writeFileSync("/restricted/file", "bytes")
+    provider.symlinkSync("/restricted/file", "/link")
+    provider.symlinkSync("/missing", "/dangling")
+    provider.symlinkSync("loop", "/loop")
+
+    const guest = await Effect.runPromise(
+      NodeVfs.bind(volume, {
+        caller: { identity: { uid: 1000, gid: 1000, groups: [], privileged: false } }
+      }).pipe(Effect.provideService(Scope.Scope, scope))
+    )
+
+    expect(provider.existsSync("/link")).toBe(true)
+    expect(provider.existsSync("/dangling")).toBe(false)
+    expect(provider.existsSync("/loop")).toBe(false)
+    expect(provider.existsSync("/" + "a".repeat(256))).toBe(false)
+    expect(provider.existsSync("/bad\0path")).toBe(false)
+    expect(guest.existsSync("/link")).toBe(false)
+  })
+
+  it("should use stat overrides and bindings that do not supply an existence check", async () => {
+    const { provider, volume, scope } = await make()
+    provider.writeFileSync("/file", "bytes")
+    const binding = await Effect.runPromise(Adapter.bind(volume).pipe(Effect.provideService(Scope.Scope, scope)))
+    const stat = vi.fn(binding.stat)
+    const custom = new NodeVfs.Provider({ ...binding, checkExists: undefined, stat })
+
+    expect(custom.existsSync("/file")).toBe(true)
+    expect(stat).toHaveBeenCalledExactlyOnceWith("/file")
+
+    const override = vi.spyOn(provider, "statSync")
+    expect(provider.existsSync("/file")).toBe(true)
+    expect(override).toHaveBeenCalledExactlyOnceWith("/file")
+  })
+
   it("should apply metadata hooks to open objects and symlinks independently", async () => {
     const { provider } = await make()
     provider.writeFileSync("/file", "x")

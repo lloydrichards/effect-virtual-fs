@@ -462,7 +462,14 @@ export class Provider extends VirtualProvider {
   }
   existsSync(path: string): boolean {
     try {
-      this.statSync(path)
+      const check = this.statSync === Provider.prototype.statSync ? this.binding.checkExists : undefined
+
+      if (check !== undefined) {
+        const name = pathOf(path, "stat")
+        invoke("stat", name, () => check(name))
+      } else {
+        this.statSync(path)
+      }
 
       return true
     } catch (error) {

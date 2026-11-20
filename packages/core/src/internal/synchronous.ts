@@ -410,6 +410,13 @@ export const bind = Effect.fnUntraced(
 
     return {
       stat: (target) => perform("stat", () => binding.stat(target)),
+      checkExists: (path) =>
+        perform("stat", () => {
+          const valid = Paths.validatePath(path, "path", runtime.owner.limits.expandedPathBytes)
+
+          if (Result.isFailure(valid)) throw valid.failure
+          unwrap(sync.lookup(path))
+        }),
       readDirectory: (path) => perform("readDirectory", () => binding.readDirectory(path)),
       readDirectoryNames: options === undefined && liveClock
         ? (path) =>
