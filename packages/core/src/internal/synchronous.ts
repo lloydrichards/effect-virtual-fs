@@ -1,7 +1,7 @@
 // The existing core native boundary borrows the preview's checked synchronous region.
 import { BytePath, type VirtualFileSystem as Vfs } from "@effect-vfs/effect-preview"
 import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
-import { Effect, Exit, Predicate, Result, Scheduler, Scope } from "effect"
+import { Clock, Context, Effect, Exit, Predicate, Result, Scheduler, Scope } from "effect"
 import type { MkdirOptions, OpenOptions, RootCallerOptions } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId } from "../FileHandle.js"
 import type { OwnerUpdate, Times } from "../Metadata.js"
@@ -391,6 +391,8 @@ export const bind = Effect.fnUntraced(
       }
     }
 
+    const liveClock = runtime.clock === Context.get(Context.empty(), Clock.Clock)
+
     const perform = <A>(operation: string, action: () => A): A => {
       if (closed) throw Errors.fsFailure("ClosedCaller", operation)
 
@@ -400,6 +402,18 @@ export const bind = Effect.fnUntraced(
     return {
       stat: (target) => perform("stat", () => binding.stat(target)),
       readDirectory: (path) => perform("readDirectory", () => binding.readDirectory(path)),
+      readDirectoryNames: options === undefined && liveClock
+        ? (path) =>
+          perform("readDirectory", () => unwrap(sync.readDirectory(checked(path))).names.map(BytePath.toBytes))
+        : undefined,
+      tryReadFile: liveClock
+        ? (path) =>
+          perform("readFile", () => {
+            const prepared = Paths.preparePath(path, "path", runtime.owner.limits.expandedPathBytes)
+
+            return Result.isSuccess(prepared) ? Result.getOrUndefined(sync.readFile(path)) : undefined
+          })
+        : undefined,
       readLink: (path) => perform("readLink", () => binding.readLink(path)),
       realPath: (path) => perform("realPath", () => binding.realPath(path)),
       access: (path, bits) => perform("access", () => binding.access(path, bits)),

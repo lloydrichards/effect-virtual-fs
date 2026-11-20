@@ -177,6 +177,14 @@ export class Provider extends VirtualProvider {
     const path = pathOf(input, "scandir")
     const settings = Predicate.isString(options) ? { encoding: options } : options
     encodingOf(settings)
+    const readNames = this.binding.readDirectoryNames
+
+    if (!settings?.withFileTypes && !settings?.recursive && readNames !== undefined) {
+      return invoke("scandir", path, () => readNames(path)).map((bytes) =>
+        encoded(Buffer.from(textOf(bytes, "scandir", path)), { encoding: settings?.encoding ?? "utf8" })
+      )
+    }
+
     const results: Array<string | Buffer | Entry<string | Buffer>> = []
     const pending = [{ path, prefix: "" }]
 
@@ -382,8 +390,22 @@ export class Provider extends VirtualProvider {
   readFileSync(path: string, options: BufferEncoding | (FileOptions & TextEncodingOption)): string
   readFileSync(path: string, options?: WholeFileOptions): string | Buffer
   readFileSync(path: string, options?: WholeFileOptions) {
-    encodingOf(options)
-    const handle = this.openForWholeFileRead(path, Predicate.isObject(options) ? options.flag ?? "r" : "r")
+    const encoding = encodingOf(options)
+    const flag = Predicate.isObject(options) ? options.flag ?? "r" : "r"
+    const read = this.binding.tryReadFile
+
+    if (flag === "r" && read !== undefined && this.openSync === Provider.prototype.openSync) {
+      const name = pathOf(path, "open")
+      const bytes = invoke("open", name, () => read(name))
+
+      if (bytes !== undefined) {
+        const data = Buffer.from(bytes)
+
+        return encoding === undefined ? data : data.toString(encoding)
+      }
+    }
+
+    const handle = this.openForWholeFileRead(path, flag)
 
     try {
       return handle.readFileSync(options)
