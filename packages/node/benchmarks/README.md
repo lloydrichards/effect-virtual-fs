@@ -31,3 +31,12 @@ make 32 path-based calls. Divide their batch latency by 32 for latency per call.
 Typed listing measures the root and its eight subdirectories. Recursive names and
 recursive typed listings each use a single call. Each callback counts the 136
 returned entries, including the eight directories.
+
+## Mounted streams
+
+The stream workloads transfer an 8 MiB file with 64 KiB chunks through the
+mounted providers. Each timed callback opens, transfers, and closes one
+pipeline. Write callbacks truncate the existing output file before the transfer.
+Read fixtures are populated through the same write stream before timing. Fixture
+creation and full payload checks are outside timing. Throughput is
+8 MiB divided by the batch latency in seconds.
