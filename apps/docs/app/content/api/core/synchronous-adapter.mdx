@@ -47,7 +47,7 @@ declare const bind: (
 ) => Effect.Effect<Binding, FsFailure, Scope.Scope>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SynchronousAdapter.ts#L78)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SynchronousAdapter.ts#L84)
 
 Since v0.10.0
 
@@ -64,6 +64,12 @@ export interface Binding {
   readonly stat: (target: TargetInput) => Metadata
   readonly readDirectory: (path: string) => Effect.Success<ReturnType<Caller["readDirectory"]>>
   readonly readDirectoryNames?: ((path: string) => ReadonlyArray<Uint8Array>) | undefined
+  readonly readDirectoryKinds?:
+    | ((path: string) => ReadonlyArray<{
+        readonly name: Uint8Array
+        readonly kind: Metadata["kind"]
+      }>)
+    | undefined
   readonly tryReadFile?: ((path: string) => Uint8Array | undefined) | undefined
   readonly readLink: (path: string) => Uint8Array
   readonly realPath: (path: string) => Uint8Array
