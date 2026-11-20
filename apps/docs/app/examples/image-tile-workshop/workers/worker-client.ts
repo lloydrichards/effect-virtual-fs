@@ -6,13 +6,14 @@ import * as Queue from "effect/Queue"
 import * as Result from "effect/Result"
 import * as RpcClient from "effect/rpc/RpcClient"
 import * as Schema from "effect/Schema"
-import { type Placement, type TileBounds, type WorkshopError, workshopError } from "./domain.ts"
-import { CompositorJob, CompositorReply, FileReply, TileRpc } from "./protocol.ts"
-import type { RenderTile } from "./render-session.ts"
+import type { Placement, TileBounds } from "../domain.ts"
+import { type WorkshopError, workshopError } from "../errors.ts"
+import { CompositorJob, CompositorReply, FileReply, TileRpc } from "../protocol.ts"
+import type { RenderTile } from "../render-session.ts"
 
 const spawnCompositorWorker = Effect.acquireRelease(
   Effect.try({
-    try: () => new Worker(new URL("./image.worker.ts", import.meta.url), { type: "module", name: "Compositor" }),
+    try: () => new Worker(new URL("./compositor.worker.ts", import.meta.url), { type: "module", name: "Compositor" }),
     catch: workshopError
   }),
   (worker) => Effect.sync(() => worker.terminate())
@@ -52,24 +53,9 @@ const runCompositorJob = Effect.fnUntraced(
   ) {
     const queue = yield* Queue.unbounded<CompositorReply>()
 
-    const port = yield* Effect.acquireRelease(
-      Effect.try({
-        try: () => {
-          const { port1, port2 } = new MessageChannel()
-
-          try {
-            worker.postMessage(job, [port2])
-
-            return port1
-          } catch (error) {
-            port1.close()
-            port2.close()
-            throw error
-          }
-        },
-        catch: workshopError
-      }),
-      (port) => Effect.sync(() => port.close())
+    const { port1: port, port2 } = yield* Effect.acquireRelease(
+      Effect.try({ try: () => new MessageChannel(), catch: workshopError }),
+      ({ port1 }) => Effect.sync(() => port1.close())
     )
 
     const onWorkerError = (error: ErrorEvent) => {
@@ -99,6 +85,10 @@ const runCompositorJob = Effect.fnUntraced(
         CompositorReply.cases.error.make({ message: "The browser could not decode the worker response." })
       )
     }
+
+    yield* Effect.try({ try: () => worker.postMessage(job, [port2]), catch: workshopError }).pipe(
+      Effect.onError(() => Effect.sync(() => port2.close()))
+    )
 
     let reply = yield* Queue.take(queue)
 

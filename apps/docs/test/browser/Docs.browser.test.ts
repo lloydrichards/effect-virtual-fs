@@ -15,6 +15,7 @@ declare module "vitest/browser" {
     workshop: (base: string) => Promise<void>
     workshopRetile: (base: string) => Promise<void>
     workshopTimeout: (base: string) => Promise<void>
+    workshopImageFailure: (base: string) => Promise<void>
   }
 }
 
@@ -31,3 +32,6 @@ test("the Workshop preserves odd-sized blur output across tile grids", () => com
 
 test("the Workshop reports an idle render and lets the user try again", () =>
   commands.workshopTimeout(inject("docsUrl")))
+
+test("the Workshop reports when the browser cannot open a canvas", () =>
+  commands.workshopImageFailure(inject("docsUrl")))

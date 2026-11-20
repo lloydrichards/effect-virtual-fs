@@ -6,6 +6,7 @@ import * as AtomRpc from "effect/reactivity/AtomRpc"
 import * as RpcClient from "effect/rpc/RpcClient"
 import * as WorkerPlatform from "effect/workers/Worker"
 import { type Command, editPlayground, initialPlayground, makeWorkspaceController } from "./controller"
+import { PlaygroundError } from "./error"
 import { Mutation, type Role, WorkspaceRpc } from "./protocol"
 import { runBundle } from "./run"
 
@@ -14,9 +15,11 @@ export type { Entry, Operation } from "./controller"
 const workerLayer = Layer.effect(
   WorkerPlatform.Spawner,
   Effect.acquireRelease(
-    Effect.sync(() =>
-      new Worker(new URL("./workspace.worker.ts", import.meta.url), { type: "module", name: "Browser filesystem" })
-    ),
+    Effect.try({
+      try: () =>
+        new Worker(new URL("./workspace.worker.ts", import.meta.url), { type: "module", name: "Browser filesystem" }),
+      catch: PlaygroundError.fromCause
+    }),
     (worker) => Effect.sync(() => worker.terminate())
   ).pipe(Effect.map((worker) => () => worker))
 )

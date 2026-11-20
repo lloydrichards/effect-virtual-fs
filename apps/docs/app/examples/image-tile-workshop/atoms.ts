@@ -8,16 +8,19 @@ import * as AtomRpc from "effect/reactivity/AtomRpc"
 import * as RpcClient from "effect/rpc/RpcClient"
 import * as Stream from "effect/Stream"
 import * as WorkerPlatform from "effect/workers/Worker"
-import { defaultSetup, type Filter, grids, RenderEvent, type RenderSetup, WorkshopError } from "./domain.ts"
+import { downloadPng, type Picture, sharePixels } from "./browser-image.ts"
+import { defaultSetup, type Filter, grids, RenderEvent, type RenderSetup } from "./domain.ts"
+import { WorkshopError, workshopError } from "./errors.ts"
 import { WorkshopRpc } from "./protocol.ts"
-import { downloadPng, type Picture, sharePixels } from "./source.ts"
 
 const workshopWorker = Layer.effect(
   WorkerPlatform.Spawner,
   Effect.acquireRelease(
-    Effect.sync(() =>
-      new Worker(new URL("./workshop.worker.ts", import.meta.url), { type: "module", name: "VFS owner" })
-    ),
+    Effect.try({
+      try: () =>
+        new Worker(new URL("./workers/workshop.worker.ts", import.meta.url), { type: "module", name: "VFS owner" }),
+      catch: workshopError
+    }),
     (worker) => Effect.sync(() => worker.terminate())
   ).pipe(Effect.map((worker) => () => worker))
 )
@@ -131,15 +134,15 @@ const perform = Effect.fnUntraced(function*(action: Action) {
 
   if (action.kind === "download") {
     const bytes = yield* client("download", undefined).pipe(Effect.timeout("20 seconds"))
+    yield* Effect.try({ try: () => downloadPng(bytes), catch: workshopError })
     yield* Atom.update(workshopAtom, (view) => ({ ...view, exported: true }))
-    yield* Effect.sync(() => downloadPng(bytes))
 
     return
   }
 
   const events = yield* Effect.gen(function*() {
     if (action.kind === "rebuild") return client("rebuild", { tiles: action.tiles, filter: action.filter })
-    const source = yield* Effect.try({ try: () => sharePixels(action.picture), catch: (error) => String(error) })
+    const source = yield* sharePixels(action.picture)
     yield* Atom.set(workshopAtom, initialWorkshop)
     yield* Atom.set(selectionAtom, [])
 
@@ -174,7 +177,7 @@ export const actionAtom = WorkshopClient.runtime.fn(Effect.fnUntraced(function*(
   yield* Effect.exit(perform(action)).pipe(
     Effect.flatMap((exit) =>
       Exit.isFailure(exit)
-        ? Atom.set(errorAtom, String(Cause.squash(exit.cause)))
+        ? Atom.set(errorAtom, workshopError(Cause.squash(exit.cause)).message)
         : Effect.void
     ),
     Effect.ensuring(Atom.set(busyAtom, null))

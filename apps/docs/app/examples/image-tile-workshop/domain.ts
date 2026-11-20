@@ -75,13 +75,6 @@ export type RenderEvent = typeof RenderEvent.Type
 
 export type TileVersion = Pick<Extract<RenderEvent, { _tag: "assigned" }>, "tile" | "worker" | "version" | "filter">
 
-export class WorkshopError extends Schema.TaggedError<WorkshopError>()("WorkshopError", {
-  message: Schema.String
-}) {}
-
-export const workshopError = (cause: unknown) =>
-  Schema.is(WorkshopError)(cause) ? cause : new WorkshopError({ message: String(cause) })
-
 export const TileBounds = Schema.Struct({ x: Schema.Int, y: Schema.Int, width: Schema.Int, height: Schema.Int })
 
 export type TileBounds = typeof TileBounds.Type
