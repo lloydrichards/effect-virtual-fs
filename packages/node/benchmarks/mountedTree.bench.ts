@@ -45,6 +45,33 @@ const workloads = [
     expected: fileCount
   },
   {
+    name: "list typed entries across the 128-file tree",
+    run: ({ tree }: Fixture) => {
+      const children = readdirSync(tree, { withFileTypes: true }).filter((entry) => entry.isDirectory())
+
+      return children.length +
+        children.reduce(
+          (sum, entry) =>
+            sum + readdirSync(`${tree}/${entry.name}`, { withFileTypes: true }).filter((file) => file.isFile()).length,
+          0
+        )
+    },
+    expected: fileCount + directories.length
+  },
+  {
+    name: "list the 128-file tree recursively",
+    run: ({ tree }: Fixture) => readdirSync(tree, { recursive: true }).length,
+    expected: fileCount + directories.length
+  },
+  {
+    name: "list typed entries in the 128-file tree recursively",
+    run: ({ tree }: Fixture) =>
+      readdirSync(tree, { recursive: true, withFileTypes: true }).filter((entry) =>
+        entry.isDirectory() || entry.isFile()
+      ).length,
+    expected: fileCount + directories.length
+  },
+  {
     name: "stat 128 known files",
     run: ({ paths }: Fixture) => paths.reduce((sum, path) => sum + statSync(path).size, 0),
     expected: fileCount * treeData.length

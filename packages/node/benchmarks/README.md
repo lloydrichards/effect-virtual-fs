@@ -27,3 +27,7 @@ The separate list, stat, and read cases isolate these phases. Stat and read use
 paths prepared outside timing. The full scan discovers names within timing.
 Each scan callback processes one tree. Repeated 4 KiB read and overwrite callbacks
 make 32 path-based calls. Divide their batch latency by 32 for latency per call.
+
+Typed listing measures the root and its eight subdirectories. Recursive names and
+recursive typed listings each use a single call. Each callback counts the 136
+returned entries, including the eight directories.

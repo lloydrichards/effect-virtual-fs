@@ -78,16 +78,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Supply new benchmark files to older revisions
+      - name: Match benchmark sources across revisions
         shell: bash
         run: |
           if [[ "$BENCHMARK_SUITE" == node-vfs ]]; then
             workload=packages/node/benchmarks/mountedTree.bench.ts
+            cp "current/$workload" "previous/$workload"
           else
             workload=packages/core/benchmarks/wholeFileWrites.bench.ts
-          fi
-          if [[ ! -f "previous/$workload" ]]; then
-            cp "current/$workload" "previous/$workload"
+            if [[ ! -f "previous/$workload" ]]; then
+              cp "current/$workload" "previous/$workload"
+            fi
           fi
       - name: Install and build both revisions
         shell: bash

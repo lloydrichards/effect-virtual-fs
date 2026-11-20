@@ -40,6 +40,12 @@ export interface Binding {
   readonly stat: (target: TargetInput) => Metadata
   readonly readDirectory: (path: string) => Effect.Success<ReturnType<Caller["readDirectory"]>>
   readonly readDirectoryNames?: ((path: string) => ReadonlyArray<Uint8Array>) | undefined
+  readonly readDirectoryKinds?:
+    | ((path: string) => ReadonlyArray<{
+      readonly name: Uint8Array
+      readonly kind: Metadata["kind"]
+    }>)
+    | undefined
   readonly tryReadFile?: ((path: string) => Uint8Array | undefined) | undefined
   readonly readLink: (path: string) => Uint8Array
   readonly realPath: (path: string) => Uint8Array

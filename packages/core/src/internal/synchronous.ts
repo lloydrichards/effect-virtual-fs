@@ -406,6 +406,14 @@ export const bind = Effect.fnUntraced(
         ? (path) =>
           perform("readDirectory", () => unwrap(sync.readDirectory(checked(path))).names.map(BytePath.toBytes))
         : undefined,
+      readDirectoryKinds: options === undefined && liveClock
+        ? (path) =>
+          perform("readDirectory", () =>
+            unwrap(sync.readDirents(checked(path))).entries.map((entry) => ({
+              name: BytePath.toBytes(entry.name),
+              kind: entry.kind
+            })))
+        : undefined,
       tryReadFile: liveClock
         ? (path) =>
           perform("readFile", () => {

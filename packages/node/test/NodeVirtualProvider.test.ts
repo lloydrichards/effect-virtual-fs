@@ -436,6 +436,35 @@ describe("direct Node provider", () => {
 
     expect(provider.readdirSync("/directory")).toEqual(["file"])
     expect(() => guest.readdirSync("/directory")).toThrow(error("EACCES", "scandir", "/directory"))
+    expect(() => guest.readdirSync("/directory", { withFileTypes: true })).toThrow(
+      error("EACCES", "scandir", "/directory")
+    )
+    expect(() => guest.readdirSync("/directory", { recursive: true })).toThrow(error("EACCES", "scandir", "/directory"))
+  })
+  it("should list typed recursive entries without following directory symlinks", async () => {
+    const { provider } = await make()
+    provider.mkdirSync("/tree/child", { recursive: true })
+    provider.writeFileSync("/tree/child/東京", "bytes")
+    provider.symlinkSync("child", "/tree/link")
+    provider.symlinkSync("missing", "/tree/missing")
+
+    const entries = provider.readdirSync("/tree", { recursive: true, withFileTypes: true, encoding: "buffer" })
+
+    expect(entries.map((entry) => [entry.name, entry.parentPath])).toEqual([
+      [Buffer.from("child"), "/tree"],
+      [Buffer.from("link"), "/tree"],
+      [Buffer.from("missing"), "/tree"],
+      [Buffer.from("東京"), "/tree/child"]
+    ])
+    expect(entries.map((entry) => [entry.isDirectory(), entry.isSymbolicLink(), entry.isFile()])).toEqual([
+      [true, false, false],
+      [false, true, false],
+      [false, true, false],
+      [false, false, true]
+    ])
+    expect(provider.readdirSync("/tree", { recursive: true, encoding: "hex" })).toEqual(
+      ["child", "link", "missing", "child/東京"].map((name) => Buffer.from(name).toString("hex"))
+    )
   })
   it("should return an owned buffer from whole-file reads across chunk boundaries", async () => {
     const { provider } = await make()

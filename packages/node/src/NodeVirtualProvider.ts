@@ -188,19 +188,29 @@ export class Provider extends VirtualProvider {
     const results: Array<string | Buffer | Entry<string | Buffer>> = []
     const pending = [{ path, prefix: "" }]
 
-    for (const current of pending) {
-      const entries = invoke("scandir", current.path, () => this.binding.readDirectory(current.path))
+    const readKinds = this.binding.readDirectoryKinds
 
-      for (const entry of entries.value) {
+    for (const current of pending) {
+      const entries = invoke(
+        "scandir",
+        current.path,
+        () => readKinds === undefined ? this.binding.readDirectory(current.path).value : readKinds(current.path)
+      )
+
+      for (const entry of entries) {
         const name = textOf(entry.name, "scandir", current.path)
-        const info = invoke("scandir", current.path, () => this.binding.stat(entry.reference))
+
+        const kind = "kind" in entry
+          ? entry.kind
+          : invoke("scandir", current.path, () => this.binding.stat(entry.reference)).kind
+
         results.push(
           settings?.withFileTypes
-            ? new Entry(encoded(entry.name, { encoding: settings?.encoding ?? "utf8" }), current.path, info.kind)
+            ? new Entry(encoded(entry.name, { encoding: settings?.encoding ?? "utf8" }), current.path, kind)
             : encoded(Buffer.from(current.prefix + name), { encoding: settings?.encoding ?? "utf8" })
         )
 
-        if (settings?.recursive && info.kind === "directory") {
+        if (settings?.recursive && kind === "directory") {
           pending.push({ path: `${current.path.replace(/\/$/, "")}/${name}`, prefix: `${current.prefix}${name}/` })
         }
       }
