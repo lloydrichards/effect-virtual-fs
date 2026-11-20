@@ -414,6 +414,7 @@ export const bind = Effect.fnUntraced(
               kind: entry.kind
             })))
         : undefined,
+      // The Node provider takes ownership of this fresh array. Keep readFile detached from file storage.
       tryReadFile: liveClock
         ? (path) =>
           perform("readFile", () => {

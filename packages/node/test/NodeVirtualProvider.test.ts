@@ -1,5 +1,6 @@
 /* eslint-disable effecttsgo/async-function, effecttsgo/global-date, effecttsgo/node-builtin-import */
 import { BytePath } from "@effect-vfs/core"
+import * as Adapter from "@effect-vfs/core/SynchronousAdapter"
 import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as ByteSize from "effect/ByteSize"
@@ -468,7 +469,7 @@ describe("direct Node provider", () => {
   })
   it("should return an owned buffer from whole-file reads across chunk boundaries", async () => {
     const { provider } = await make()
-    const expected = Buffer.alloc(65_537, 1)
+    const expected = Buffer.alloc(1024 * 1024 + 1, 1)
     provider.writeFileSync("/file", expected)
     provider.writeFileSync("/empty", "")
 
@@ -477,6 +478,18 @@ describe("direct Node provider", () => {
     bytes.fill(0)
     expect(provider.readFileSync("/file")).toEqual(expected)
     expect(provider.readFileSync("/empty")).toHaveLength(0)
+  })
+  it("should copy whole-file bytes supplied by a custom binding", async () => {
+    const { volume, scope } = await make()
+    const binding = await Effect.runPromise(Adapter.bind(volume).pipe(Effect.provideService(Scope.Scope, scope)))
+    const shared = Uint8Array.of(9, 1, 2, 9)
+    const provider = new NodeVfs.Provider({ ...binding, tryReadFile: () => shared.subarray(1, 3) })
+
+    const bytes = provider.readFileSync("/file")
+    expect(bytes).toEqual(Buffer.from([1, 2]))
+    bytes.fill(0)
+    expect(shared).toEqual(Uint8Array.of(9, 1, 2, 9))
+    expect(provider.readFileSync("/file")).toEqual(Buffer.from([1, 2]))
   })
   it("should report Node errno, syscall and both rename paths", async () => {
     const { provider } = await make()
