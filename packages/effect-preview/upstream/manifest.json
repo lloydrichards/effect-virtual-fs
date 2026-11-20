@@ -1,6 +1,6 @@
 {
   "repository": "lloydrichards/open_effect",
-  "commit": "e42c9d9a3b6ac86cc0b2ffd748851eab00a8579e",
+  "commit": "58f26612c24f3b1365906ed785c66d345a023db0",
   "base": "cf021d3efe25c5da6efca03cb2b150bf28af0aae",
   "pullRequest": "https://github.com/Effect-TS/effect/pull/9960",
   "compatibility": {
@@ -13,7 +13,7 @@
     "src/DateTime.ts": "58e1874bfbdb0a898f2e95f55ef5bb485c819e98efea0875bf2490e4e90ff568",
     "src/Schema.ts": "6bc51bb5c1d66bd0b87be5b87ecfb97ea753e04524f750f8412d1c1215f37ffe",
     "src/virtual-file-system/index.ts": "50051f6fbcc25aad12c8ba04627061fe825b21fcd2b5de982d4e55d4d40760f5",
-    "src/virtual-file-system/internal/atomic.ts": "11a8064d98bf490df266ac631e32c395c7799ebc6db863b7ac4915a00953d150",
+    "src/virtual-file-system/internal/atomic.ts": "4ba1ab4a9e37883c5f6e41e507444fcd6098848aae53f4ede65a426894d3f625",
     "src/virtual-file-system/internal/capture.ts": "3dfa4748c7425fbc4fb4e7844df67fb53828c0ff4738634f4712585f1eb9fc8c",
     "src/virtual-file-system/internal/engine.ts": "ffe4f5050b6c8eba1ad5c05d2055c66664cf53c2e0a5814655b84ea4686d46cd",
     "src/virtual-file-system/internal/handles.ts": "e65265e35280b11b7abdae1f317c1a87ee3a6d3dab4668e197e48268e7ca55a4",
@@ -30,7 +30,7 @@
     "test/schema/BytePath.test.ts": "2de6a2e6e338fe2543e9fcdfc21e95ab525f3c7d11093eddf27066a25b09f28a",
     "test/schema/representation/toCodeDocument.test.ts": "a11fd913bce69109cfa53d86b10cf50fb0c6f945c575ee3e3187580a946f5772",
     "test/virtual-file-system/VirtualFileSystem.capture.test.ts": "844d4c4d95d2ec9dbbece81d3337f43a390d550e8fe8a51c17da847499cd0f5c",
-    "test/virtual-file-system/VirtualFileSystem.handles.test.ts": "ac2c4f2ebe2141ab2b3c1210582d52e7eeb9164f0b9aba0a839f61136b0be400",
+    "test/virtual-file-system/VirtualFileSystem.handles.test.ts": "a745d318e48fc16a3a57a5a7880913175620658e8d66dc8dcff2147b06129142",
     "test/virtual-file-system/VirtualFileSystem.limits.test.ts": "2c4e08e9a65a1c0bc793b8728319f8f466c587fa88462b94729ed9b928184007",
     "test/virtual-file-system/VirtualFileSystem.operations.test.ts": "97954b6da2fe9c9e5c9ee5eef9367d3624f1c7f9a1e60a62fc88c6b8967e90b0",
     "test/virtual-file-system/VirtualFileSystem.storage.test.ts": "cd8b35a7349789cd32aa8cfe9a607d140a0e5c77be42ab28baf15ac3d28e0f28",
