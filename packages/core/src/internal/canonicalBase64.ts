@@ -22,7 +22,7 @@ const encode = (input: Uint8Array): Encoded => {
     chunks.push(Base64.encode(input.subarray(offset, offset + chunkBytes)))
   }
 
-  return Encoded.make(chunks.join(""))
+  return Encoded.make(chunks.join(""), { disableChecks: true })
 }
 
 const Encoded = Schema.String.pipe(
