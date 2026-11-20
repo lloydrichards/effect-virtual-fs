@@ -1,7 +1,8 @@
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { FileReply, type TileBounds, WorkerJob, WorkerReply } from "./domain.ts"
+import type { TileBounds } from "./domain.ts"
+import { CompositorJob, CompositorReply, FileReply } from "./protocol.ts"
 
 interface Composition {
   readonly canvas: OffscreenCanvas
@@ -28,8 +29,8 @@ function encode(canvas: OffscreenCanvas) {
   })
 }
 
-function reply(port: MessagePort, value: WorkerReply) {
-  const buffer = WorkerReply.guards.bytes(value) ? value.bytes.buffer : undefined
+function reply(port: MessagePort, value: CompositorReply) {
+  const buffer = CompositorReply.guards.bytes(value) ? value.bytes.buffer : undefined
   port.postMessage(value, buffer instanceof ArrayBuffer ? [buffer] : [])
 }
 
@@ -39,7 +40,7 @@ function drawTile(canvas: OffscreenCanvas, tile: OffscreenCanvas, { height, widt
   target.drawImage(tile, x, y, width, height)
 }
 
-const apply = Effect.fnUntraced(function*(job: typeof WorkerJob.cases.apply.Type, port: MessagePort) {
+const apply = Effect.fnUntraced(function*(job: typeof CompositorJob.cases.apply.Type, port: MessagePort) {
   const current = composition
 
   if (!current) return yield* Effect.fail("Start a render before applying tiles.")
@@ -47,7 +48,7 @@ const apply = Effect.fnUntraced(function*(job: typeof WorkerJob.cases.apply.Type
   const input = yield* Effect.callback<unknown>((resume, signal) => {
     port.addEventListener("message", (event) => resume(Effect.succeed(event.data)), { once: true, signal })
     port.start()
-    reply(port, WorkerReply.cases.read.make({ path: job.path }))
+    reply(port, CompositorReply.cases.read.make({ path: job.path }))
   }).pipe(Effect.timeout("15 seconds"))
 
   const file = yield* Schema.decodeUnknownEffect(FileReply)(input)
@@ -67,16 +68,16 @@ const apply = Effect.fnUntraced(function*(job: typeof WorkerJob.cases.apply.Type
   drawTile(current.canvas, tile, job.bounds)
   current.tiles.set(job.tile, tile)
 
-  return WorkerReply.cases.bytes.make({ bytes: file.bytes })
+  return CompositorReply.cases.bytes.make({ bytes: file.bytes })
 }, Effect.scoped)
 
-function execute(job: WorkerJob, port: MessagePort) {
-  return WorkerJob.match(job, {
+function execute(job: CompositorJob, port: MessagePort) {
+  return CompositorJob.match(job, {
     reset: ({ height, width }) =>
       Effect.sync(() => {
         composition = { canvas: new OffscreenCanvas(width, height), tiles: new Map() }
 
-        return WorkerReply.cases.done.make({})
+        return CompositorReply.cases.done.make({})
       }),
     apply: (job) => apply(job, port),
     swap: Effect.fnUntraced(function*({ first, second }) {
@@ -88,14 +89,14 @@ function execute(job: WorkerJob, port: MessagePort) {
       drawTile(composition.canvas, left, first.bounds)
       drawTile(composition.canvas, right, second.bounds)
 
-      return WorkerReply.cases.done.make({})
+      return CompositorReply.cases.done.make({})
     }),
     encode: Effect.fnUntraced(function*() {
       if (!composition) return yield* Effect.fail("Start a render before exporting.")
 
       const bytes = yield* encode(composition.canvas)
 
-      return WorkerReply.cases.bytes.make({ bytes })
+      return CompositorReply.cases.bytes.make({ bytes })
     })
   })
 }
@@ -106,11 +107,11 @@ self.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (!port) return
 
   Effect.runFork(
-    Schema.decodeUnknownEffect(WorkerJob)(event.data).pipe(
+    Schema.decodeUnknownEffect(CompositorJob)(event.data).pipe(
       Effect.flatMap((job) => execute(job, port)),
       Effect.tap((value) => Effect.sync(() => reply(port, value))),
       Effect.catchCause((cause) =>
-        Effect.sync(() => reply(port, WorkerReply.cases.error.make({ message: String(Cause.squash(cause)) })))
+        Effect.sync(() => reply(port, CompositorReply.cases.error.make({ message: String(Cause.squash(cause)) })))
       ),
       Effect.ensuring(Effect.sync(() => port.close()))
     )

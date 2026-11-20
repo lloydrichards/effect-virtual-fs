@@ -8,7 +8,8 @@ import * as AtomRpc from "effect/reactivity/AtomRpc"
 import * as RpcClient from "effect/rpc/RpcClient"
 import * as Stream from "effect/Stream"
 import * as WorkerPlatform from "effect/workers/Worker"
-import { defaultSetup, type Filter, grids, RenderEvent, type RenderSetup, WorkshopRpc } from "./domain.ts"
+import { defaultSetup, type Filter, grids, RenderEvent, type RenderSetup, WorkshopError } from "./domain.ts"
+import { WorkshopRpc } from "./protocol.ts"
 import { downloadPng, type Picture, sharePixels } from "./source.ts"
 
 const workshopWorker = Layer.effect(
@@ -146,7 +147,10 @@ const perform = Effect.fnUntraced(function*(action: Action) {
   })
 
   yield* events.pipe(
-    Stream.timeout("20 seconds"),
+    Stream.timeoutOrElse({
+      duration: "20 seconds",
+      orElse: () => Stream.fail(new WorkshopError({ message: "Timed out waiting for render progress." }))
+    }),
     Stream.runForEach(Effect.fnUntraced(function*(event) {
       yield* Atom.update(workshopAtom, (state) => applyEvent(state, event))
 

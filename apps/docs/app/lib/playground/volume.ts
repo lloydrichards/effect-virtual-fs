@@ -59,7 +59,7 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
       ]
     })
 
-  const volume = yield* program.pipe(Effect.provide(BrowserCrypto.layer))
+  const volume = yield* program.pipe(Effect.provide([BrowserCrypto.layerDigest, BrowserCrypto.layerSecureRandom]))
   const admin = yield* volume.caller({ identity: { uid: 0, gid: 0, groups: [], privileged: true }, umask: 0o022 })
 
   const editor = yield* volume.caller({

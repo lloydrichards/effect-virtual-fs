@@ -67,6 +67,10 @@ build: ({ role }) => caller(role).pipe(
 )
 ```
 
+The [controller](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/lib/playground/controller.ts) owns edit flushing, commands, and recovery.
+The [Atom adapter](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/lib/playground/atoms.ts) connects it to React and [the worker RPC contract](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/lib/playground/protocol.ts).
+The worker resolves roles to VFS callers and runs the build.
+
 ## How the checkpoint reaches IndexedDB
 
 **Save checkpoint** runs an Effect Atom command. The command flushes the current edit, then requests a checkpoint through RPC. The worker takes the volume snapshot and writes it through the checkpoint store.
@@ -80,7 +84,9 @@ saveCheckpoint: () =>
   )
 ```
 
-The save effect binds the snapshot bytes to an Effect SQL query. The browser SQLite driver exports the database, then the effect waits for the IndexedDB write to finish.
+The [storage module](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/lib/playground/storage.ts) combines in-memory SQLite and the
+worker’s IndexedDB layer. The save effect writes the snapshot to SQLite, then
+exports the database bytes to one IndexedDB key.
 
 ```ts
 yield* sql`INSERT INTO checkpoint VALUES (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ${image})`

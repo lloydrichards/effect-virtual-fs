@@ -6,21 +6,19 @@ import * as Queue from "effect/Queue"
 import * as Result from "effect/Result"
 import * as RpcClient from "effect/rpc/RpcClient"
 import * as Schema from "effect/Schema"
-import { FileReply, TileRpc, WorkerJob, WorkerReply, WorkshopError } from "./domain.ts"
+import { type Placement, type TileBounds, type WorkshopError, workshopError } from "./domain.ts"
+import { CompositorJob, CompositorReply, FileReply, TileRpc } from "./protocol.ts"
+import type { RenderTile } from "./render-session.ts"
 
-export const workshopError = (cause: unknown) =>
-  Schema.is(WorkshopError)(cause) ? cause : new WorkshopError({ message: String(cause) })
+const spawnCompositorWorker = Effect.acquireRelease(
+  Effect.try({
+    try: () => new Worker(new URL("./image.worker.ts", import.meta.url), { type: "module", name: "Compositor" }),
+    catch: workshopError
+  }),
+  (worker) => Effect.sync(() => worker.terminate())
+)
 
-export const spawnImageWorker = (name: string) =>
-  Effect.acquireRelease(
-    Effect.try({
-      try: () => new Worker(new URL("./image.worker.ts", import.meta.url), { type: "module", name }),
-      catch: workshopError
-    }),
-    (worker) => Effect.sync(() => worker.terminate())
-  )
-
-export const spawnTileClient = Effect.fnUntraced(function*(id: number) {
+export const spawnTileRenderer = Effect.fnUntraced(function*(id: number) {
   const worker = yield* Effect.acquireRelease(
     Effect.try({
       try: () =>
@@ -34,19 +32,25 @@ export const spawnTileClient = Effect.fnUntraced(function*(id: number) {
     Layer.provide(BrowserWorker.layer(() => worker))
   )
 
+  // Rebuilds reuse this client. Build the protocol in the render session scope.
   const context = yield* Layer.build(protocol)
 
-  return yield* RpcClient.make(TileRpc).pipe(Effect.provideContext(context))
-})
+  const client = yield* RpcClient.make(TileRpc).pipe(Effect.provideContext(context))
+
+  const render: RenderTile = (input) =>
+    client.renderTile(input).pipe(Effect.timeout("15 seconds"), Effect.mapError(workshopError))
+
+  return render
+}, Effect.mapError(workshopError))
 
 // A job owns its reply port. The compositor uses it to open the committed tile by path.
-export const runJob = Effect.fnUntraced(
+const runCompositorJob = Effect.fnUntraced(
   function*(
     worker: Worker,
-    job: WorkerJob,
+    job: CompositorJob,
     read?: (path: string) => Effect.Effect<Uint8Array, WorkshopError>
   ) {
-    const queue = yield* Queue.unbounded<WorkerReply>()
+    const queue = yield* Queue.unbounded<CompositorReply>()
 
     const port = yield* Effect.acquireRelease(
       Effect.try({
@@ -69,19 +73,22 @@ export const runJob = Effect.fnUntraced(
     )
 
     const onWorkerError = (error: ErrorEvent) => {
-      Queue.offerUnsafe(queue, WorkerReply.cases.error.make({ message: error.message || "The image worker crashed." }))
+      Queue.offerUnsafe(
+        queue,
+        CompositorReply.cases.error.make({ message: error.message || "The compositor crashed." })
+      )
     }
 
     yield* Effect.addFinalizer(() => Effect.sync(() => worker.removeEventListener("error", onWorkerError)))
     worker.addEventListener("error", onWorkerError)
     port.onmessage = (event: MessageEvent<unknown>) => {
-      const decoded = Schema.decodeUnknownResult(WorkerReply)(event.data)
+      const decoded = Schema.decodeUnknownResult(CompositorReply)(event.data)
 
       if (Result.isSuccess(decoded)) Queue.offerUnsafe(queue, decoded.success)
       else {
         Queue.offerUnsafe(
           queue,
-          WorkerReply.cases.error.make({ message: "The worker returned an invalid response." })
+          CompositorReply.cases.error.make({ message: "The worker returned an invalid response." })
         )
       }
     }
@@ -89,14 +96,14 @@ export const runJob = Effect.fnUntraced(
     port.onmessageerror = () => {
       Queue.offerUnsafe(
         queue,
-        WorkerReply.cases.error.make({ message: "The browser could not decode the worker response." })
+        CompositorReply.cases.error.make({ message: "The browser could not decode the worker response." })
       )
     }
 
     let reply = yield* Queue.take(queue)
 
-    if (WorkerReply.guards.read(reply)) {
-      if (!read || !WorkerJob.guards.apply(job) || reply.path !== job.path) {
+    if (CompositorReply.guards.read(reply)) {
+      if (!read || !CompositorJob.guards.apply(job) || reply.path !== job.path) {
         return yield* workshopError("The compositor requested an unexpected path.")
       }
 
@@ -122,9 +129,9 @@ export const runJob = Effect.fnUntraced(
       reply = yield* Queue.take(queue)
     }
 
-    if (WorkerReply.guards.error(reply)) return yield* workshopError(reply.message)
+    if (CompositorReply.guards.error(reply)) return yield* workshopError(reply.message)
 
-    if (WorkerReply.guards.read(reply)) return yield* workshopError("The compositor requested the same tile twice.")
+    if (CompositorReply.guards.read(reply)) return yield* workshopError("The compositor requested the same tile twice.")
 
     return reply
   },
@@ -133,8 +140,33 @@ export const runJob = Effect.fnUntraced(
   Effect.mapError(workshopError)
 )
 
-export const expectBytes = Effect.fnUntraced(function*(reply: Effect.Success<ReturnType<typeof runJob>>) {
-  if (!WorkerReply.guards.bytes(reply)) return yield* workshopError("The worker did not return PNG bytes.")
+const expectBytes = Effect.fnUntraced(function*(reply: Effect.Success<ReturnType<typeof runCompositorJob>>) {
+  if (!CompositorReply.guards.bytes(reply)) return yield* workshopError("The worker did not return PNG bytes.")
 
   return reply.bytes
+})
+
+const expectDone = Effect.fnUntraced(function*(reply: Effect.Success<ReturnType<typeof runCompositorJob>>) {
+  if (!CompositorReply.guards.done(reply)) return yield* workshopError("The compositor did not confirm the operation.")
+})
+
+export const spawnCompositor = Effect.gen(function*() {
+  const worker = yield* spawnCompositorWorker
+
+  return {
+    reset: (size: { readonly width: number; readonly height: number }) =>
+      runCompositorJob(worker, CompositorJob.cases.reset.make(size)).pipe(Effect.flatMap(expectDone)),
+    apply: (
+      tile: number,
+      path: string,
+      bounds: TileBounds,
+      read: (path: string) => Effect.Effect<Uint8Array, WorkshopError>
+    ) =>
+      runCompositorJob(worker, CompositorJob.cases.apply.make({ tile, path, bounds }), read).pipe(
+        Effect.flatMap(expectBytes)
+      ),
+    swap: (first: typeof Placement.Type, second: typeof Placement.Type) =>
+      runCompositorJob(worker, CompositorJob.cases.swap.make({ first, second })).pipe(Effect.flatMap(expectDone)),
+    encode: runCompositorJob(worker, CompositorJob.cases.encode.make({})).pipe(Effect.flatMap(expectBytes))
+  }
 })
