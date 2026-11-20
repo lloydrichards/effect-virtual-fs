@@ -1,6 +1,6 @@
 {
   "repository": "lloydrichards/open_effect",
-  "commit": "58f26612c24f3b1365906ed785c66d345a023db0",
+  "commit": "680f03a64d2b5a466a51a0eb39357d2b306a4f06",
   "base": "cf021d3efe25c5da6efca03cb2b150bf28af0aae",
   "pullRequest": "https://github.com/Effect-TS/effect/pull/9960",
   "compatibility": {
@@ -15,7 +15,7 @@
     "src/virtual-file-system/index.ts": "50051f6fbcc25aad12c8ba04627061fe825b21fcd2b5de982d4e55d4d40760f5",
     "src/virtual-file-system/internal/atomic.ts": "4ba1ab4a9e37883c5f6e41e507444fcd6098848aae53f4ede65a426894d3f625",
     "src/virtual-file-system/internal/capture.ts": "3dfa4748c7425fbc4fb4e7844df67fb53828c0ff4738634f4712585f1eb9fc8c",
-    "src/virtual-file-system/internal/engine.ts": "ffe4f5050b6c8eba1ad5c05d2055c66664cf53c2e0a5814655b84ea4686d46cd",
+    "src/virtual-file-system/internal/engine.ts": "7cd0b2b3e595ab9e804499cc1c4c055dbf00d70e55cf37b6028b079c0634f0a2",
     "src/virtual-file-system/internal/handles.ts": "e65265e35280b11b7abdae1f317c1a87ee3a6d3dab4668e197e48268e7ca55a4",
     "src/virtual-file-system/internal/model.ts": "24af7babedd7ba498e23976ad8072b383c576d357ab15ebf6192653bd5dae100",
     "src/virtual-file-system/internal/operations.ts": "2bc730f48872f52c9203cb01935e5f34a05915fb8a797c1daeff3061b61a8d1a",
