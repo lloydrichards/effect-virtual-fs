@@ -13,17 +13,7 @@ const isCanonical = (value: string): boolean =>
 const decodedLength = (value: string): number =>
   value.length / 4 * 3 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)
 
-const encode = (input: Uint8Array): Encoded => {
-  // Chunk boundaries must be multiples of three to keep padding in the final chunk.
-  const chunkBytes = 12_288
-  const chunks: Array<string> = []
-
-  for (let offset = 0; offset < input.length; offset += chunkBytes) {
-    chunks.push(Base64.encode(input.subarray(offset, offset + chunkBytes)))
-  }
-
-  return Encoded.make(chunks.join(""), { disableChecks: true })
-}
+const encode = (input: Uint8Array): Encoded => Encoded.make(Base64.encode(input), { disableChecks: true })
 
 const Encoded = Schema.String.pipe(
   Schema.refine((value): value is string => isCanonical(value), {
