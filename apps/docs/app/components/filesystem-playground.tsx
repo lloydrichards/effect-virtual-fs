@@ -1,4 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
+import * as Cause from "effect/Cause"
+import * as Exit from "effect/Exit"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import {
   Braces,
@@ -16,7 +18,7 @@ import {
   Terminal,
   Trash2
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   checkpointAtom,
   commandAtom,
@@ -25,6 +27,8 @@ import {
   type Operation,
   playgroundAtom
 } from "~/lib/playground/atoms"
+import type { Command } from "~/lib/playground/controller"
+import { PlaygroundError } from "~/lib/playground/error"
 import { PlaygroundBundle } from "./playground-bundle"
 import { PlaygroundEditor } from "./playground-editor"
 import { Button } from "./ui/button"
@@ -91,12 +95,40 @@ function FileList({ entries, parent, selected, onSelect }: {
 }
 
 export function FilesystemPlayground() {
-  const { volume, role, permissions, entries, path, source, dirty, folder, busy, pendingView, status, output, error } =
-    useAtomValue(
-      playgroundAtom
-    )
+  const {
+    volume,
+    role,
+    permissions,
+    entries,
+    path,
+    source,
+    dirty,
+    folder,
+    busy,
+    pendingView,
+    status,
+    output,
+    error: commandError
+  } = useAtomValue(
+    playgroundAtom
+  )
 
-  const run = useAtomSet(commandAtom, { mode: "promise" })
+  const runCommand = useAtomSet(commandAtom, { mode: "promiseExit" })
+  const [runtimeError, setRuntimeError] = useState("")
+  const error = runtimeError || commandError
+
+  const run = useCallback((command: Command) => {
+    setRuntimeError("")
+
+    return runCommand(command).then((exit) => {
+      if (Exit.isSuccess(exit)) return exit.value
+
+      setRuntimeError(PlaygroundError.fromCause(Cause.squash(exit.cause)).message)
+
+      return false
+    })
+  }, [runCommand])
+
   const edit = useAtomSet(editAtom)
   const checkpoint = useAtomValue(checkpointAtom)
   const refresh = useAtomRefresh(checkpointAtom)

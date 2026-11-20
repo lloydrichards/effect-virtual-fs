@@ -190,3 +190,25 @@ export const workshopImageFailure = (context: BrowserCommandContext, base: strin
     await page.getByRole("alert").filter({ hasText: "The browser could not open a 2D canvas." }).waitFor()
     expect(await page.getByRole("button", { name: "Render", exact: true }).isEnabled()).toBe(false)
   })
+
+export const workerStartupFailure = async (context: BrowserCommandContext, base: string) => {
+  for (const path of ["/examples/image-tile-workshop", "/examples/virtual-build"]) {
+    await visit(context, base, path, async (page) => {
+      const message = "The test browser blocked worker startup."
+      await page.addInitScript((message) => {
+        window.Worker = new Proxy(window.Worker, {
+          construct() {
+            throw new Error(message)
+          }
+        })
+      }, message)
+      await page.reload()
+
+      if (path === "/examples/image-tile-workshop") {
+        await page.getByRole("button", { name: "Render", exact: true }).click()
+      }
+
+      await page.getByRole("alert").filter({ hasText: message }).waitFor()
+    })
+  }
+}

@@ -4,6 +4,7 @@ import {
   playground,
   playgroundRecovery,
   staticPages,
+  workerStartupFailure,
   workshop,
   workshopImageFailure,
   workshopRetile,
@@ -23,6 +24,7 @@ export default defineConfig({
       instances: [{ browser: "chromium" }],
       commands: {
         staticPages,
+        workerStartupFailure,
         playground,
         playgroundRecovery,
         workshop,

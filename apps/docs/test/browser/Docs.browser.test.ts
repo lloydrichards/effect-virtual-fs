@@ -16,6 +16,7 @@ declare module "vitest/browser" {
     workshopRetile: (base: string) => Promise<void>
     workshopTimeout: (base: string) => Promise<void>
     workshopImageFailure: (base: string) => Promise<void>
+    workerStartupFailure: (base: string) => Promise<void>
   }
 }
 
@@ -35,3 +36,5 @@ test("the Workshop reports an idle render and lets the user try again", () =>
 
 test("the Workshop reports when the browser cannot open a canvas", () =>
   commands.workshopImageFailure(inject("docsUrl")))
+
+test("both examples report browser worker startup failures", () => commands.workerStartupFailure(inject("docsUrl")))
