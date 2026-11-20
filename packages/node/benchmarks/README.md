@@ -19,3 +19,11 @@ and Node's provider runs first in round 2. Vitest records each round under a dis
 For each workload, compare the median of the two round p50 latencies for each provider.
 For trends over time, compare matching workloads on the same Node version and runner configuration.
 The timings include Node mount routing and in-memory provider work.
+
+## Tree and repeated I/O
+
+The scan lists eight directories, stats 128 files, and reads their 512 B payloads.
+The separate list, stat, and read cases isolate these phases. Stat and read use
+paths prepared outside timing. The full scan discovers names within timing.
+Each scan callback processes one tree. Repeated 4 KiB read and overwrite callbacks
+make 32 path-based calls. Divide their batch latency by 32 for latency per call.

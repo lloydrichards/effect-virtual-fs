@@ -115,8 +115,11 @@ checkout. Compare cases only when their workload and measurement boundary match.
 Keep separate series by runtime, runner class, workload, candidate, and
 measurement version. Compare the median of round medians and retain the spread
 and sample count. Core confinement reports latency per batch and throughput in
-batches per second. XDR and the mounted provider comparison report latency and
-throughput per operation. Confirm apparent regressions on an idle controlled host
+batches per second. XDR and the mounted single-file cases report latency and
+throughput per operation. Mounted tree cases report per tree and repeated 4 KiB
+cases report per batch of 32 calls. CI supplies the new mounted tree benchmark
+to the previous revision when the file is missing and records its hash for both
+revisions. Confirm apparent regressions on an idle controlled host
 before setting a threshold.
 
 For history beyond artifact retention, publish normalized results from successful
