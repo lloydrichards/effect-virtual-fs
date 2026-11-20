@@ -32,6 +32,20 @@ Typed listing measures the root and its eight subdirectories. Recursive names an
 recursive typed listings each use a single call. Each callback counts the 136
 returned entries, including the eight directories.
 
+## Read routing
+
+The routing case reads the same 4 KiB file through mounted `node:fs` and directly
+through an unmounted `node:vfs` wrapper over the same provider. It also times
+mounted `existsSync` separately. Each callback makes one call. The two rounds
+reverse candidate order, and fixture setup and payload checks happen outside
+timing.
+
+Node 26.11.1 probes existence before a mounted synchronous path read. The
+direct VFS call skips the mount router and takes a provider-relative path.
+Mounted `existsSync` includes its own dispatch, so these medians describe the
+entry points and cannot be added to reconstruct an individual read.
+[Node mount router source](https://github.com/nodejs/node/blob/v26.11.1/lib/internal/vfs/setup.js#L316-L389)
+
 ## Mounted streams
 
 The stream workloads transfer an 8 MiB file with 64 KiB chunks through the
