@@ -13,6 +13,8 @@ sources:
     title: Production and experimental XDR measurements
   - resource: ../../packages/node/benchmarks/mountedMemory.bench.ts
     title: Mounted filesystem comparison with Node MemoryProvider
+  - resource: ../../packages/node/benchmarks/mountedTree.bench.ts
+    title: Mounted tree scan and batched I/O workload definitions
   - resource: ../../vitest.config.ts
     title: Package benchmark projects
   - resource: ../../.github/workflows/pr-validation.yml
@@ -29,7 +31,7 @@ sources:
     title: Vitest 5 migration
   - resource: ../../bun.lock
     title: Installed runner versions
-generated: { by: codex/okf, at: "2026-11-19T18:09:40+01:00" }
+generated: { by: codex/okf, at: "2026-11-20T10:26:56+01:00" }
 ---
 
 # Package benchmarks
