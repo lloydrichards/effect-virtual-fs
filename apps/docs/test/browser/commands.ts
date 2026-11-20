@@ -100,12 +100,20 @@ const exportPng = async (page: Page) => {
 
 export const workshop = (context: BrowserCommandContext, base: string) =>
   visit(context, base, "/", async (page) => {
+    await page.emulateMedia({ colorScheme: "light" })
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(false)
+    await page.getByRole("button", { name: "Switch to dark mode" }).click()
+    const darkBackground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+    const pageErrors: Array<string> = []
+    page.on("pageerror", (error) => pageErrors.push(error.message))
     await page.getByRole("link", { name: "Image Tile Workshop", exact: true }).first().click()
     await page.waitForURL(new URL("/examples/image-tile-workshop", base).href)
     await page.waitForFunction(() => crossOriginIsolated)
     await page.getByRole("button", { name: "Render", exact: true }).click()
     await page.getByText("12 of 12 tiles visible", { exact: true }).waitFor()
+    await page.getByRole("button", { name: "Switch to light mode" }).waitFor()
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(darkBackground)
+    expect(pageErrors).toEqual([])
     const before = await exportPng(page)
     expect(before.subarray(1, 4).toString()).toBe("PNG")
 
