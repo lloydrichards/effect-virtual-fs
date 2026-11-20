@@ -39,6 +39,8 @@ export interface Handle {
 export interface Binding {
   readonly stat: (target: TargetInput) => Metadata
   readonly readDirectory: (path: string) => Effect.Success<ReturnType<Caller["readDirectory"]>>
+  readonly readDirectoryNames?: ((path: string) => ReadonlyArray<Uint8Array>) | undefined
+  readonly tryReadFile?: ((path: string) => Uint8Array | undefined) | undefined
   readonly readLink: (path: string) => Uint8Array
   readonly realPath: (path: string) => Uint8Array
   readonly access: (path: string, bits: number) => number

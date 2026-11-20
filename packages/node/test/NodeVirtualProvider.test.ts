@@ -422,6 +422,33 @@ describe("direct Node provider", () => {
 
     expect(() => provider.writeFileSync("/file", "x")).toThrow(error("EACCES"))
   })
+  it("should preserve restricted listing errors for a readable directory without search permission", async () => {
+    const { provider, scope, volume } = await make()
+    provider.mkdirSync("/directory")
+    provider.writeFileSync("/directory/file", "bytes")
+    provider.chmodSync("/directory", 0o444)
+
+    const guest = await Effect.runPromise(
+      NodeVfs.bind(volume, {
+        caller: { identity: { uid: 1000, gid: 1000, groups: [], privileged: false } }
+      }).pipe(Effect.provideService(Scope.Scope, scope))
+    )
+
+    expect(provider.readdirSync("/directory")).toEqual(["file"])
+    expect(() => guest.readdirSync("/directory")).toThrow(error("EACCES", "scandir", "/directory"))
+  })
+  it("should return an owned buffer from whole-file reads across chunk boundaries", async () => {
+    const { provider } = await make()
+    const expected = Buffer.alloc(65_537, 1)
+    provider.writeFileSync("/file", expected)
+    provider.writeFileSync("/empty", "")
+
+    const bytes = provider.readFileSync("/file")
+    expect(bytes).toEqual(expected)
+    bytes.fill(0)
+    expect(provider.readFileSync("/file")).toEqual(expected)
+    expect(provider.readFileSync("/empty")).toHaveLength(0)
+  })
   it("should report Node errno, syscall and both rename paths", async () => {
     const { provider } = await make()
     expect(() => provider.renameSync("/missing", "/dest")).toThrow(
