@@ -434,9 +434,9 @@ export const bind = Effect.fnUntraced(
       tryReadFile: liveClock
         ? (path) =>
           perform("readFile", () => {
-            const prepared = Paths.preparePath(path, "path", runtime.owner.limits.expandedPathBytes)
+            const valid = Paths.validatePath(path, "path", runtime.owner.limits.expandedPathBytes)
 
-            return Result.isSuccess(prepared) ? Result.getOrUndefined(sync.readFile(path)) : undefined
+            return Result.isSuccess(valid) ? Result.getOrUndefined(sync.readFile(path)) : undefined
           })
         : undefined,
       readLink: (path) => perform("readLink", () => binding.readLink(path)),
