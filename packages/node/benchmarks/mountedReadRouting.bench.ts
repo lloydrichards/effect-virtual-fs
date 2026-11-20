@@ -6,7 +6,9 @@ import { expect, test } from "vitest"
 import { mount, type Mountable } from "../mounted/fixture.js"
 
 const directory = "/one/two/three/four/five/six/seven/eight"
+
 const name = `${directory}/data.bin`
+
 const payload = Buffer.alloc(4096, 0x41)
 
 test.for([1, 2])("4 KiB read routing (round %i)", async (round, { bench, onTestFinished }) => {
