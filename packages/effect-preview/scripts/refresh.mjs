@@ -6,10 +6,17 @@ import { readFile, writeFile } from "node:fs/promises"
 
 const args = process.argv.slice(2)
 
-const [checkout, commit, base] = args
+const [checkout, commit, base, option] = args
 
-if (args.length !== 3 || !checkout || !/^[a-f0-9]{40}$/.test(commit) || !/^[a-f0-9]{40}$/.test(base)) {
-  throw new Error("Usage: bun scripts/refresh.mjs /path/to/effect-checkout <head-sha> <base-sha>")
+const keepCompatibility = option === "--keep-compatibility"
+
+if (
+  (args.length !== 3 && !(args.length === 4 && keepCompatibility)) || !checkout || !/^[a-f0-9]{40}$/.test(commit) ||
+  !/^[a-f0-9]{40}$/.test(base)
+) {
+  throw new Error(
+    "Usage: bun scripts/refresh.mjs /path/to/effect-checkout <head-sha> <base-sha> [--keep-compatibility]"
+  )
 }
 
 const git = (...args) =>
@@ -27,8 +34,10 @@ const snapshot = JSON.parse(await readFile(new URL("../upstream/files.json", imp
 const selected =
   /^packages\/effect\/(?:src\/(?:virtual-file-system\/.*\.ts|(?:BytePath|Bytes|DateTime|Schema)\.ts)|test\/(?:virtual-file-system\/.*\.test\.ts|(?:BytePath|Bytes|DateTime\.UnixNano)\.test\.ts|schema\/(?:BytePath\.test\.ts|representation\/toCodeDocument\.test\.ts))|typetest\/(?:virtual-file-system\/.*\.tst\.ts|(?:BytePath|DateTime\.UnixNano)\.tst\.ts))$/
 
+const isVfs = (path) => /\/(?:src|test|typetest)\/virtual-file-system\//.test(path)
+
 const paths = git("diff", "--name-only", base, commit, "--", "packages/effect").trim().split("\n").filter((path) =>
-  selected.test(path)
+  selected.test(path) && (!keepCompatibility || isVfs(path))
 ).sort()
 
 if (!paths.includes("packages/effect/src/virtual-file-system/VirtualFileSystem.ts")) {
@@ -44,15 +53,29 @@ const files = paths.map((filename) => {
   return { filename, patch: diff.slice(start).trimEnd() }
 })
 
-const next = { ...snapshot, commit, base, files }
+const { compatibility: priorCompatibility, ...metadata } = snapshot
+
+const compatibility = keepCompatibility
+  ? priorCompatibility ?? { commit: snapshot.commit, base: snapshot.base }
+  : undefined
+
+const next = {
+  ...metadata,
+  commit,
+  base,
+  compatibility,
+  files: (keepCompatibility ? [...files, ...snapshot.files.filter((file) => !isVfs(file.filename))] : files)
+    .sort((left, right) => left.filename.localeCompare(right.filename, "en"))
+}
 
 const manifest = {
   repository: next.repository,
   commit,
   base,
   pullRequest: next.pullRequest,
+  compatibility,
   files: Object.fromEntries(
-    files.map((
+    next.files.map((
       { filename, patch }
     ) => [filename.replace("packages/effect/", ""), createHash("sha256").update(patch).digest("hex")])
   )
@@ -67,5 +90,5 @@ await writeFile(new URL("../upstream/manifest.json", import.meta.url), JSON.stri
 await writeFile(new URL("../LICENSE", import.meta.url), license)
 
 process.stdout.write(
-  `Saved ${files.length} upstream patches from ${commit}. Review the snapshot, then run sync and qualification.\n`
+  `Saved ${next.files.length} upstream patches from ${commit}. Review the snapshot, then run sync and qualification.\n`
 )

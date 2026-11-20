@@ -5,6 +5,8 @@ import * as ByteSize from "effect/ByteSize"
 import * as DateTime from "../../compat/DateTime.js"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
+import * as HashMap from "effect/HashMap"
+import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "../../compat/Schema.js"
 import * as Semaphore from "effect/Semaphore"
@@ -103,9 +105,77 @@ interface Base {
   revision: bigint
 }
 
+const pageSize = 64 * 1024
+export const pagedFileThreshold = 1024 * 1024
+type FileData = Uint8Array<ArrayBuffer> | PagedFileData
+
+export class PagedFileData {
+  private readonly pages: HashMap.HashMap<number, Uint8Array<ArrayBuffer>>
+  readonly length: number
+
+  private constructor(pages: HashMap.HashMap<number, Uint8Array<ArrayBuffer>>, length: number) {
+    this.pages = pages
+    this.length = length
+  }
+
+  static from(data: Uint8Array | PagedFileData): PagedFileData {
+    if (data instanceof PagedFileData) return data
+
+    let pages = HashMap.empty<number, Uint8Array<ArrayBuffer>>()
+    for (let offset = 0; offset < data.length; offset += pageSize) {
+      pages = HashMap.set(pages, offset / pageSize, data.slice(offset, offset + pageSize))
+    }
+    return new PagedFileData(pages, data.length)
+  }
+
+  write(start: number, input: Uint8Array<ArrayBuffer>): PagedFileData {
+    let pages = this.pages
+    const end = start + input.length
+
+    for (let offset = start; offset < end;) {
+      const index = Math.floor(offset / pageSize)
+      const pageStart = index * pageSize
+      const within = offset - pageStart
+      const count = Math.min(pageSize - within, end - offset)
+      const existing = Option.getOrUndefined(HashMap.get(pages, index))
+      const page = new Uint8Array(Math.max(existing?.length ?? 0, within + count))
+      if (existing !== undefined && (within !== 0 || count < existing.length)) page.set(existing)
+      page.set(input.subarray(offset - start, offset - start + count), within)
+      pages = HashMap.set(pages, index, page)
+      offset += count
+    }
+
+    return new PagedFileData(pages, Math.max(this.length, end))
+  }
+
+  slice(start = 0, end = this.length): Uint8Array<ArrayBuffer> {
+    const output = new Uint8Array(Math.max(0, Math.min(end, this.length) - start))
+    this.copyInto(output, start)
+    return output
+  }
+
+  copyInto(output: Uint8Array, start = 0): void {
+    const end = Math.min(start + output.length, this.length)
+
+    for (let offset = start; offset < end;) {
+      const index = Math.floor(offset / pageSize)
+      const pageStart = index * pageSize
+      const next = Math.min(end, pageStart + pageSize)
+      const page = Option.getOrUndefined(HashMap.get(this.pages, index))
+      if (page !== undefined) output.set(page.subarray(offset - pageStart, next - pageStart), offset - start)
+      offset = next
+    }
+  }
+}
+
+export const copyFileData = (output: Uint8Array, input: FileData): void => {
+  if (input instanceof PagedFileData) input.copyInto(output)
+  else output.set(input.subarray(0, output.length))
+}
+
 export interface FileNode extends Base {
   readonly kind: "file"
-  data: Uint8Array<ArrayBuffer>
+  data: FileData
 }
 
 export interface DirectoryNode extends Base {

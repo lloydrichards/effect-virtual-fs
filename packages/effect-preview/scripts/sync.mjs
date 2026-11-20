@@ -19,7 +19,11 @@ if (process.argv.some((arg, index) => index > 1 && arg !== "--check")) {
 
 const hash = (text) => createHash("sha256").update(text).digest("hex")
 
-if (snapshot.commit !== manifest.commit || snapshot.repository !== manifest.repository) {
+if (
+  snapshot.commit !== manifest.commit || snapshot.base !== manifest.base ||
+  snapshot.repository !== manifest.repository ||
+  JSON.stringify(snapshot.compatibility) !== JSON.stringify(manifest.compatibility)
+) {
   throw new Error("Snapshot provenance differs from manifest")
 }
 

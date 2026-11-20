@@ -49,6 +49,16 @@ try {
   const manifestPath = join(temporary, "upstream/manifest.json")
   const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"))
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"))
+  await writeFile(
+    manifestPath,
+    JSON.stringify({
+      ...manifest,
+      compatibility: { base: manifest.base, commit: manifest.commit }
+    })
+  )
+  assert.notEqual(run().status, 0, "A mismatched compatibility revision must fail regeneration")
+  await writeFile(manifestPath, JSON.stringify(manifest))
+
   const corrupted = structuredClone(snapshot)
   corrupted.files[0].patch += "\n"
   await writeFile(snapshotPath, JSON.stringify(corrupted))
