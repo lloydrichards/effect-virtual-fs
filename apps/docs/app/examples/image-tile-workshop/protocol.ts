@@ -2,18 +2,8 @@ import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as Schema from "effect/Schema"
 import { Transferable } from "effect/workers"
-import {
-  Filter,
-  largestGrid,
-  Placement,
-  Png,
-  RenderEvent,
-  RenderSetup,
-  Source,
-  TileBounds,
-  TileId,
-  WorkshopError
-} from "./domain.ts"
+import { Filter, largestGrid, Placement, Png, RenderEvent, RenderSetup, Source, TileBounds, TileId } from "./domain.ts"
+import { WorkshopError } from "./errors.ts"
 
 export class WorkshopRpc extends RpcGroup.make(
   Rpc.make("render", {

@@ -5,6 +5,7 @@ import {
   playgroundRecovery,
   staticPages,
   workshop,
+  workshopImageFailure,
   workshopRetile,
   workshopTimeout
 } from "./test/browser/commands.ts"
@@ -20,7 +21,15 @@ export default defineConfig({
       headless: true,
       provider: playwright(),
       instances: [{ browser: "chromium" }],
-      commands: { staticPages, playground, playgroundRecovery, workshop, workshopRetile, workshopTimeout }
+      commands: {
+        staticPages,
+        playground,
+        playgroundRecovery,
+        workshop,
+        workshopImageFailure,
+        workshopRetile,
+        workshopTimeout
+      }
     }
   }
 })

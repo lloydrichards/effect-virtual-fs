@@ -180,3 +180,13 @@ export const workshopTimeout = (context: BrowserCommandContext, base: string) =>
     await alert.waitFor({ timeout: 30_000 })
     expect(await render.isEnabled()).toBe(true)
   })
+
+export const workshopImageFailure = (context: BrowserCommandContext, base: string) =>
+  visit(context, base, "/examples/image-tile-workshop", async (page) => {
+    await page.addInitScript(() => {
+      HTMLCanvasElement.prototype.getContext = () => null
+    })
+    await page.reload()
+    await page.getByRole("alert").filter({ hasText: "The browser could not open a 2D canvas." }).waitFor()
+    expect(await page.getByRole("button", { name: "Render", exact: true }).isEnabled()).toBe(false)
+  })

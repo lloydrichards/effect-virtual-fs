@@ -15,7 +15,7 @@
       ]
     },
     {
-      "source": "/assets/image.worker-:hash.js",
+      "source": "/assets/compositor.worker-:hash.js",
       "headers": [
         {
           "key": "Cross-Origin-Embedder-Policy",

@@ -1,4 +1,5 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react"
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { SharedMemory } from "effect/workers"
 import { Check } from "lucide-react"
@@ -7,9 +8,9 @@ import { Button } from "~/components/ui/button"
 import { NativeSelect } from "~/components/ui/native-select"
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group"
 import { actionAtom, busyAtom, errorAtom, initialWorkshop, selectionAtom, workshopAtom } from "./atoms.ts"
+import { loadPicture, type Picture, pngUrl, sampleImage, samplePicture } from "./browser-image.ts"
 import { boundsOf, defaultSetup, Filter, filterLabels, grids, TileGrid, WorkerCount } from "./domain.ts"
 import { FilesystemTree, WorkerProgress } from "./RunDetails.tsx"
-import { loadPicture, type Picture, pngUrl, sampleImage, samplePicture } from "./source.ts"
 import { TileInspector, tileState } from "./TileInspector.tsx"
 
 function TileImage({ bytes }: { readonly bytes: Uint8Array }) {
@@ -25,7 +26,7 @@ function TileImage({ bytes }: { readonly bytes: Uint8Array }) {
   return <img ref={image} alt="" draggable={false} />
 }
 
-export function App() {
+export function WorkshopView() {
   const [sample, setSample] = useState<Picture>()
   const [currentPicture, setPicture] = useState<Picture>()
   const picture = currentPicture ?? sample
@@ -53,7 +54,10 @@ export function App() {
   const hasRender = sharedBytes > 0
 
   useEffect(() => {
-    setSample(samplePicture())
+    Effect.runSync(samplePicture.pipe(Effect.match({
+      onFailure: (error) => setFileError(error.message),
+      onSuccess: setSample
+    })))
   }, [])
 
   useEffect(() => {
@@ -79,9 +83,9 @@ export function App() {
     setFileError("")
 
     try {
-      render(await loadPicture(file))
-    } catch {
-      setFileError("That image could not be opened. Choose a PNG, JPEG, WebP, or AVIF.")
+      render(await Effect.runPromise(loadPicture(file)))
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : "That image could not be opened.")
     } finally {
       setLoading(false)
     }

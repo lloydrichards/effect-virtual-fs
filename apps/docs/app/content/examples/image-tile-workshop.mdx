@@ -88,8 +88,13 @@ const committedTile = yield* filesystem.readFile(path)
 | --- | --- |
 | Image and tile rules | [`domain.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/domain.ts) defines the grid and tile coordinates. [`pixels.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/pixels.ts) applies the filter without a UI or worker. |
 | Render commands | [`render-session.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/render-session.ts) owns assignment, publication, visible versions, and export. |
-| Worker wiring | [`protocol.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/protocol.ts) defines the messages. [`workshop.worker.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/workshop.worker.ts) assembles the layers and [`worker-client.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/worker-client.ts) keeps each tile client alive for rebuilds within its render session. |
-| UI interaction | [`atoms.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/atoms.ts) sends commands and folds progress events into the React view. |
+| Worker wiring | [`protocol.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/protocol.ts) defines the messages. [`workshop.worker.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/workers/workshop.worker.ts) assembles the layers and [`worker-client.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/workers/worker-client.ts) keeps each tile client alive for rebuilds within its render session. |
+| UI interaction | [`atoms.ts`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/atoms.ts) sends commands and folds progress events into [`WorkshopView.tsx`](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/docs/app/examples/image-tile-workshop/WorkshopView.tsx). |
+
+Image preparation keeps browser failures in a local `ImageSourceError` with
+the original cause. Worker RPC uses a schema-backed `WorkshopError` so the
+client can decode failures. Browser calls that can throw or reject enter
+Effect through `Effect.try` or `Effect.tryPromise`.
 
 The page needs a secure context, including localhost during development, and
 cross-origin isolation. Serve the page with `Cross-Origin-Opener-Policy: same-origin`
@@ -98,7 +103,7 @@ with `Cross-Origin-Embedder-Policy: require-corp`.
 
 ## Inspect the workers in DevTools
 
-1. Open Chrome DevTools, then select **Render**. In **Sources → Threads**, look for the VFS owner, three tile workers with the default settings, and the compositor. Published builds bundle their scripts as `workshop.worker-*`, `tile.worker-*`, and `image.worker-*`. [Chrome DevTools thread controls](https://developer.chrome.com/docs/devtools/javascript/reference)
+1. Open Chrome DevTools, then select **Render**. In **Sources → Threads**, look for the VFS owner, three tile workers with the default settings, and the compositor. Published builds bundle their scripts as `workshop.worker-*`, `tile.worker-*`, and `compositor.worker-*`. [Chrome DevTools thread controls](https://developer.chrome.com/docs/devtools/javascript/reference)
 2. In the page’s Console, evaluate `crossOriginIsolated`. This page needs `true` to share a `SharedArrayBuffer` with its workers.
 3. Rebuild a tile. Compare the worker assignment in **Tile history** with the later VFS commit and compositor read. On the dev server, set a breakpoint at the rename in `render-session.ts` before rebuilding a single tile. Resume promptly so the request can finish.
 

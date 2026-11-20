@@ -3,7 +3,8 @@ import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto"
 import { Effect, Stream } from "effect"
 import { SharedMemory } from "effect/workers"
 import { expect, test } from "vitest"
-import { RenderEvent, WorkshopError, workshopError } from "../app/examples/image-tile-workshop/domain.ts"
+import { RenderEvent } from "../app/examples/image-tile-workshop/domain.ts"
+import { WorkshopError, workshopError } from "../app/examples/image-tile-workshop/errors.ts"
 import { makeRenderSession } from "../app/examples/image-tile-workshop/render-session.ts"
 
 test("a committed tile keeps its version when the compositor fails to apply it", () =>

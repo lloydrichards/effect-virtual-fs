@@ -20,7 +20,7 @@ export default defineConfig({
       "app/components/filesystem-playground.tsx",
       "app/lib/playground/workspace.worker.ts",
       "app/examples/image-tile-workshop/Workshop.tsx",
-      "app/examples/image-tile-workshop/*.worker.ts"
+      "app/examples/image-tile-workshop/workers/*.worker.ts"
     ]
   },
   plugins: [

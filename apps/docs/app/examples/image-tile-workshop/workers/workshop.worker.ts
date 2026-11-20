@@ -4,9 +4,9 @@ import * as BrowserWorkerRunner from "@effect/platform-browser/BrowserWorkerRunn
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as RpcServer from "effect/rpc/RpcServer"
-import { workshopError } from "./domain.ts"
-import { WorkshopRpc } from "./protocol.ts"
-import { makeRenderSession } from "./render-session.ts"
+import { workshopError } from "../errors.ts"
+import { WorkshopRpc } from "../protocol.ts"
+import { makeRenderSession } from "../render-session.ts"
 import { spawnCompositor, spawnTileRenderer } from "./worker-client.ts"
 
 const makeVolume = Vfs.make().pipe(

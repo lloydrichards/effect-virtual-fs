@@ -16,10 +16,9 @@ import {
   type Source,
   type TileBounds,
   tilePath,
-  type TileVersion,
-  type WorkshopError,
-  workshopError
+  type TileVersion
 } from "./domain.ts"
+import { type WorkshopError, workshopError } from "./errors.ts"
 
 export type RenderTile = (
   input: { readonly source: Source; readonly bounds: TileBounds; readonly filter: Filter }
