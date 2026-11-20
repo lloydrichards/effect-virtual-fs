@@ -14,6 +14,7 @@ declare module "vitest/browser" {
     playgroundRecovery: (base: string) => Promise<void>
     workshop: (base: string) => Promise<void>
     workshopRetile: (base: string) => Promise<void>
+    workshopTimeout: (base: string) => Promise<void>
   }
 }
 
@@ -27,3 +28,6 @@ test("smoke: the Workshop hands off a tile and exports the image", () => command
 test("the Playground can run again after execution times out", () => commands.playgroundRecovery(inject("docsUrl")))
 
 test("the Workshop preserves odd-sized blur output across tile grids", () => commands.workshopRetile(inject("docsUrl")))
+
+test("the Workshop reports an idle render and lets the user try again", () =>
+  commands.workshopTimeout(inject("docsUrl")))

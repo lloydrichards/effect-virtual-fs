@@ -1,6 +1,13 @@
 import { playwright } from "@vitest/browser-playwright"
 import { defineConfig } from "vitest/config"
-import { playground, playgroundRecovery, staticPages, workshop, workshopRetile } from "./test/browser/commands.ts"
+import {
+  playground,
+  playgroundRecovery,
+  staticPages,
+  workshop,
+  workshopRetile,
+  workshopTimeout
+} from "./test/browser/commands.ts"
 
 export default defineConfig({
   test: {
@@ -13,7 +20,7 @@ export default defineConfig({
       headless: true,
       provider: playwright(),
       instances: [{ browser: "chromium" }],
-      commands: { staticPages, playground, playgroundRecovery, workshop, workshopRetile }
+      commands: { staticPages, playground, playgroundRecovery, workshop, workshopRetile, workshopTimeout }
     }
   }
 })
