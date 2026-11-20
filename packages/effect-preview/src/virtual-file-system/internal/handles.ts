@@ -230,6 +230,7 @@ const prepareWrite = (
         const paged = tx.engine.offer === undefined && (
           file.data instanceof E.PagedFileData ||
           start === BigInt(file.data.length) && length >= 64 * 1024 &&
+            file.data.length < E.pagedFileThreshold &&
             (file.data.length > 0 || length >= E.pagedFileThreshold)
         )
         let output: E.FileNode["data"]

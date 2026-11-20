@@ -131,6 +131,19 @@ for (const [path, patch] of patches) {
 
 const handlesPath = "src/virtual-file-system/internal/handles.ts"
 
+// Restored files can already have a large contiguous payload. Keep their first
+// append on the dense path until upstream can restore directly into pages.
+generated.set(
+  handlesPath,
+  replaceRequired(
+    generated.get(handlesPath),
+    "            (file.data.length > 0 || length >= E.pagedFileThreshold)",
+    `            file.data.length < E.pagedFileThreshold &&
+            (file.data.length > 0 || length >= E.pagedFileThreshold)`,
+    `${handlesPath} (keep large dense files contiguous on append)`
+  )
+)
+
 const handleAnchor = "const synchronous = new WeakMap<E.FileState, M.SyncFileHandle>()"
 
 const handles = generated.get(handlesPath)
