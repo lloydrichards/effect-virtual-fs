@@ -163,3 +163,20 @@ export const workshopRetile = (context: BrowserCommandContext, base: string) =>
     expect(await page.getByRole("progressbar", { name: "Worker 3 tiles published" }).count()).toBe(0)
     expect(await exportPng(page)).toEqual(blurred)
   })
+
+export const workshopTimeout = (context: BrowserCommandContext, base: string) =>
+  visit(context, base, "/examples/image-tile-workshop", async (page) => {
+    await page.route(/\/assets\/workshop\.worker-[^/]+\.js$/, (route) =>
+      route.fulfill({
+        contentType: "text/javascript",
+        headers: { "Cross-Origin-Embedder-Policy": "require-corp" },
+        // Signal that the worker is ready, then leave the render stream idle.
+        body: "self.onmessage = () => {}; self.postMessage([0]);"
+      }))
+    const render = page.getByRole("button", { name: "Render", exact: true })
+    await render.click()
+
+    const alert = page.getByRole("alert").filter({ hasText: "Timed out waiting for render progress." })
+    await alert.waitFor({ timeout: 30_000 })
+    expect(await render.isEnabled()).toBe(true)
+  })
