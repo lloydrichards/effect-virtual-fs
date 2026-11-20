@@ -56,7 +56,9 @@ const run = <A>(runtime: Runtime, operation: string, action: () => A): A => {
     runtime.busy = false
     runtime.time.active = false
     runtime.time.value = undefined
-    Effect.runSync(drainPending(runtime).pipe(Effect.provideService(Scheduler.PreventSchedulerYield, true)))
+    if (runtime.pending.length > 0) {
+      Effect.runSync(drainPending(runtime).pipe(Effect.provideService(Scheduler.PreventSchedulerYield, true)))
+    }
   }
 }
 
