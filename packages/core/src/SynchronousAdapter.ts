@@ -38,6 +38,8 @@ export interface Handle {
  */
 export interface Binding {
   readonly stat: (target: TargetInput) => Metadata
+  /** Check a path with stat's link-following semantics and throw on failure. */
+  readonly checkExists?: ((path: string) => void) | undefined
   readonly readDirectory: (path: string) => Effect.Success<ReturnType<Caller["readDirectory"]>>
   readonly readDirectoryNames?: ((path: string) => ReadonlyArray<Uint8Array>) | undefined
   readonly readDirectoryKinds?:

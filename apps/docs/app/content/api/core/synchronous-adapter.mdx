@@ -47,7 +47,7 @@ declare const bind: (
 ) => Effect.Effect<Binding, FsFailure, Scope.Scope>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SynchronousAdapter.ts#L84)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SynchronousAdapter.ts#L86)
 
 Since v0.10.0
 
@@ -62,6 +62,8 @@ Synchronous filesystem operations. Failures throw the core FsFailure value.
 ```ts
 export interface Binding {
   readonly stat: (target: TargetInput) => Metadata
+  /** Check a path with stat's link-following semantics and throw on failure. */
+  readonly checkExists?: ((path: string) => void) | undefined
   readonly readDirectory: (path: string) => Effect.Success<ReturnType<Caller["readDirectory"]>>
   readonly readDirectoryNames?: ((path: string) => ReadonlyArray<Uint8Array>) | undefined
   readonly readDirectoryKinds?:
