@@ -35,9 +35,9 @@
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.3",
-    "@effect/docgen": "~4.1.4",
+    "@effect/docgen": "~4.1.5",
     "@effect/tsgo": "0.70.0",
-    "@effect/vitest": "4.1.4",
+    "@effect/vitest": "4.1.5",
     "@oxlint/plugins": "1.92.0",
     "dprint": "^0.58.0",
     "husky": "9.1.7",
@@ -53,10 +53,10 @@
     "node": ">=24"
   },
   "overrides": {
-    "@effect/platform-node": "4.1.4",
-    "@effect/platform-node-shared": "4.1.4",
-    "@effect/sql-d1": "4.1.4",
+    "@effect/platform-node": "4.1.5",
+    "@effect/platform-node-shared": "4.1.5",
+    "@effect/sql-d1": "4.1.5",
     "dompurify": "3.4.17",
-    "effect": "https://pkg.pr.new/effect@30e642ff2f10d9d1cd6513bb6690ffa9ea289b57"
+    "effect": "4.1.5"
   }
 }

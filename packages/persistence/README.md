@@ -165,7 +165,7 @@ their test objects afterward.
 
 ## PostgreSQL live images
 
-Install `@effect/sql-pg@~4.1.4` alongside persistence. SQLite and R2 users do not need this optional peer.
+Install `@effect/sql-pg@~4.1.5` alongside persistence. SQLite and R2 users do not need this optional peer.
 Run the versioned migration once through your application's migration system, before opening any stores:
 
 ```sh
@@ -245,7 +245,7 @@ hosts whose ephemeral listener range is exhausted.
 
 ## D1 live images
 
-Install the optional `@effect/sql-d1@~4.1.4` peer for the D1 subpath. Other adapters do not require it.
+Install the optional `@effect/sql-d1@~4.1.5` peer for the D1 subpath. Other adapters do not require it.
 Apply `migrations/d1/001_live_images.sql` from the published package through your explicit D1 migration system
 before opening a store. The adapter validates the fixed `effect_vfs_live_images` and
 `effect_vfs_live_images_schema` tables. Opening never creates, repairs or silently upgrades them.

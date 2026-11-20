@@ -27,14 +27,14 @@
     "benchmark": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs bench --run --config vitest.config.ts --no-file-parallelism"
   },
   "peerDependencies": {
-    "effect": "~4.1.4"
+    "effect": "~4.1.5"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.1.4",
-    "@effect/vitest": "4.1.4",
+    "@effect/platform-node-shared": "4.1.5",
+    "@effect/vitest": "4.1.5",
     "@repo/config-typescript": "workspace:*",
     "@types/node": "26.6.6",
-    "effect": "4.1.4"
+    "effect": "4.1.5"
   },
   "exports": {
     ".": {
