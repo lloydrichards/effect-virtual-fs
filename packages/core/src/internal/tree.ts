@@ -576,7 +576,7 @@ export const writeTree = <N extends TreeNode>(
       if (Result.isFailure(line)) return Result.fail(line.failure)
 
       if (lines.length > 0 && bytes + line.success.length > ENCODED_CHUNK_BYTES) {
-        return Result.succeed([lines.length === 1 ? lines[0] : concat(lines, bytes), {
+        return Result.succeed([lines.length === 1 ? lines[0]! : concat(lines, bytes), {
           index: next,
           carried: line.success
         }])
@@ -588,7 +588,7 @@ export const writeTree = <N extends TreeNode>(
 
     return lines.length === 0
       ? Result.succeed(undefined)
-      : Result.succeed([lines.length === 1 ? lines[0] : concat(lines, bytes), { index: next, carried: undefined }])
+      : Result.succeed([lines.length === 1 ? lines[0]! : concat(lines, bytes), { index: next, carried: undefined }])
   }
 
   const header = encodeLine(writer.header + "\n")
