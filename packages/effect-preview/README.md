@@ -33,6 +33,10 @@ bun run --cwd packages/effect-preview sync
 bun run --cwd packages/effect-preview sync:check
 ```
 
+When the upstream series is rebased onto a newer Effect runtime, pass `--keep-compatibility` to refresh only the
+filesystem sources and tests. The manifest records the separate base and commit for the unchanged compatibility patches.
+Refresh those patches when updating the workspace runtime.
+
 Review the snapshot and generated diff, then rerun the build and tests above. The generator reads the checked-in
 snapshot offline, rewrites imports for the installed Effect runtime, and emits `src/`, `test/` and `typetest/`.
 Update the snapshot or generator when changing those directories. Review new upstream dependencies and explicitly

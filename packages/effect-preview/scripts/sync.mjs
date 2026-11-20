@@ -19,7 +19,11 @@ if (process.argv.some((arg, index) => index > 1 && arg !== "--check")) {
 
 const hash = (text) => createHash("sha256").update(text).digest("hex")
 
-if (snapshot.commit !== manifest.commit || snapshot.repository !== manifest.repository) {
+if (
+  snapshot.commit !== manifest.commit || snapshot.base !== manifest.base ||
+  snapshot.repository !== manifest.repository ||
+  JSON.stringify(snapshot.compatibility) !== JSON.stringify(manifest.compatibility)
+) {
   throw new Error("Snapshot provenance differs from manifest")
 }
 
@@ -126,6 +130,19 @@ for (const [path, patch] of patches) {
 }
 
 const handlesPath = "src/virtual-file-system/internal/handles.ts"
+
+// Restored files can already have a large contiguous payload. Keep their first
+// append on the dense path until upstream can restore directly into pages.
+generated.set(
+  handlesPath,
+  replaceRequired(
+    generated.get(handlesPath),
+    "            (file.data.length > 0 || length >= E.pagedFileThreshold)",
+    `            file.data.length < E.pagedFileThreshold &&
+            (file.data.length > 0 || length >= E.pagedFileThreshold)`,
+    `${handlesPath} (keep large dense files contiguous on append)`
+  )
+)
 
 const handleAnchor = "const synchronous = new WeakMap<E.FileState, M.SyncFileHandle>()"
 
