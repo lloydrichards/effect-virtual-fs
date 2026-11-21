@@ -75,6 +75,7 @@ await Effect.runPromise(
       const path = yield* fs.makeTempFileScoped({ directory: "/dist" })
       const handle = yield* fs.open(path, { flag: "r" })
       yield* Deferred.succeed(started, { path, handle })
+
       return yield* Effect.never
     })))
 
