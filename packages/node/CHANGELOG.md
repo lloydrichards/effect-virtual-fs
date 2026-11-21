@@ -1,5 +1,25 @@
 # @effect-vfs/node
 
+## 0.3.3
+
+### Patch Changes
+
+- [#432](https://github.com/lloydrichards/effect-virtual-fs/pull/432) [`85bd3f6`](https://github.com/lloydrichards/effect-virtual-fs/commit/85bd3f60ac811fdc1789bb953137de757b944045) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Require Effect 4.1.5 or a later 4.1 patch release. PostgreSQL and Cloudflare D1 users also need the matching Effect SQL package.
+
+- [#468](https://github.com/lloydrichards/effect-virtual-fs/pull/468) [`0944870`](https://github.com/lloydrichards/effect-virtual-fs/commit/094487004196d52a8a0d23b94c4510202a06eb63) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up mounted Node existence checks by looking up the path without building file stats.
+
+- [#446](https://github.com/lloydrichards/effect-virtual-fs/pull/446) [`11e7b1b`](https://github.com/lloydrichards/effect-virtual-fs/commit/11e7b1b4138d9668fa746dc8f97dc4f3fcfa1830) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce temporary allocations when reading whole files through the Node virtual filesystem provider ([#443](https://github.com/lloydrichards/effect-virtual-fs/issues/443)).
+
+- [#462](https://github.com/lloydrichards/effect-virtual-fs/pull/462) [`6c58ff7`](https://github.com/lloydrichards/effect-virtual-fs/commit/6c58ff76b60185f20e40994e4950c6a3c31cfa2a) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce copying and peak memory when reading files through the built-in Node provider.
+
+- [#457](https://github.com/lloydrichards/effect-virtual-fs/pull/457) [`4ca778a`](https://github.com/lloydrichards/effect-virtual-fs/commit/4ca778ac15a19817266ba4d8ccb9a90bda25e8f5) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up mounted Node directory listings and whole-file reads.
+
+- [#450](https://github.com/lloydrichards/effect-virtual-fs/pull/450) [`32d6ce8`](https://github.com/lloydrichards/effect-virtual-fs/commit/32d6ce8c8140505df2a5dea74368db4583948075) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce path lookups for default whole-file reads through the Node virtual filesystem provider.
+
+- [#458](https://github.com/lloydrichards/effect-virtual-fs/pull/458) [`f1882ea`](https://github.com/lloydrichards/effect-virtual-fs/commit/f1882eaeaff356ff57cf6700309b3e21b2c4539f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up typed and recursive directory listings on mounted Node filesystems.
+- Updated dependencies [[`becb528`](https://github.com/lloydrichards/effect-virtual-fs/commit/becb528b323c2f32b4fd483d9e36c2c6d53a2e78), [`0c4e402`](https://github.com/lloydrichards/effect-virtual-fs/commit/0c4e40210bc8428e1f3f582d98d3499303405b23), [`87fbc99`](https://github.com/lloydrichards/effect-virtual-fs/commit/87fbc99b42df558c86a4d453647f4d0dab1a7e3b), [`fc6ffff`](https://github.com/lloydrichards/effect-virtual-fs/commit/fc6fffff868be7f7fe45b4b60af775a85af98a9f), [`85bd3f6`](https://github.com/lloydrichards/effect-virtual-fs/commit/85bd3f60ac811fdc1789bb953137de757b944045), [`0944870`](https://github.com/lloydrichards/effect-virtual-fs/commit/094487004196d52a8a0d23b94c4510202a06eb63), [`ae730fd`](https://github.com/lloydrichards/effect-virtual-fs/commit/ae730fd7a3ebba404628063b9d1fe882d1f698ba), [`c641e59`](https://github.com/lloydrichards/effect-virtual-fs/commit/c641e59e6f5e90c612d7070dcdb241de6beb4695), [`779494b`](https://github.com/lloydrichards/effect-virtual-fs/commit/779494b6467074fba689a25e3e1c9ff2b13a7ed8), [`1c72f69`](https://github.com/lloydrichards/effect-virtual-fs/commit/1c72f69f2d15b2c1b1c177ed85c0bf1c4b0d647f), [`029bcd2`](https://github.com/lloydrichards/effect-virtual-fs/commit/029bcd2aca61bf88196ca9905e78af06787f13dc), [`a762663`](https://github.com/lloydrichards/effect-virtual-fs/commit/a76266397b644fc52349d618ce9650f2568d238b), [`4ca778a`](https://github.com/lloydrichards/effect-virtual-fs/commit/4ca778ac15a19817266ba4d8ccb9a90bda25e8f5), [`9b2929e`](https://github.com/lloydrichards/effect-virtual-fs/commit/9b2929eee778b646ea723ae03c30de54410c9e19), [`6d8cc06`](https://github.com/lloydrichards/effect-virtual-fs/commit/6d8cc06e271b7cc7fcba688fe620578dee44b538), [`f2e5057`](https://github.com/lloydrichards/effect-virtual-fs/commit/f2e50570be86dc063092b6d20ea8e28744fa8ee2), [`32d6ce8`](https://github.com/lloydrichards/effect-virtual-fs/commit/32d6ce8c8140505df2a5dea74368db4583948075), [`04f520e`](https://github.com/lloydrichards/effect-virtual-fs/commit/04f520e832570dfe09601b2e2227ee2f861445ee), [`1cad38d`](https://github.com/lloydrichards/effect-virtual-fs/commit/1cad38d5ea44fe1027b61cf7f9bca9a376e4b4ad), [`20555af`](https://github.com/lloydrichards/effect-virtual-fs/commit/20555aff6abf4818e6b8d07786141a48e39c875c), [`f1882ea`](https://github.com/lloydrichards/effect-virtual-fs/commit/f1882eaeaff356ff57cf6700309b3e21b2c4539f), [`68e4b60`](https://github.com/lloydrichards/effect-virtual-fs/commit/68e4b60875851c4e1d8af9ccedc2da033f04e941)]:
+  - @effect-vfs/core@0.12.1
+
 ## 0.3.2
 
 ### Patch Changes

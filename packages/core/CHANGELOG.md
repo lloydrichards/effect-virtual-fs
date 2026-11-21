@@ -1,5 +1,53 @@
 # @effect-vfs/core
 
+## 0.12.1
+
+### Patch Changes
+
+- [#476](https://github.com/lloydrichards/effect-virtual-fs/pull/476) [`becb528`](https://github.com/lloydrichards/effect-virtual-fs/commit/becb528b323c2f32b4fd483d9e36c2c6d53a2e78) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce synchronous request overhead for mounted reads and existence checks.
+
+- [#477](https://github.com/lloydrichards/effect-virtual-fs/pull/477) [`0c4e402`](https://github.com/lloydrichards/effect-virtual-fs/commit/0c4e40210bc8428e1f3f582d98d3499303405b23) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce synchronous filesystem overhead for transactions with no changes to publish.
+
+- [#475](https://github.com/lloydrichards/effect-virtual-fs/pull/475) [`87fbc99`](https://github.com/lloydrichards/effect-virtual-fs/commit/87fbc99b42df558c86a4d453647f4d0dab1a7e3b) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce path resolution overhead when a directory is already at the requested root.
+
+- [#451](https://github.com/lloydrichards/effect-virtual-fs/pull/451) [`fc6ffff`](https://github.com/lloydrichards/effect-virtual-fs/commit/fc6fffff868be7f7fe45b4b60af775a85af98a9f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce repeated path lookups when writing whole files through core.
+
+- [#432](https://github.com/lloydrichards/effect-virtual-fs/pull/432) [`85bd3f6`](https://github.com/lloydrichards/effect-virtual-fs/commit/85bd3f60ac811fdc1789bb953137de757b944045) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Require Effect 4.1.5 or a later 4.1 patch release. PostgreSQL and Cloudflare D1 users also need the matching Effect SQL package.
+
+- [#468](https://github.com/lloydrichards/effect-virtual-fs/pull/468) [`0944870`](https://github.com/lloydrichards/effect-virtual-fs/commit/094487004196d52a8a0d23b94c4510202a06eb63) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up mounted Node existence checks by looking up the path without building file stats.
+
+- [#448](https://github.com/lloydrichards/effect-virtual-fs/pull/448) [`ae730fd`](https://github.com/lloydrichards/effect-virtual-fs/commit/ae730fd7a3ebba404628063b9d1fe882d1f698ba) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce path lookups for synchronous Node VFS overwrites ([#444](https://github.com/lloydrichards/effect-virtual-fs/issues/444)).
+
+- [#472](https://github.com/lloydrichards/effect-virtual-fs/pull/472) [`c641e59`](https://github.com/lloydrichards/effect-virtual-fs/commit/c641e59e6f5e90c612d7070dcdb241de6beb4695) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce path dispatch overhead for virtual filesystem operations, including mounted reads and existence checks.
+
+- [#470](https://github.com/lloydrichards/effect-virtual-fs/pull/470) [`779494b`](https://github.com/lloydrichards/effect-virtual-fs/commit/779494b6467074fba689a25e3e1c9ff2b13a7ed8) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce mounted whole-file read latency by skipping unused path preparation.
+
+- [#460](https://github.com/lloydrichards/effect-virtual-fs/pull/460) [`1c72f69`](https://github.com/lloydrichards/effect-virtual-fs/commit/1c72f69f2d15b2c1b1c177ed85c0bf1c4b0d647f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up streamed writes and partial overwrites of large in-memory files.
+
+- [#467](https://github.com/lloydrichards/effect-virtual-fs/pull/467) [`029bcd2`](https://github.com/lloydrichards/effect-virtual-fs/commit/029bcd2aca61bf88196ca9905e78af06787f13dc) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up synchronous stat calls on plain paths, including mounted Node file reads.
+
+- [#469](https://github.com/lloydrichards/effect-virtual-fs/pull/469) [`a762663`](https://github.com/lloydrichards/effect-virtual-fs/commit/a76266397b644fc52349d618ce9650f2568d238b) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce metadata work when synchronous whole-file reads only return bytes.
+
+- [#457](https://github.com/lloydrichards/effect-virtual-fs/pull/457) [`4ca778a`](https://github.com/lloydrichards/effect-virtual-fs/commit/4ca778ac15a19817266ba4d8ccb9a90bda25e8f5) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up mounted Node directory listings and whole-file reads.
+
+- [#473](https://github.com/lloydrichards/effect-virtual-fs/pull/473) [`9b2929e`](https://github.com/lloydrichards/effect-virtual-fs/commit/9b2929eee778b646ea723ae03c30de54410c9e19) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce the cost of validating simple paths for mounted reads and existence checks.
+
+- [#474](https://github.com/lloydrichards/effect-virtual-fs/pull/474) [`6d8cc06`](https://github.com/lloydrichards/effect-virtual-fs/commit/6d8cc06e271b7cc7fcba688fe620578dee44b538) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce synchronous filesystem overhead when there is no pending cleanup.
+
+- [#464](https://github.com/lloydrichards/effect-virtual-fs/pull/464) [`f2e5057`](https://github.com/lloydrichards/effect-virtual-fs/commit/f2e50570be86dc063092b6d20ea8e28744fa8ee2) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce copying when encoding snapshot and live-image records.
+
+- [#450](https://github.com/lloydrichards/effect-virtual-fs/pull/450) [`32d6ce8`](https://github.com/lloydrichards/effect-virtual-fs/commit/32d6ce8c8140505df2a5dea74368db4583948075) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce path lookups for default whole-file reads through the Node virtual filesystem provider.
+
+- [#454](https://github.com/lloydrichards/effect-virtual-fs/pull/454) [`04f520e`](https://github.com/lloydrichards/effect-virtual-fs/commit/04f520e832570dfe09601b2e2227ee2f861445ee) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up overwriting existing files through the core filesystem, including writes through symlinks.
+
+- [#463](https://github.com/lloydrichards/effect-virtual-fs/pull/463) [`1cad38d`](https://github.com/lloydrichards/effect-virtual-fs/commit/1cad38d5ea44fe1027b61cf7f9bca9a376e4b4ad) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up snapshot encoding by reusing the canonical Base64 output.
+
+- [#466](https://github.com/lloydrichards/effect-virtual-fs/pull/466) [`20555af`](https://github.com/lloydrichards/effect-virtual-fs/commit/20555aff6abf4818e6b8d07786141a48e39c875c) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce metadata copying on repeated whole-file reads when access time stays unchanged.
+
+- [#458](https://github.com/lloydrichards/effect-virtual-fs/pull/458) [`f1882ea`](https://github.com/lloydrichards/effect-virtual-fs/commit/f1882eaeaff356ff57cf6700309b3e21b2c4539f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up typed and recursive directory listings on mounted Node filesystems.
+
+- [#465](https://github.com/lloydrichards/effect-virtual-fs/pull/465) [`68e4b60`](https://github.com/lloydrichards/effect-virtual-fs/commit/68e4b60875851c4e1d8af9ccedc2da033f04e941) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up Base64 encoding for snapshot and live-image payloads.
+
 ## 0.12.0
 
 ### Minor Changes
