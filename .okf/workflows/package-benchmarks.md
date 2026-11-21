@@ -37,7 +37,7 @@ sources:
     title: Vitest 5 migration
   - resource: ../../bun.lock
     title: Installed runner versions
-generated: { by: codex/okf, at: "2026-11-21T12:29:16+01:00" }
+generated: { by: codex/okf, at: "2026-11-21T12:44:59+01:00" }
 ---
 
 # Package benchmarks
@@ -140,8 +140,16 @@ CI copies the current mounted tree, stream, and read-routing benchmark files
 into the previous checkout so both revisions use the same sources for those
 cases. The core whole-file write benchmark is copied only if it is missing
 from the previous checkout. Each revision's `environment.txt` records the
-hashes of those benchmark files for its suite. Confirm apparent regressions
-on an idle controlled host before setting a threshold.
+hashes of those benchmark files for its suite.
+
+Before interpreting a whole-file write delta, compare the
+`wholeFileWrites.bench.ts` hashes in `previous/environment.txt` and
+`current/environment.txt`. When both checkouts already contain the file,
+the same case name can refer to different benchmark code. If the hashes
+differ, use the commit IDs in `comparison.txt` to diff the benchmark source.
+If the workload or timing boundary changed, rerun both revisions with the
+same benchmark source before comparing latencies. Confirm apparent
+regressions on an idle controlled host before setting a threshold.
 
 For history beyond artifact retention, publish normalized results from successful
 main runs to a versioned data store. Include the commit, run ID and attempt, units,
