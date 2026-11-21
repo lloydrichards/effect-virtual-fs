@@ -21,6 +21,7 @@ sources:
 
 # NFS unused-export pilot
 
+This historical pilot informs the [static analysis policy research](static-analysis-policy.md "informs").
 The report-only trial found two unused declarations, `sameRange` and the XDR benchmark's `decodeExample`.
 It also found five declarations used in their own files whose `export` modifiers have no observed consumers.
 The results support reviewing those declarations in a separate cleanup.

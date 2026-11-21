@@ -15,12 +15,12 @@ sources:
     resource: ../../../packages/core/test/support/text.ts
     title: Core test text helpers over the public BytePath toolkit
   - id: nfs-harness
-    resource: ../../../packages/nfs/test/support/harness.ts
-    title: NFS export, handler and session factory
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
+    title: Public NFS listener, wire client, and session fixtures
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/183
     title: A layer-based test volume across packages
-generated: { by: codex/okf, at: 2026-10-05T00:00:00Z }
+generated: { by: codex/okf-dream, at: "2026-11-21T11:24:02+01:00" }
 ---
 
 # Layer-based test volume
@@ -43,3 +43,7 @@ Every suite built a volume and a caller by hand: core called `Vfs.make(` 159 tim
 ## Consequences
 
 Constructors stay by hand where they are the subject: option validation, isolation between executions, clock capture, restores, overlays, fixtures, live volumes, a foreign second volume, volume facts, and the tracing of the constructor and of snapshot deltas. Every other test, including shared arrange fixtures, takes its volume from `Testing.layer`. Persistence needed no change, because every volume its suites build is such a subject.
+
+## Current test organization
+
+The NFS suite now exercises protocol behavior through the public listener. Its wire client and session fixtures live in the server test suite. The original harness decision above records the earlier test organization.

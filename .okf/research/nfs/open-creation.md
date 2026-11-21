@@ -24,10 +24,10 @@ sources:
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: OPEN decoder and dispatcher
   - id: tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Internal writable OPEN wire tests
   - id: exclusive-tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Exclusive creation, stored verifier, and cancellation wire tests
   - id: watch-tests
     resource: ../../../packages/core/test/Watch.test.ts

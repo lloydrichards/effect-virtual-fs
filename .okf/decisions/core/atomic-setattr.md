@@ -21,7 +21,7 @@ sources:
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: SETATTR over one setattr call, sanitised as knfsd nfsd_sanitize_attrs
   - id: nfs-tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: All-or-nothing attrsset, set-ID clearing with an owner change, unchanged owners, and the chown race
   - id: knfsd
     resource: https://github.com/torvalds/linux/blob/master/fs/nfsd/vfs.c

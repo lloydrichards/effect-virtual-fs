@@ -15,16 +15,16 @@ sources:
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: Compound dispatcher
   - id: tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Protocol behavior tests
   - id: profile-tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Read-only profile completeness tests
   - id: lock-tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Byte-range lock behavior tests
   - id: write-tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Internal write and commit behavior tests
   - id: knfsd
     resource: https://docs.kernel.org/filesystems/nfs/nfs41-server.html

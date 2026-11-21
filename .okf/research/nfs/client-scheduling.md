@@ -23,6 +23,9 @@ An unrelated session-only compound waited approximately as long as an injected s
 compound. A direct core read from a separate file on the same live volume also waited. Keep global NFS
 serialization until a named workload needs different latency and the session and reservation design has been reviewed.
 
+The [package benchmark workflow](../../workflows/package-benchmarks.md "governed by") explains
+why this probe runs in Vitest test mode.
+
 ## Reproduce
 
 Build the NFS package and its dependencies, then run the opt-in measurement:

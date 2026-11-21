@@ -24,7 +24,7 @@ sources:
     resource: ../../../packages/nfs/src/internal/export.ts
     title: Key-encoded filehandles and their failures
   - id: nfs-tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Handle layout, restart over a durable volume, STALE and FHEXPIRED, forged handles, PUTFH's status list
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/201

@@ -15,8 +15,8 @@ sources:
     title: Browser reply deadline and resource finalizer
   - resource: ../../apps/docs/app/lib/playground/runner.html
     title: Browser worker and its content security policy
-  - resource: ../../apps/docs/test/browser/Playground.test.ts
-    title: Checkpoint, deadline, and browser runner cleanup
+  - resource: ../../apps/docs/test/browser/commands.ts
+    title: Checkpoint restore, timeout cleanup, and recovery checks
   - resource: ../../apps/demo-typescript-workbench/docs/qualification.md
     title: Trusted local mounted compiler and execution evidence
   - resource: ../../apps/demo-agent-tools/README.md
@@ -33,7 +33,7 @@ sources:
 
 Existing examples cover three different kinds of filesystem access. The browser translates virtual source reads into
 one bundle. The mounted workbench lets trusted Node code address files through normal compiler and loader paths.
-The Code Mode interpreter exposes selected file operations and captures the changes they make. Each example exercises a
+The [Code Mode interpreter](../architecture/codemode-example.md "compares") exposes selected file operations and captures the changes they make. Each example exercises a
 different workload, so their tests establish behavior for their own integration.
 
 ### Docs playground
@@ -43,7 +43,7 @@ while the worker receives only the compiled bundle and replies with console line
 a sandboxed iframe with scripts enabled, no same-origin grant, and a restrictive content security policy.
 
 The host uses a five-second reply deadline. An Effect finalizer removes the iframe and closes both message ports. The
-Chromium test observes frame removal after success and timeout, then verifies that another run succeeds. CPU and heap
+Chromium suite observes frame removal after timeout and verifies that another run succeeds. CPU and heap
 use, direct worker termination, and isolation across browsers remain unmeasured.
 
 ### TypeScript workbench
