@@ -18,14 +18,14 @@ sources:
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: NFS error map and dispatcher
   - id: tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Exhaustive error mapping test
-generated: { by: claude-code, at: "2026-09-26T12:30:00+02:00" }
+generated: { by: codex/okf-dream, at: "2026-11-21T11:24:02+01:00" }
 ---
 
 # NFS filesystem error mapping
 
-Core reports `FsError` values; the NFS adapter converts them to NFSv4.1 statuses. The generic mapping covers every current `FsCode` value and has a compile-time exhaustive table test. An unknown runtime code returns `SERVERFAULT` so reply encoding remains valid. An NFS operation can override the generic result when RFC 8881 requires a different status.[^nfs-map][^tests]
+Core reports `VfsError` values; the NFS adapter converts them to NFSv4.1 statuses. The generic mapping covers every current `VfsCode` value and has a compile-time exhaustive table test. An unknown runtime code returns `SERVERFAULT` so reply encoding remains valid. An NFS operation can override the generic result when RFC 8881 requires a different status.[^nfs-map][^tests]
 
 `AlreadyExists` maps to `EXIST`, `NotEmpty` to `NOTEMPTY`, and `StaleReference` to `STALE`. NFSv4.1 has no `LOOP` status, so `SymlinkLoop` maps to `INVAL`; the current NFS read path never follows symbolic links. `InvalidHandle`, `ForeignHandle`, `InvalidReference`, `ForeignReference`, and `ClosedCaller` are internal adapter failures and map to `SERVERFAULT`. Client-supplied filehandles retain their separate `PUTFH` classification, through core's [reference key](../core/reference-keys.md "depends on") codes: `BADHANDLE` for a malformed handle or `InvalidReference`, a forged tag included, and for `ForeignReference`, another volume or epoch, `FHEXPIRED` while handles are volatile and `STALE` once they are persistent. Any other code takes this table's status when RFC 8881 Section 15.2 lists it for `PUTFH`, so `StaleReference` answers `STALE` and `VolumeBusy` `DELAY`, and `SERVERFAULT` otherwise, since that list has no `IO`.[^rfc8881][^nfs-map]
 
@@ -41,4 +41,4 @@ NFS error mapping does not add writable NFS dispatch or a core hard-link limit. 
 
 [^nfs-map]: The dispatcher and its `failureForFs` map implement the generic translation and separate filehandle validation.
 
-[^tests]: The table test covers every current `FsCode`; its `Record<FsCode, number>` type makes a new code a compile-time error until a test row is added.
+[^tests]: The public listener test injects each `VfsCode` through SETATTR and checks the reply status. Its `Record<VfsCode, number>` type requires a row for each code.

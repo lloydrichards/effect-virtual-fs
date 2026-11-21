@@ -31,7 +31,8 @@ make the resulting replacement conditional. Alchemy is a concrete example of the
 owner and a decision to adopt the interface are still needed before implementation.
 
 The first candidate is a coordinated whole-file read that returns bytes with an object observation, paired with
-a guard on whole-file replacement. Keep namespace guards, generic transactions, digest guards and protocol
+a guard on whole-file replacement. The proposal uses the existing
+[mutation revisions](../contracts/mutation-revisions.md "depends on"). Keep namespace guards, generic transactions, digest guards and protocol
 changes outside this candidate.
 
 ## Guard choice

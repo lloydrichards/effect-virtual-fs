@@ -1,5 +1,11 @@
 # Bundle update log
 
+## 2026-11-21
+
+- Refresh NFS and Playground test citations after the suites moved. Record the public listener test organization and the current browser timeout checks.
+- Document the paired CI whole-file write workload and its benchmark file hash.
+- Link five research concepts to the contracts, examples, or workflows they inform.
+
 ## 2026-11-20
 
 - Updated [Package benchmarks](workflows/package-benchmarks.md) for mounted tree and repeated I/O units and paired workload backfill.

@@ -22,7 +22,8 @@ sources:
 # Checkpoint discovery and cleanup
 
 Start with an application catalog for one build workflow. Use it to test whether people find and restore the
-right workspace before adding a listing or deletion capability to the shared store.
+right workspace before adding a listing or deletion capability to the shared store. The current
+[checkpoint contract](../contracts/checkpoint-persistence.md "extends") covers named saves and restores.
 
 ## Restore a previous workspace
 

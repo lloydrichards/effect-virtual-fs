@@ -36,7 +36,7 @@ sources:
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: Session lifecycle, replay and reclaim handling
   - id: restart-tests
-    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
+    resource: ../../../packages/nfs/test/NfsServer.test.ts
     title: Handle and write-verifier behavior across handler restart
 generated: { by: codex/okf, at: "2026-11-17T23:01:50+01:00" }
 ---
