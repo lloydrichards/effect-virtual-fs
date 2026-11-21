@@ -23,6 +23,9 @@ sources:
   - id: packed-consumer
     resource: ../../packages/core/compatibility/packed/check.sh
     title: Isolated core and memory tarball install
+  - id: published-baseline
+    resource: ../../packages/core/compatibility/packed/check-published-080.sh
+    title: Exact published core and memory 0.8.0 install
   - id: persistence-package
     resource: ../../packages/persistence/package.json
     title: Persistence package manifest
@@ -47,7 +50,7 @@ sources:
   - id: filesystem-testing
     resource: ../../packages/memory/src/FileSystemTesting.ts
     title: Delegating filesystem fault and spy hooks
-generated: { by: codex/okf, at: "2026-11-17T22:51:38+01:00" }
+generated: { by: codex/okf, at: "2026-11-17T23:42:59+01:00" }
 ---
 
 # Release readiness
@@ -73,7 +76,7 @@ The [v1 release issue](https://github.com/lloydrichards/effect-virtual-fs/issues
 | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Scope [#273](https://github.com/lloydrichards/effect-virtual-fs/issues/273)                            | The [minimal Effect port draft](../research/minimal-effect-port.md) records local contract review. The community stable export list and supported dependency minimum still need adoption. The upstream engine and provider tracked in [#308](https://github.com/lloydrichards/effect-virtual-fs/issues/308) and [#309](https://github.com/lloydrichards/effect-virtual-fs/issues/309) still need acceptance and qualification at an exact source revision. |
 | Shared host contract [#245](https://github.com/lloydrichards/effect-virtual-fs/issues/245)             | The pinned host job covers memory and the Effect host adapter on Node 24.21.0 and Ubuntu 24.04. Use the [adapter contract](../contracts/memory-adapter-compatibility.md) for documented differences, and rerun the job on the candidate.                                                                                                                                                                                                                   |
-| Clean installs and port consumer [#274](https://github.com/lloydrichards/effect-virtual-fs/issues/274) | [#408](https://github.com/lloydrichards/effect-virtual-fs/pull/408) delivered isolated candidate tarball checks for both packages. The exact published 0.8.0 baseline, the same workload against the selected Effect port, and the post-publication smoke still need recorded results.                                                                                                                                                                     |
+| Clean installs and port consumer [#274](https://github.com/lloydrichards/effect-virtual-fs/issues/274) | [#408](https://github.com/lloydrichards/effect-virtual-fs/pull/408) delivered isolated candidate tarball checks. The published 0.8.0 baseline passed separately. The same workload against the selected Effect port and the post-publication smoke still need recorded results.                                                                                                                                                                            |
 | Filesystem faults and spies [#243](https://github.com/lloydrichards/effect-virtual-fs/issues/243)      | `FileSystemTesting` observes public calls and can fail them before delegation. Reuse it for write-count and pre-delegation assertions. Partial failures and backend recovery require their own evidence.                                                                                                                                                                                                                                                   |
 | Supported runtimes [#275](https://github.com/lloydrichards/effect-virtual-fs/issues/275)               | The [built-package runtime matrix](evidence-and-validation.md) exercises Node 24.21.0 and Bun 1.4.4 on Ubuntu 24.04. Qualify the adopted candidate matrix and minimum Effect version. Desktop host, native Node integration, browser, and Worker claims need evidence for their exact configurations.                                                                                                                                                      |
 | Workload limits [#276](https://github.com/lloydrichards/effect-virtual-fs/issues/276)                  | The [measured workload policy](../decisions/core/measured-workload-policy.md) bounds the small-workspace profile and separates volume quotas from delta work. Confirm that the selected consumer fits that profile and qualify any higher limits it needs.                                                                                                                                                                                                 |
@@ -81,6 +84,27 @@ The [v1 release issue](https://github.com/lloydrichards/effect-virtual-fs/issues
 | Support and migration policy [#278](https://github.com/lloydrichards/effect-virtual-fs/issues/278)     | [#416](https://github.com/lloydrichards/effect-virtual-fs/pull/416) drafts the policy. Reconcile the published guidance and manifests after scope and candidate qualification.                                                                                                                                                                                                                                                                             |
 
 Carry the candidate revision and the exact dependency and runtime versions into the release record. After publication, install the exact released packages in a clean external project and repeat the consumer workload.
+
+### Published 0.8.0 baseline
+
+The registry install passed on Linux x64 with Node 24.21.0 and npm 11.19.0. Both published packages were
+`0.8.0` with Effect and `@effect/platform-node-shared` at `4.0.0`, the versions pinned for development
+at the 0.8.0 release. TypeScript 7.0.2 checked the public declarations in strict NodeNext mode. The
+installed memory package resolved the same core and Effect instances as the consumer.
+
+From the repository root, run the check with Node 24.21.0 and npm 11.19.0 on the path.
+
+```sh
+bash packages/core/compatibility/packed/check-published-080.sh
+```
+
+The candidate and baseline use the same seeded manifest rebuild. The historical memory package does
+not export `FileSystemTesting`, so the baseline observes the delegated `writeFile` call with Effect's
+public `FileSystem.make`. The workload removes stale output and a second run issues no write. The
+baseline also verifies a missing-parent failure, layer sharing and isolation, scoped file closure, and
+handle release and temporary-file removal on interruption. This check uses the published registry
+packages outside the repository. The candidate tarball, upstream-port, and post-publication runs
+remain separate release evidence.
 
 ## Persistence release gates
 
