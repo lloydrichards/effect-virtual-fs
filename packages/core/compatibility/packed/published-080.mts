@@ -30,6 +30,7 @@ await Effect.runPromise(
     // Version 0.8.0 has no public FileSystemTesting export. Rebuild derived
     // methods with Effect's FileSystem.make so they delegate through the spy.
     const writes: Array<string> = []
+
     const observed = FileSystem.make({
       ...fs,
       writeFile: (path, data, options) =>
@@ -37,6 +38,7 @@ await Effect.runPromise(
           writes.push(path)
         }).pipe(Effect.andThen(fs.writeFile(path, data, options)))
     })
+
     const runBuild = rebuildManifest.pipe(Effect.provideService(FileSystem.FileSystem, observed))
     yield* runBuild
     assert.equal(yield* fs.readFileString(manifestPath), "{\"name\":\"packed-workload\"}")
@@ -49,14 +51,17 @@ await Effect.runPromise(
     const scope = yield* Scope.Scope
     const memo = yield* Layer.makeMemoMap
     const first = Context.get(yield* Layer.buildWithMemoMap(MemoryFileSystem.layer, memo, scope), FileSystem.FileSystem)
+
     const shared = Context.get(
       yield* Layer.buildWithMemoMap(MemoryFileSystem.layer, memo, scope),
       FileSystem.FileSystem
     )
+
     const fresh = Context.get(
       yield* Layer.buildWithMemoMap(Layer.fresh(MemoryFileSystem.layer), memo, scope),
       FileSystem.FileSystem
     )
+
     yield* first.writeFileString("/layer-state", "shared")
     assert.equal(yield* shared.readFileString("/layer-state"), "shared")
     assert.equal(yield* fresh.exists("/layer-state"), false)
@@ -65,12 +70,14 @@ await Effect.runPromise(
     assert.equal((yield* Effect.flip(released.stat)).reason._tag, "BadResource")
 
     const started = yield* Deferred.make<{ path: string; handle: FileSystem.File }>()
+
     const task = yield* Effect.forkChild(Effect.scoped(Effect.gen(function*() {
       const path = yield* fs.makeTempFileScoped({ directory: "/dist" })
       const handle = yield* fs.open(path, { flag: "r" })
       yield* Deferred.succeed(started, { path, handle })
-      yield* Effect.never
+      return yield* Effect.never
     })))
+
     const temporary = yield* Deferred.await(started)
     assert.equal(yield* fs.exists(temporary.path), true)
     yield* Fiber.interrupt(task)
